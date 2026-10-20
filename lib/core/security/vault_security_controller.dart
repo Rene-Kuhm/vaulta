@@ -492,7 +492,7 @@ class VaultSecurityController extends ChangeNotifier {
 
       var activeRecord = record;
       var activeSession = sourceSession;
-      if (record.version < 2 || record.kdf == null || record.dekWrap == null) {
+      if (_needsRecordMigration(record)) {
         final migratedRecord = await _masterPasswordService.createRecord(
           password,
         );
@@ -964,8 +964,8 @@ class VaultSecurityController extends ChangeNotifier {
           'enrolled=${_biometricAvailability.hasEnrolledBiometrics})');
       return;
     }
-    if (record.version < 2 || record.kdf == null || record.dekWrap == null) {
-      debugPrint('[Vaulta] enroll skipped: record is not v2');
+    if (_needsRecordMigration(record)) {
+      debugPrint('[Vaulta] enroll skipped: record is not the current format');
       return;
     }
 
@@ -1088,7 +1088,7 @@ class VaultSecurityController extends ChangeNotifier {
         return false;
       }
 
-      if (record.version < 2 || record.kdf == null || record.dekWrap == null) {
+      if (_needsRecordMigration(record)) {
         _message = 'Tu master password es de una version anterior. '
             'Desbloquea una vez para migrar y vuelve a intentar.';
         return false;
@@ -1334,3 +1334,16 @@ class VaultSecurityController extends ChangeNotifier {
     throw UnsupportedError('Vault rekeying operation is not configured.');
   }
 }
+
+/// True when [record] predates the current master-password format and the
+/// vault must be re-keyed before it can be trusted.
+///
+/// This is deliberately NOT `record.version < 2`. v2 records are Argon2id
+/// with a raw-password KEK and a different DEK wrap from v3, so they need
+/// the same rewrite. The old check let v2 records through: their verifier
+/// still validated, and only the later DEK derivation failed, which reads
+/// as "the password is wrong" and locks the owner out of their own vault.
+bool _needsRecordMigration(MasterPasswordRecord record) =>
+    !record.isCurrentFormat ||
+    record.kdf == null ||
+    record.dekWrap == null;

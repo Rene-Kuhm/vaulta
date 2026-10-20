@@ -383,7 +383,7 @@
   "backupItemCount": "{count, plural, =1{La copia contendra 1 entrada.} other{La copia contendra {count} entradas.}}",
   "backupPasswordLabel": "Password de la copia",
   "backupPasswordConfirmLabel": "Confirmar password de la copia",
-  "backupPasswordHint": "Al menos 12 caracteres, combinando mayusculas, minusculas, numeros y simbolos.",
+  "backupPasswordHint": "Al menos 12 caracteres, y que no aparezca en listas de contrasenas filtradas. Una frase larga es mejor.",
   "backupPasswordWarning": "Vaulta no puede recuperar la password de la copia. Si la olvidas, nadie podra abrir esta copia, ni siquiera tu.",
   "backupPasswordTooShort": "Usa al menos {min} caracteres.",
   "backupPasswordWeak": "Esa contrasena aparece en listas de contrasenas filtradas. Elegi otra.",

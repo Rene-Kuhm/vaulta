@@ -206,7 +206,8 @@ class MasterPasswordService {
     required MasterPasswordRecord record,
     required String password,
   }) async {
-    if (record.version < _recordVersion || record.kdf == null) {
+    // v1 records predate the Argon2id KDF and genuinely used PBKDF2.
+    if (record.version < 2 || record.kdf == null) {
       return _deriveLegacyVaultKey(record: record, password: password);
     }
 
@@ -214,6 +215,24 @@ class MasterPasswordService {
     final dekWrap = record.dekWrap;
     if (dekWrap == null) {
       throw StateError('Vault record is missing its wrapped DEK.');
+    }
+
+    // A v2 record hashed the raw password and took the Argon2id output
+    // directly as the KEK. Branching on the *current* version instead of
+    // the record's own version sends v2 records down the PBKDF2 path and
+    // returns the wrong key, which locks every owner out: verify() passes
+    // (its own branch is correct) and then the vault silently fails to
+    // open.
+    if (record.version < _recordVersion) {
+      final legacyKek = await _deriveMasterKey(
+        password: password,
+        salt: base64Decode(kdf['salt_b64'] as String),
+        iterations: kdf['iterations'] as int,
+        memoryKiB: kdf['memory_kib'] as int,
+        parallelism: kdf['parallelism'] as int,
+        outputBytes: kdf['dk_len'] as int,
+      );
+      return SecretKey(await _unwrapDek(dekWrap: dekWrap, kek: legacyKek));
     }
 
     final normalized = PasswordPolicy.normalize(password);

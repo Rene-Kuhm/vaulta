@@ -1802,7 +1802,7 @@ abstract class AppLocalizations {
   /// No description provided for @backupPasswordHint.
   ///
   /// In en, this message translates to:
-  /// **'At least 12 characters, mixing upper and lower case letters, numbers and symbols.'**
+  /// **'At least 12 characters, and not a password that already appears in leaked-password lists. A passphrase works best.'**
   String get backupPasswordHint;
 
   /// No description provided for @backupPasswordWarning.

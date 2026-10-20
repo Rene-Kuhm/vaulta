@@ -907,7 +907,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get backupPasswordConfirmLabel => 'Confirm backup password';
 
   @override
-  String get backupPasswordHint => 'At least 12 characters, mixing upper and lower case letters, numbers and symbols.';
+  String get backupPasswordHint => 'At least 12 characters, and not a password that already appears in leaked-password lists. A passphrase works best.';
 
   @override
   String get backupPasswordWarning => 'Vaulta cannot recover the backup password. If you forget it, nobody can open this backup, not even you.';

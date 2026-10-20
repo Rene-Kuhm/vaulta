@@ -432,7 +432,8 @@ class LocalEncryptedVaultRepository implements VaultRepository {
 
   /// Applies a batch of remote snapshots to the local vault, fed by
   /// the pull sync path. Each snapshot is decrypted with the active
-  /// session and the resulting vault is written back (always as v3).
+  /// session and the resulting vault is written back (always as the current
+  /// payload version).
   /// Idempotent: applying the same snapshots twice yields the same
   /// vault.
   ///

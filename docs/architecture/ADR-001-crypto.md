@@ -1,7 +1,14 @@
 # ADR-001: Derivacion de claves y formato de blob cifrado v2
 
+> El cuerpo de este ADR esta escrito en el idioma del paquete original y
+> queda congelado como esta. Las amendments (2026-10-19 y 2026-10-20) estan
+> en ingles y son las que describen lo que el codigo construye hoy. Donde
+> el cuerpo y una amendment discrepan, **manda la amendment**: el cuerpo
+> describe el formato v2 historico, no el actual.
+
 - Estado: Aprobado
 - Fecha: 2026-03-23
+- Ultima actualizacion: 2026-10-20 (Amendment "master password record v3 and item payload v4")
 
 ## Contexto
 
@@ -74,6 +81,13 @@ Ejemplo de forma del blob v2 (referencial):
 
 ## Amendment 2026-10-19: item payload v3 (record-bound AAD)
 
+> **Read with the 2026-10-20 amendment below.** This section records the
+> decision as taken on 2026-10-19. Its `file:line` pointers were written
+> against the tree at that date and have drifted since; re-verify any line
+> number here before relying on it. Anything about *what gets written* is
+> superseded: writes are v4, not v3. Everything about v3's AAD, its
+> downgrade defense and its sync wire form still holds.
+
 - Status: Accepted
 - Supersedes: the item-payload part of the v2 format above. KDF, DEK
   and DEK-wrap rules are unchanged.
@@ -115,15 +129,17 @@ holds the DEK.
    This catches a device that holds the DEK and encrypts item `X`
    bound to record `Y`, where the AAD verifies.
 5. **Legacy reads.** v1/v2 payloads still decrypt with no AAD until the
-   vault is migrated. All writes, including rekey output, are v3
-   (`local_encrypted_vault_repository.dart:236`, `:346`).
+   vault is migrated. All writes, including rekey output, were v3 at the
+   time of this amendment and are **v4** as of the 2026-10-20 amendment
+   below (`local_encrypted_vault_repository.dart:237-270`, `:347-368`).
 6. **Migration.** After every successful unlock (password, biometric,
    vault creation) the controller calls
    `migrateItemsToCurrentVersion` once the new session is active
    (`lib/core/security/vault_security_controller.dart:1174`, wired at
    `lib/app/bootstrap/password_manager_app.dart:64`). The migration
-   decrypts every item, re-encrypts each legacy item as v3, and writes
-   the whole list in one staged swap. This is the same
+   decrypts every item, re-encrypts each legacy item (as v3 at the time of
+   this amendment, as v4 today), and writes the whole list in one staged
+   swap. This is the same
    rekey-in-progress pattern as the rekey: in-progress flag, then
    staging, then the live key (`local_encrypted_vault_repository.dart:281`,
    `:329`). Only after the swap commits does it write the marker
@@ -196,3 +212,390 @@ holds the DEK.
 - Out of scope: AAD does not stop a device holding the DEK from
   pushing a *fresh*, correctly bound ciphertext with plaintext it
   chose. Its record id and version still go through CAS.
+
+## Amendment 2026-10-20: master password record v3 and item payload v4
+
+- Status: Accepted
+- Supersedes: decision items 1, 2 and 5 of the base v2 scheme for any
+  record or item this build writes, and the "all writes are v3" clause of
+  the 2026-10-19 item payload amendment. **Legacy reads are unchanged**:
+  v1/v2 records still verify and v1/v2/v3 item payloads still decrypt.
+- Commits: `b6e6236` (record v3, NFC, policy), `4533a94` (item key, payload v4).
+
+### Problem
+
+Three things the 2026-10-19 amendment did not touch.
+
+1. **Every unlock paid for Argon2id twice.** A v2 record stored two
+   independent 16-byte salts (`verifierSalt`, `encryptionSalt`) and ran
+   Argon2id over each: 64 MiB x 3 iterations, twice, on every unlock and
+   on every master-password change. Two independent runs meant recovering
+   one half did not reveal the other — but the defender paid double on
+   every unlock to buy that, which is the wrong side of the trade for a
+   device that is unlocked dozens of times a day.
+2. **Normalization was undefined.** The same logical password could be
+   typed two ways (`café` as U+00E9 or as `e` + U+0301), producing
+   different byte sequences and therefore different keys, with nothing in
+   the record saying which form was hashed.
+3. **Every item shared one key.** Through v3 an item payload was sealed
+   directly under the DEK. The DEK is the vault, so every item was the
+   vault: any exposure of one item's plaintext handling was the whole
+   vault.
+
+### Decision
+
+#### 1. Record v3 — one Argon2id run, split with HKDF-SHA256
+
+A v3 record derives **one** 64-byte master key from **one** 16-byte
+salt and splits it:
+
+```
+masterKey = Argon2id(password = NFC(pw), salt, m=64 MiB, t=3, p=1, dkLen=64)
+verifier  = HKDF-SHA256(masterKey, info="vaulta:v3:verifier", 32 bytes)
+kek       = HKDF-SHA256(masterKey, info="vaulta:v3:kek",      32 bytes)
+dek       = AES-256-GCM-decrypt(kek, record.dek_wrap)
+```
+
+- Argon2id parameters are **unchanged**: `memory = 65536 KiB`,
+  `iterations = 3`, `parallelism = 1`
+  (`master_password_service.dart:67-68`, `:54`). The halving is paid for
+  by spending less, not by weakening the KDF.
+- The two HKDF `info` labels are domain separation, not decoration: the
+  verifier half and the KEK half cannot be confused for each other even
+  though they come from one run (`master_password_service.dart:62`, `:65`,
+  split at `:237`).
+- `verifierSalt`, `encryptionSalt` and `kdf.salt_b64` all carry the **same**
+  salt. That equality is the structural proof the run happens once
+  (`master_password_service.dart:120-160`;
+  `test/core/security/master_password_service_v3_test.dart:73-81`).
+- `kdf.dk_len` is `64`, not `32` (`master_password_service.dart:59`). A
+  record still carrying `dk_len: 32` is a v2 record.
+
+A v3 record, as persisted (`master_password_record.dart:78-92`; written at
+`master_password_service.dart:135-156`):
+
+```json
+{
+  "version": 3,
+  "verifierIterations": 3,
+  "verifierSalt":  "<16 random bytes, base64>",
+  "verifier":      "<HKDF half, base64>",
+  "encryptionIterations": 3,
+  "encryptionSalt": "<the same salt as verifierSalt>",
+  "keyId": "<base64url, 12 random bytes>",
+  "createdAt": "2026-10-20T00:00:00.000Z",
+  "kdf": {
+    "name": "argon2id",
+    "salt_b64": "<the same salt>",
+    "memory_kib": 65536,
+    "iterations": 3,
+    "parallelism": 1,
+    "dk_len": 64,
+    "split": "hkdf-sha256-v3"
+  },
+  "dek_wrap": {
+    "alg": "AES-256-GCM",
+    "nonce_b64": "...",
+    "ciphertext_b64": "...",
+    "tag_b64": "..."
+  },
+  "pw_norm": "NFC"
+}
+```
+
+The base ADR's reference blob above still shows `dk_len: 32`. That is the
+**v2** shape and stays correct as history; a v3 record is the shape here.
+
+#### 2. NFC before the KDF, and why legacy records must not do it
+
+Every KDF entry point normalizes its input with
+`PasswordPolicy.normalize` (`password_policy.dart:104`), which is real
+Unicode NFC via `unorm_dart` (`pubspec.yaml`, `unorm_dart: ^0.3.3`), not
+a partial approximation. `createRecord`, `verify` (v3 branch) and
+`deriveVaultKey` all go through it
+(`master_password_service.dart:121`, `:170`, `:219`).
+
+A v3 record stores `pw_norm: "NFC"`
+(`master_password_record.dart:40`, serialized at `:90`, written at
+`master_password_service.dart:154`).
+A v1/v2 record has no `pw_norm`, and this is load-bearing:
+
+> NFC changes the **byte sequence** of a decomposed password.
+> `café` typed as `e`+U+0301 is 5 bytes; as U+00E9 it is 4. If a v2
+> record were verified against normalized bytes, every existing owner with
+> a non-ASCII master password would be locked out of their own vault —
+> irreversibly, because the record stores the hash of the raw bytes and
+> nothing can recover the original form. So `verify` normalizes **only**
+> when `record.version >= 3` and hashes the raw bytes otherwise
+> (`master_password_service.dart:169-199`). Pinned by
+> `master_password_service_v3_test.dart:184-232`.
+
+Consequence for the user: in a vault created on the v3 record format,
+the two ways of typing `café` are interchangeable. In a vault still on
+a v1/v2 record they are **not** — the original composition is the only
+one that works. This is stated here because it is exactly the kind of
+thing an auditor would otherwise read as an inconsistency. Note also
+that no v2 record is ever rewritten as v3 today (see G2), so "already
+migrated" means "created on v3", not "upgraded to v3".
+
+#### 3. Password policy — NIST SP 800-63B §3.1.1.2, honestly bounded
+
+The composition rule (upper + lower + digit + symbol) is **removed**.
+`MasterPasswordService.validate` now delegates to `PasswordPolicy.evaluate`
+(`master_password_service.dart:105-107`,
+`password_policy.dart:89-101`) and enforces exactly three things:
+
+| Rule | Value | Why | Code |
+|---|---|---|---|
+| Minimum length | 12 | Above the NIST minimum of 8; the vault is the only thing between a stolen blob and every credential the owner holds | `password_policy.dart:53` |
+| Maximum length | 1024 | Bounds Argon2id's input preprocessing, so a multi-megabyte paste cannot turn unlock into a local denial of service against the device's own user | `password_policy.dart:57` |
+| Breached-password screening | shipped list, checked offline | NIST requires screening against commonly used / compromised passwords | `password_policy.dart:71-86` |
+
+What is deliberately **not** enforced, per the same NIST section:
+periodic rotation, blocking paste, blocking password-manager autofill, and
+any character-class rule. Composition rules push users toward predictable
+patterns (`Password1!`) that are weaker than a long passphrase while
+rejecting non-Latin scripts for no security gain.
+
+The screening is **local**. Vaulta never sends a password, a prefix, or a
+hash of a password to a network service (`password_policy.dart`; the only
+callers are `vault_security_controller.dart:407` for onboarding, `:746`
+for master-password change, and
+`lib/features/backup/application/vault_backup_coordinator.dart:130` for
+the backup password).
+
+**How the screening reaches past its length** (`common_password_blocklist.dart`):
+the lookup is `fold(input)` against `fold(list)`, where `fold` maps
+character-class substitutions onto letters (`0→o`, `1→i`, `3→e`, `4→a`,
+`5→s`, `7→t`, `@→a`, `$→s`, `!→i`, `|→i`) and trims trailing symbol runs
+(`:142`), and a second lookup strips trailing digits
+(`stripTrailingDigits`, `:172`). Folding the *list* with the *same*
+function as the input is the part that matters — folding only the input
+would silently drop every mutation case (`:178-186`). Concretely:
+`P@ssw0rd` and `p4ssword` both fold onto the listed `password`, and
+`p@ssw0rd1234` folds onto the listed `password1234` (the digits become
+`i2ea` on both sides, and the digit-stripped forms are checked too, which
+is what catches `letmein12345`). Folding is lossy and is used **only**
+for the lookup, never for the KDF input.
+
+#### 4. Item payload v4 — one key per item
+
+Each item gets its own key, derived from the DEK:
+
+```
+itemKey = HKDF-SHA256(DEK, salt = 16 random bytes per item version,
+                      info = "vaulta:item:v4|<rid>|<kid>|<iv>", 32 bytes)
+```
+
+and the payload is sealed with AES-256-GCM under `itemKey`, never under
+the DEK (`aes_gcm_vault_crypto_service.dart:94-111`, `:280-315`). Two
+items never share a key, and compromising one item key does not reach the
+DEK or any other item.
+
+The AAD moves from `vaulta:item:v3|<rid>|<kid>` to
+`vaulta:item:v4|<rid>|<kid>|<iv>` (`:67-82`), which binds the item key
+version **cryptographically** rather than merely storing it: relabelling
+an item under a different key version breaks the GCM tag instead of
+silently rotating (pinned by `item_payload_v4_test.dart:196`).
+
+The envelope (`aes_gcm_vault_crypto_service.dart:303-312`):
+
+```json
+{
+  "v": 4,
+  "keyId": "<session keyId>",
+  "rid": "<recordId>",
+  "iv": 1,
+  "salt": "<16 random bytes, base64>",
+  "kdf":       { "...only when the session is a v2+ VaultSession..." },
+  "dek_wrap":  { "...ditto..." },
+  "payload": {
+    "alg": "AES-256-GCM",
+    "nonce_b64": "...",
+    "ciphertext_b64": "...",
+    "tag_b64": "..."
+  }
+}
+```
+
+`salt` and `iv` are **read from the payload on decrypt, never assumed**
+(`:235-262`), so a payload written under an older item key version keeps
+opening after the DEK rotates. A v4 payload with no salt is rejected as
+`malformed` rather than opened with a guessed salt
+(`item_payload_v4_test.dart:358`).
+
+The item key salt is not secret. It is stored in clear in the payload
+because the item has to be reopenable; its job is domain separation across
+item versions, not entropy (`aes_gcm_vault_crypto_service.dart:90-93`).
+
+v1, v2 and v3 payloads all still decrypt (`aes_gcm_vault_crypto_service.dart:150-180`,
+`item_payload_v4_test.dart:284-323`).
+
+#### 5. What migration actually does, and what it does not
+
+This matters for an auditor, because "items migrate to v4" is only
+partly true.
+
+- `migrateItemsToCurrentVersion` rewrites items whose payload version is
+  **below 3** (`local_encrypted_vault_repository.dart:282-323`, threshold
+  `currentItemPayloadVersion = 3` at `:72`). A v3 item is left **as v3**.
+- A legacy item that *is* rewritten comes out as **v4**, because `encrypt`
+  only ever writes the current version. So the vault goes v1/v2 → v4
+  directly, never through v3 at rest.
+- A v3 item upgrades to v4 when the user next **edits** it
+  (`_saveEncryptedItems` → `encrypt`, `:347-368`), or when the master
+  password changes (`rekeyEntries` re-encrypts the whole list, `:237-270`).
+- `vault_item_payload_min_version` is written as `3`, not `4`
+  (`:607-615`). v3 remains an accepted floor. The downgrade defense is
+  therefore unchanged from the 2026-10-19 amendment: v1/v2 are refused,
+  v3 is not.
+- `currentItemPayloadVersion = 3` is also the threshold for "this payload
+  carries a record binding" in `_decryptStoredItem` (`:563`) and for
+  "this wire column is a bound payload" in `applyRemoteSnapshots`. Moving
+  it to 4 would be defensible on the binding path — a v4 payload *is*
+  record-bound — but it would change reject/retry behavior on paths that
+  currently work. No code comment or ADR records a decision either way, so
+  treat this constant as **undecided** rather than as a reviewed choice.
+
+### Known gaps in this amendment
+
+These are **not decisions**. They are things this document must not
+paper over. Each needs a code change and an owner.
+
+#### G1. Sync cannot carry a v4 payload, and refuses to queue one
+
+**ADR-002's wire does not carry the item key salt.** The `vault_blobs`
+table has `ciphertext`, `nonce`, `gcm_tag` and `key_version` and nothing
+else (`supabase/migrations/20260323100000_initial_vault_schema.sql:35-39`).
+A v4 snapshot without its salt would make the receiving device derive a
+different item key and fail to open the payload.
+
+So the repository **declines to queue the mutation at all** rather than
+queueing a broken one: `_extractSyncPayload` returns `null` for any
+payload at version 4 or above
+(`local_encrypted_vault_repository.dart:405-407`), and `saveItem` only
+emits the mutation when that returns non-null (`:196-212`). The local
+write still happens; only the sync queueing is skipped. Tombstones are
+unaffected — they carry no ciphertext.
+
+Nothing is lost today because **a stock build has no sync at all**: the
+sync bootstrap returns `null` unless the APK was compiled with
+`--dart-define=SUPABASE_URL=...` and `SUPABASE_ANON_KEY=...`
+(`lib/core/sync/device_sync_bootstrap.dart:46-51`), and no release
+workflow passes them (`.github/workflows/dev-apk-release.yml`).
+
+**Required follow-up:** add the item key salt to the wire (`ciphertext`
+column encoding or a new column) and to the Supabase schema, then lift the
+`>= 4` refusal. Until then, enabling sync on a vault that holds v4 items
+silently stops those changes from propagating. ADR-002 records this.
+
+#### G2. A v2 record's KEK derivation regressed and is not covered
+
+`deriveVaultKey` branches on
+`record.version < _recordVersion || record.kdf == null`, where
+`_recordVersion` is `MasterPasswordRecord.currentVersion`, now `3`
+(`master_password_service.dart:209-211`, `:53`). A **v2 record therefore
+falls into `_deriveLegacyVaultKey`**, which is
+**PBKDF2-HMAC-SHA256** over `encryptionSalt` (`:252-266`) — not Argon2id.
+Before `b6e6236`, a v2 record took the Argon2id `_deriveKek` path.
+
+Consequence as the code stands: `verify` still succeeds for a v2 record
+(Argon2id over `verifierSalt`, `:193-197`), but `deriveVaultKey` returns a
+key that is not the DEK, so the vault does not open.
+`master_password_service_v3_test.dart:184` covers v2 **verification** only;
+there is no test for v2 `deriveVaultKey`, which is why this is not caught.
+
+This is a defect, not a design choice, and this ADR does not ratify it.
+Recorded here because the previous version of this document implied every
+existing v2 vault upgrades cleanly, and that is no longer what the code
+does. **It needs a code decision**: either restore a v2 Argon2id KEK
+branch, or accept that v2 vaults are unrecoverable and say so in the UI.
+
+Compounding it: **nothing migrates a v2 record to v3.** The single
+rewrite hook is in `unlockWithPassword` and still tests
+`record.version < 2 || record.kdf == null || record.dekWrap == null`
+(`vault_security_controller.dart:495`), as do the two envelope-enrollment
+guards (`:967`, `:1091`). So a v2 record is never rewritten as v3, never
+acquires `pw_norm`, and never benefits from the HKDF split. The only v3
+records that exist are the ones `createRecord` writes for a new vault.
+The feature brief for this work specified extending that hook to
+`record.version < 3`; the code does not do it.
+
+#### G2b. v3 items are not force-migrated to v4
+
+Mechanism in section 5 above; the risk, stated once: "every item has
+its own key" is true of items written from this build on, not
+necessarily of every item already in a vault. A pre-existing v3 item
+stays sealed directly under the DEK until the user edits it or changes
+the master password, and nothing schedules that work.
+
+#### G3. The blocklist is curated, not the Pwned corpus
+
+The shipped list is a **hand-curated subset** of passwords that appear at
+the top of public breach corpora. It is **not** the full Pwned Passwords
+list, which is roughly 800 MB even as truncated SHA-1 hashes and is not
+shippable inside an APK. As of `b6e6236` the literal holds 339
+whitespace-separated tokens, 319 distinct, 304 distinct after folding
+(`lib/core/security/common_password_blocklist.dart:32-140`; counted, not
+asserted by a test).
+
+Consequence, stated plainly: **the screening catches the common cases, not
+the comprehensive ones.** A password outside this list that appeared in
+some breach corpus will be accepted. Do not read this control as coverage
+of the corpus.
+
+It also has a shape you can walk straight past: the fold maps ten
+characters and the digit-strip only removes a **trailing** run. A password
+that is leet-spelled *and* ends in digits with a different fold, e.g.
+`P4ssw0rd!2024` or `Tr0ub4dor&3`, is **not** rejected — verified against
+the shipped list, not inferred. That is what a curated list buys: high
+recall on the shapes people actually reach for, and no claim about the
+rest.
+
+**How to replace it:** generate a sorted list of SHA-1 prefixes of a
+corpus, ship it as a compressed asset, and replace the lookup in
+`common_password_blocklist.dart` with a prefix lookup. The call sites do
+not change — they only call `PasswordPolicy.isCommon`. The same file
+documents this path (`common_password_blocklist.dart:20-26`).
+
+### Measured cost
+
+`tool/kdf_benchmark.dart`, on the development machine, median of 5 after a
+warm-up:
+
+| | median |
+|---|---|
+| 1 Argon2id run, 32 B output | 389 ms |
+| 1 Argon2id run, 64 B output (what v3 actually uses) | 392 ms |
+| 2 Argon2id runs, 32 B output (what v2 did) | 771 ms |
+
+Output length is free: 392 ms at 64 B against 389 ms at 32 B is inside
+the noise, which is what makes the 64-byte master key affordable. A
+re-run on the same machine reproduces these within a few percent
+(387 / 381 / 775 ms). These are wall-clock numbers on one development
+machine at 64 MiB x 3, p=1; they are not a claim about any user's device.
+
+### Consequences
+
+- Unlock cost per attempt roughly halves at equal KDF strength. The
+  throttle is unaffected: `UnlockAttemptLimiter` allows 4 free failures
+  and then imposes a lockout starting at 30 s, doubling per further
+  failure up to a 15 min cap, and it counts every attempt **before** the
+  KDF runs (`unlock_attempt_limiter.dart:102-149`), so a cheaper unlock
+  does not make online guessing cheaper relative to it.
+- One item's key is not another's. The blast radius of a plaintext
+  exposure in one item drops from the whole vault to one item.
+- **Records and items upgrade at different rates and by different paths.**
+  A vault can hold v3 records, v3 items and v4 items simultaneously, and
+  only editing an item or changing the master password moves a v3 item to
+  v4. Nothing forces the last v3 item out.
+- **The item key version is now part of the authenticated data.** Any
+  future change to `currentItemKeyVersion` is a format change, not a
+  config tweak: old payloads keep their own `iv` and stay readable
+  (`aes_gcm_vault_crypto_service.dart:235-262`), which is the intended
+  behavior, but the *new* label cannot be applied retroactively to an
+  existing ciphertext.
+- Password quality now depends on a list this project maintains by hand
+  (G3). That is a maintenance obligation, not a solved problem.
+- Sync remains unusable for this format (G1). It was usable for v3.
+ADR-002 states this.

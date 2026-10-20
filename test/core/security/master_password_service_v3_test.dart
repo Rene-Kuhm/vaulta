@@ -231,6 +231,75 @@ void main() {
     });
   });
 
+  group('v2 records still derive their DEK', () {
+    // Regression guard for a lockout bug. `verify` branched correctly on
+    // the record version, but `deriveVaultKey` branched on the *current*
+    // version, so a v2 record fell through to the v1 PBKDF2 path and
+    // produced the wrong key: verify passed and the vault would not open.
+    // Every user on a v2 record was locked out.
+    Future<MasterPasswordRecord> buildV2Record({
+      required String password,
+      required List<int> dek,
+    }) async {
+      final salt = List<int>.generate(16, (i) => i + 3);
+      final kek = await Argon2id(
+        memory: 1024,
+        parallelism: 1,
+        iterations: 1,
+        hashLength: 32,
+      ).deriveKeyFromPassword(password: password, nonce: salt);
+      final box = await AesGcm.with256bits().encrypt(
+        dek,
+        secretKey: kek,
+      );
+      return MasterPasswordRecord(
+        version: 2,
+        verifierIterations: 1,
+        verifierSalt: base64Encode(salt),
+        verifier: base64Encode(List<int>.filled(32, 9)),
+        encryptionIterations: 1,
+        encryptionSalt: base64Encode(salt),
+        keyId: 'legacy-v2',
+        createdAt: DateTime.utc(2026),
+        kdf: {
+          'name': 'argon2id',
+          'salt_b64': base64Encode(salt),
+          'memory_kib': 1024,
+          'iterations': 1,
+          'parallelism': 1,
+          'dk_len': 32,
+        },
+        dekWrap: {
+          'alg': 'AES-256-GCM',
+          'nonce_b64': base64Encode(box.nonce),
+          'ciphertext_b64': base64Encode(box.cipherText),
+          'tag_b64': base64Encode(box.mac.bytes),
+        },
+      );
+    }
+
+    test('unwraps the DEK a v2 record actually wrapped', () async {
+      final dek = List<int>.generate(32, (i) => i * 3 + 1);
+      final record = await buildV2Record(
+        password: password,
+        dek: dek,
+      );
+
+      final key = await realKdfService.deriveVaultKey(
+        record: record,
+        password: password,
+      );
+
+      expect(await key.extractBytes(), dek);
+    });
+
+    test('a v2 record is flagged as needing migration', () async {
+      final record = await buildV2Record(password: password, dek: [1]);
+
+      expect(record.isCurrentFormat, isFalse);
+    });
+  });
+
   group('password policy', () {
     test('no longer requires character-class diversity', () {
       // This is the NIST SP 800-63B §3.1.1.2 change: the old policy

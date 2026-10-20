@@ -913,7 +913,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get backupPasswordConfirmLabel => 'Confirmar password de la copia';
 
   @override
-  String get backupPasswordHint => 'Al menos 12 caracteres, combinando mayusculas, minusculas, numeros y simbolos.';
+  String get backupPasswordHint => 'Al menos 12 caracteres, y que no aparezca en listas de contrasenas filtradas. Una frase larga es mejor.';
 
   @override
   String get backupPasswordWarning => 'Vaulta no puede recuperar la password de la copia. Si la olvidas, nadie podra abrir esta copia, ni siquiera tu.';
