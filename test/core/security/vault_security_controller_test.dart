@@ -327,6 +327,8 @@ void main() {
         unlockAttemptLimiter: UnlockAttemptLimiter(
           storage: storage,
           clock: () => now,
+          // Real time passing moves both clocks in these tests.
+          monotonicClock: () => now.difference(DateTime.utc(2026)),
         ),
       );
       addTearDown(controller.dispose);
@@ -406,6 +408,56 @@ void main() {
       expect(passwords.verifyCalls, 5);
     });
 
+    test('changeMasterPassword shares the throttle', () async {
+      final controller = buildController();
+      await controller.initialize();
+      await controller.createMasterPassword(
+        password: 'StrongPass!2026',
+        confirmation: 'StrongPass!2026',
+        enableBiometrics: false,
+      );
+
+      for (var i = 0; i < 5; i++) {
+        expect(
+          await controller.changeMasterPassword(
+            currentPassword: 'WrongPass!2026',
+            newPassword: 'AnotherStrong!2027',
+            confirmation: 'AnotherStrong!2027',
+          ),
+          isFalse,
+        );
+      }
+      expect(passwords.verifyCalls, 5);
+      expect(controller.isUnlockLockedOut, isTrue);
+
+      expect(
+        await controller.changeMasterPassword(
+          currentPassword: 'StrongPass!2026',
+          newPassword: 'AnotherStrong!2027',
+          confirmation: 'AnotherStrong!2027',
+        ),
+        isFalse,
+      );
+      expect(passwords.verifyCalls, 5);
+      expect(controller.message, isNull);
+    });
+
+    test('storage failure rejects without verify and flags it', () async {
+      final controller = await lockedVault();
+      storage.failSaves = true;
+
+      expect(await controller.unlockWithPassword('StrongPass!2026'), isFalse);
+
+      expect(passwords.verifyCalls, 0);
+      expect(controller.isUnlocked, isFalse);
+      expect(controller.unlockAttemptStateUnavailable, isTrue);
+      expect(controller.message, isNull);
+
+      storage.failSaves = false;
+      expect(await controller.unlockWithPassword('StrongPass!2026'), isTrue);
+      expect(controller.unlockAttemptStateUnavailable, isFalse);
+    });
+
     test('successful biometric unlock resets the counter', () async {
       final unlocker = _SucceedingBiometricUnlockService(storage);
       final controller = await lockedVault(biometricUnlockService: unlocker);
@@ -419,7 +471,7 @@ void main() {
       expect(controller.failedUnlockAttempts, 0);
       expect(controller.isUnlockLockedOut, isFalse);
       expect(
-        await storage.read(UnlockAttemptLimiter.failedCountKey),
+        await storage.read(UnlockAttemptLimiter.stateKey),
         isNull,
       );
     });
@@ -471,6 +523,10 @@ class _SucceedingBiometricUnlockService extends BiometricUnlockService {
 class _InMemorySecureStorageService implements SecureStorageService {
   final Map<String, String> _values = {};
 
+  /// When true, writes of the unlock attempt state throw, simulating
+  /// an unavailable keystore.
+  bool failSaves = false;
+
   @override
   Future<void> delete(String key) async {
     _values.remove(key);
@@ -481,6 +537,9 @@ class _InMemorySecureStorageService implements SecureStorageService {
 
   @override
   Future<void> save(String key, String value) async {
+    if (failSaves && key == UnlockAttemptLimiter.stateKey) {
+      throw StateError('keystore unavailable');
+    }
     _values[key] = value;
   }
 }

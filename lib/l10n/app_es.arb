@@ -141,6 +141,7 @@
       }
     }
   },
+  "securityUnlockStateUnavailable": "Vaulta no pudo registrar este intento en el almacenamiento seguro, así que no verificó la contraseña. Reintentá; si se repite, reiniciá la app.",
   "securityProtectedAccess": "Acceso protegido",
   "securityUnlockVault": "Desbloquear vault",
   "securityBiometricButton": "Biometria",

@@ -719,6 +719,12 @@ abstract class AppLocalizations {
   /// **'Too many failed attempts. Try again in {time}.'**
   String securityUnlockLockedOut(String time);
 
+  /// No description provided for @securityUnlockStateUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Vaulta could not record this attempt in secure storage, so the password was not checked. Try again; if it keeps happening, restart the app.'**
+  String get securityUnlockStateUnavailable;
+
   /// No description provided for @securityProtectedAccess.
   ///
   /// In en, this message translates to:

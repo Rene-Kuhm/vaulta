@@ -122,6 +122,66 @@ void main() {
       expect(find.textContaining('master password actual'), findsWidgets);
     });
 
+    testWidgets('shows the lockout message after too many wrong attempts', (
+      tester,
+    ) async {
+      final controller = await _buildUnlockedController();
+      final localeController = AppLocaleController(
+        storage: _InMemorySecureStorageService(),
+      );
+      await localeController.initialize();
+      addTearDown(controller.dispose);
+      _setLargeViewport(tester);
+
+      for (var i = 0; i < 5; i++) {
+        await controller.changeMasterPassword(
+          currentPassword: 'WrongPass!2026',
+          newPassword: 'AnotherStrong!2027',
+          confirmation: 'AnotherStrong!2027',
+        );
+      }
+      expect(controller.isUnlockLockedOut, isTrue);
+
+      await tester.pumpWidget(
+        _testApp(
+          SettingsScreen(
+            securityController: controller,
+            localeController: localeController,
+          ),
+        ),
+      );
+      await _pumpUi(tester);
+
+      await tester.tap(find.text('Change master password'));
+      await _pumpUi(tester);
+
+      final dialogFields = find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(TextField),
+      );
+      // Even the correct current password is refused during lockout.
+      await tester.enterText(dialogFields.at(0), 'StrongPass!2026');
+      await tester.enterText(dialogFields.at(1), 'AnotherStrong!2027');
+      await tester.enterText(dialogFields.at(2), 'AnotherStrong!2027');
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.widgetWithText(FilledButton, 'Apply'),
+        ),
+      );
+      await _pumpUi(tester);
+
+      expect(
+        find.widgetWithText(AlertDialog, 'Change master password'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Too many failed attempts. Try again in'),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('updates idle timeout preset from settings', (tester) async {
       final controller = await _buildUnlockedController();
       final localeController = AppLocaleController(

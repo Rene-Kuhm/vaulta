@@ -333,6 +333,9 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
+  String get securityUnlockStateUnavailable => 'Vaulta no pudo registrar este intento en el almacenamiento seguro, así que no verificó la contraseña. Reintentá; si se repite, reiniciá la app.';
+
+  @override
   String get securityProtectedAccess => 'Acceso protegido';
 
   @override

@@ -11,6 +11,7 @@ import 'package:gestor_contrasenas/core/sync/device_registration_repository.dart
 import 'package:gestor_contrasenas/core/sync/device_registration_service.dart';
 import 'package:gestor_contrasenas/core/sync/device_session_revocation_service.dart';
 import 'package:gestor_contrasenas/features/security/presentation/security_gate.dart';
+import 'package:gestor_contrasenas/features/security/presentation/unlock_throttle_text.dart';
 import 'package:gestor_contrasenas/l10n/app_localizations.dart';
 
 void main() {
@@ -167,6 +168,7 @@ void main() {
       unlockAttemptLimiter: UnlockAttemptLimiter(
         storage: storage,
         clock: () => now,
+        monotonicClock: () => now.difference(DateTime.utc(2026)),
       ),
     );
     addTearDown(() async {
@@ -249,6 +251,62 @@ void main() {
     await _pumpUi(tester);
   });
 
+  testWidgets('shows a localized error when the attempt cannot be stored', (
+    tester,
+  ) async {
+    final storage = _InMemorySecureStorageService();
+    final controller = VaultSecurityController(
+      storage: storage,
+      masterPasswordService: MasterPasswordService.test(),
+      biometricAuthService: const _FakeBiometricAuthService(),
+    );
+    addTearDown(() async {
+      controller.dispose();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
+    await controller.initialize();
+    await controller.createMasterPassword(
+      password: 'StrongPass!2026',
+      confirmation: 'StrongPass!2026',
+      enableBiometrics: false,
+    );
+    await controller.lock();
+    storage.failSaves = true;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: SecurityGate(
+          controller: controller,
+          child: const Scaffold(body: Center(child: Text('Unlocked vault'))),
+        ),
+      ),
+    );
+    await _pumpUi(tester);
+
+    await tester.enterText(find.byType(TextField), 'StrongPass!2026');
+    await tester.testTextInput.receiveAction(TextInputAction.go);
+    for (var i = 0; i < 20 && controller.busy; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+    }
+    await _pumpUi(tester);
+
+    expect(controller.isUnlocked, isFalse);
+    expect(
+      find.byKey(const ValueKey('unlock-state-unavailable-banner')),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('could not record this attempt'),
+      findsOneWidget,
+    );
+  });
+
   test('formats lockout remaining time as m:ss, rounding up', () {
     expect(formatLockoutRemaining(const Duration(seconds: 30)), '0:30');
     expect(
@@ -263,6 +321,10 @@ void main() {
 class _InMemorySecureStorageService implements SecureStorageService {
   final Map<String, String> _values = {};
 
+  /// When true, writes of the unlock attempt state throw, simulating
+  /// an unavailable keystore.
+  bool failSaves = false;
+
   @override
   Future<void> delete(String key) async {
     _values.remove(key);
@@ -273,6 +335,9 @@ class _InMemorySecureStorageService implements SecureStorageService {
 
   @override
   Future<void> save(String key, String value) async {
+    if (failSaves && key == UnlockAttemptLimiter.stateKey) {
+      throw StateError('keystore unavailable');
+    }
     _values[key] = value;
   }
 }

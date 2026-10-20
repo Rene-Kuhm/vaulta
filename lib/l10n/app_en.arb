@@ -141,6 +141,7 @@
       }
     }
   },
+  "securityUnlockStateUnavailable": "Vaulta could not record this attempt in secure storage, so the password was not checked. Try again; if it keeps happening, restart the app.",
   "securityProtectedAccess": "Protected access",
   "securityUnlockVault": "Unlock vault",
   "securityBiometricButton": "Biometric",

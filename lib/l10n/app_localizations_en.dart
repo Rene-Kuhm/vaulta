@@ -333,6 +333,9 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get securityUnlockStateUnavailable => 'Vaulta could not record this attempt in secure storage, so the password was not checked. Try again; if it keeps happening, restart the app.';
+
+  @override
   String get securityProtectedAccess => 'Protected access';
 
   @override

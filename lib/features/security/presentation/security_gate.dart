@@ -12,6 +12,7 @@ import '../../../app/theme/app_spacing.dart';
 import '../../../core/security/native_biometric_auth_service.dart';
 import '../../../core/security/vault_security_controller.dart';
 import '../../../core/sync/device_registration_service.dart';
+import 'unlock_throttle_text.dart';
 
 /// Top-level gate that swaps between loading / onboarding / locked
 /// / unlocked and animates the transition.
@@ -904,18 +905,14 @@ class _UnlockScreenState extends State<_UnlockScreen> {
     try {
       final ok = await widget.controller.setupBiometricFromPassword(password);
       if (!mounted) return;
-      final lockoutAfter = widget.controller.unlockLockoutRemaining;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             ok
                 ? widget.controller.message ??
                       context.l10n.securitySetupBiometricSuccess
-                : lockoutAfter != null && widget.controller.message == null
-                ? context.l10n.securityUnlockLockedOut(
-                    formatLockoutRemaining(lockoutAfter),
-                  )
                 : widget.controller.message ??
+                      unlockThrottleMessage(context.l10n, widget.controller) ??
                       context.l10n.securitySetupBiometricError,
           ),
         ),
@@ -1006,16 +1003,6 @@ class _UnlockScreenState extends State<_UnlockScreen> {
       unawaited(_refreshBiometricUnlockAvailability());
     }
   }
-}
-
-/// Formats a lockout countdown as `m:ss`, rounding partial seconds
-/// up so the display never shows `0:00` while still locked.
-@visibleForTesting
-String formatLockoutRemaining(Duration remaining) {
-  final totalSeconds = (remaining.inMilliseconds + 999) ~/ 1000;
-  final minutes = totalSeconds ~/ 60;
-  final seconds = totalSeconds % 60;
-  return '$minutes:${seconds.toString().padLeft(2, '0')}';
 }
 
 class _UnlockHero extends StatelessWidget {
@@ -1247,6 +1234,15 @@ class _UnlockForm extends StatelessWidget {
               ),
               tone: AppBannerTone.danger,
               icon: Icons.timer_outlined,
+            ),
+          ],
+          if (controller.unlockAttemptStateUnavailable) ...[
+            const SizedBox(height: AppSpacing.md),
+            AppBanner(
+              key: const ValueKey('unlock-state-unavailable-banner'),
+              message: l10n.securityUnlockStateUnavailable,
+              tone: AppBannerTone.danger,
+              icon: Icons.error_outline_rounded,
             ),
           ],
           if (biometricStatusMessage != null) ...[
