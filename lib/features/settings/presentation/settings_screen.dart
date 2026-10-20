@@ -18,6 +18,7 @@ import '../../../core/sync/sync_conflict.dart';
 import '../../../core/sync/sync_conflict_resolver.dart';
 import '../../../core/sync/device_session_revocation_service.dart';
 import '../../../core/update/update_service.dart';
+import '../../security/presentation/unlock_throttle_text.dart';
 import 'update_section.dart';
 
 /// "Settings" tab: local unlock posture (biometric toggle, idle
@@ -1393,8 +1394,11 @@ class _ChangeMasterPasswordDialogState
     }
 
     setState(() {
+      // A throttled attempt leaves `message` null; explain the lockout
+      // (or the secure-storage failure) in the user's language.
       _formFeedback =
           widget.controller.message ??
+          unlockThrottleMessage(context.l10n, widget.controller) ??
           context.l10n.changeMasterPasswordErrorFallback;
     });
   }

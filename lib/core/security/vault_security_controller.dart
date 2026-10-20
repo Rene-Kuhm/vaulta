@@ -10,6 +10,7 @@ import 'master_password_record.dart';
 import 'master_password_service.dart';
 import 'native_biometric_auth_service.dart';
 import 'secure_storage_service.dart';
+import 'unlock_attempt_limiter.dart';
 import 'vault_session.dart';
 
 /// Function signature for the repository rekey hook. The controller
@@ -55,7 +56,9 @@ class VaultSecurityController extends ChangeNotifier {
   /// change to re-encrypt every entry. [biometricEnvelopeService]
   /// wraps the DEK for biometric unlock; defaults to a service built
   /// from [storage]. [biometricUnlockService] is the runtime unlock
-  /// orchestrator.
+  /// orchestrator. [unlockAttemptLimiter] throttles master-password
+  /// guesses; defaults to a limiter persisted in [storage] that uses
+  /// the system clock.
   VaultSecurityController({
     required SecureStorageService storage,
     required MasterPasswordService masterPasswordService,
@@ -63,13 +66,16 @@ class VaultSecurityController extends ChangeNotifier {
     VaultRekeyEntries? rekeyEntries,
     BiometricKeyEnvelopeService? biometricEnvelopeService,
     BiometricUnlockService? biometricUnlockService,
+    UnlockAttemptLimiter? unlockAttemptLimiter,
   }) : _storage = storage,
        _masterPasswordService = masterPasswordService,
        _biometricAuthService = biometricAuthService,
        _rekeyEntries = rekeyEntries ?? _unsupportedRekey,
        _biometricEnvelopeService = biometricEnvelopeService ??
            BiometricKeyEnvelopeService(storage: storage),
-       _biometricUnlockService = biometricUnlockService;
+       _biometricUnlockService = biometricUnlockService,
+       _unlockAttemptLimiter =
+           unlockAttemptLimiter ?? UnlockAttemptLimiter(storage: storage);
 
   /// Secure storage key for the serialized [MasterPasswordRecord].
   static const masterPasswordRecordKey = 'vault_master_password_record';
@@ -95,6 +101,8 @@ class VaultSecurityController extends ChangeNotifier {
   final VaultRekeyEntries _rekeyEntries;
   final BiometricKeyEnvelopeService _biometricEnvelopeService;
   final BiometricUnlockService? _biometricUnlockService;
+  final UnlockAttemptLimiter _unlockAttemptLimiter;
+  bool _unlockAttemptStateUnavailable = false;
 
   VaultSecurityStage _stage = VaultSecurityStage.loading;
   BiometricAvailability _biometricAvailability = const BiometricAvailability(
@@ -189,6 +197,26 @@ class VaultSecurityController extends ChangeNotifier {
     }
     return false;
   }
+
+  /// Time left before another master-password attempt is allowed, or
+  /// `null` when an attempt is allowed now. The unlock screen polls
+  /// this to render the lockout countdown.
+  Duration? get unlockLockoutRemaining =>
+      _unlockAttemptLimiter.remainingLockout();
+
+  /// True while too many failed master-password attempts keep the
+  /// unlock button disabled.
+  bool get isUnlockLockedOut => unlockLockoutRemaining != null;
+
+  /// True when the last master-password attempt was refused because
+  /// the attempt counter could not be read from or written to secure
+  /// storage (fail closed: the password was not checked). The UI
+  /// renders a localized error for it. Cleared on the next attempt.
+  bool get unlockAttemptStateUnavailable => _unlockAttemptStateUnavailable;
+
+  /// Consecutive failed master-password attempts since the last
+  /// successful unlock.
+  int get failedUnlockAttempts => _unlockAttemptLimiter.failedCount;
 
   /// Active in-memory vault session, or `null` when locked.
   VaultSession? get vaultSession => _vaultSession;
@@ -320,6 +348,9 @@ class VaultSecurityController extends ChangeNotifier {
             min: 0,
           ) ??
           defaultIdleTimeoutSeconds;
+      // The limiter fails closed internally (unreadable state starts
+      // a lockout), so it never throws into this catch-all.
+      await _unlockAttemptLimiter.load();
 
       final record = await _readRecord();
       _envelopeEnrolled = await _biometricEnvelopeService.isEnrolled();
@@ -401,7 +432,17 @@ class VaultSecurityController extends ChangeNotifier {
   /// Recovers the DEK from the wrapped envelope in the persisted
   /// record using [password]. On success, transitions to
   /// [VaultSecurityStage.unlocked] and returns true.
+  ///
+  /// Throttled by [UnlockAttemptLimiter]: while [isUnlockLockedOut] is
+  /// true the call returns false immediately, without running the KDF.
+  /// The unlock screen renders the localized lockout banner from
+  /// [unlockLockoutRemaining], so [message] is cleared in that case.
   Future<bool> unlockWithPassword(String password) async {
+    if (isUnlockLockedOut) {
+      _message = null;
+      notifyListeners();
+      return false;
+    }
     return _runBusy(() async {
       final record = await _readRecord();
       if (record == null) {
@@ -410,13 +451,12 @@ class VaultSecurityController extends ChangeNotifier {
         return false;
       }
 
-      final matches = await _masterPasswordService.verify(
+      final verified = await _verifyThrottled(
         record: record,
         password: password,
+        mismatchMessage: 'La master password no coincide.',
       );
-
-      if (!matches) {
-        _message = 'La master password no coincide.';
+      if (!verified) {
         return false;
       }
 
@@ -507,6 +547,11 @@ class VaultSecurityController extends ChangeNotifier {
       final outcome = await unlocker.unlock(record: record);
       switch (outcome) {
         case BiometricUnlockSuccess(:final session):
+          // A successful biometric unlock proves the legitimate user is
+          // present, so it clears the master-password failure counter.
+          // Biometric failures themselves are throttled by the OS and
+          // are not counted here.
+          await _unlockAttemptLimiter.recordSuccess();
           _vaultSession = session;
           _stage = VaultSecurityStage.unlocked;
           _envelopeEnrolled = true;
@@ -646,6 +691,9 @@ class VaultSecurityController extends ChangeNotifier {
   /// password, derives a new KEK, generates a new DEK, re-encrypts
   /// every entry via the supplied [rekeyEntries] hook, and persists
   /// the new record. Returns true on success.
+  ///
+  /// The current-password check is throttled by the same
+  /// [UnlockAttemptLimiter] as [unlockWithPassword].
   Future<bool> changeMasterPassword({
     required String currentPassword,
     required String newPassword,
@@ -676,6 +724,14 @@ class VaultSecurityController extends ChangeNotifier {
       return false;
     }
 
+    // Verifying the current password is a guessing oracle for anyone
+    // holding an unlocked session, so it shares the unlock throttle.
+    if (isUnlockLockedOut) {
+      _message = null;
+      notifyListeners();
+      return false;
+    }
+
     return _runBusy(() async {
       final currentRecord = await _readRecord();
       if (currentRecord == null) {
@@ -684,13 +740,12 @@ class VaultSecurityController extends ChangeNotifier {
         return false;
       }
 
-      final matches = await _masterPasswordService.verify(
+      final verified = await _verifyThrottled(
         record: currentRecord,
         password: currentPassword,
+        mismatchMessage: 'La master password actual no coincide.',
       );
-
-      if (!matches) {
-        _message = 'La master password actual no coincide.';
+      if (!verified) {
         return false;
       }
 
@@ -960,7 +1015,17 @@ class VaultSecurityController extends ChangeNotifier {
   /// Returns `false` on any failure (no record, no biometric, wrong
   /// password, missing v2 metadata, enrollment failure) and writes
   /// a specific `_message` for the UI.
+  ///
+  /// This flow runs on the lock screen and verifies the master
+  /// password, so it is throttled by the same [UnlockAttemptLimiter]
+  /// as [unlockWithPassword]; otherwise it would be an unthrottled
+  /// guessing oracle.
   Future<bool> setupBiometricFromPassword(String password) async {
+    if (isUnlockLockedOut) {
+      _message = null;
+      notifyListeners();
+      return false;
+    }
     return _runBusy(() async {
       final record = await _readRecord();
       if (record == null) {
@@ -973,12 +1038,12 @@ class VaultSecurityController extends ChangeNotifier {
         return false;
       }
 
-      final matches = await _masterPasswordService.verify(
+      final verified = await _verifyThrottled(
         record: record,
         password: password,
+        mismatchMessage: 'La master password no coincide.',
       );
-      if (!matches) {
-        _message = 'La master password no coincide.';
+      if (!verified) {
         return false;
       }
 
@@ -1027,6 +1092,37 @@ class VaultSecurityController extends ChangeNotifier {
       // Drop the throwaway session — we are NOT unlocking the vault.
       return true;
     });
+  }
+
+  /// Runs the master-password verifier through the attempt limiter
+  /// and maps the outcome onto [message]. Returns true on a match.
+  ///
+  /// Lockout and storage-failure rejections leave [message] null: the
+  /// UI renders localized text from [unlockLockoutRemaining] and
+  /// [unlockAttemptStateUnavailable] instead.
+  Future<bool> _verifyThrottled({
+    required MasterPasswordRecord record,
+    required String password,
+    required String mismatchMessage,
+  }) async {
+    _unlockAttemptStateUnavailable = false;
+    final outcome = await _unlockAttemptLimiter.runAttempt(
+      () => _masterPasswordService.verify(record: record, password: password),
+    );
+    switch (outcome) {
+      case UnlockAttemptOutcome.succeeded:
+        return true;
+      case UnlockAttemptOutcome.failed:
+        _message = mismatchMessage;
+        return false;
+      case UnlockAttemptOutcome.rejected:
+        _message = null;
+        return false;
+      case UnlockAttemptOutcome.storageFailure:
+        _unlockAttemptStateUnavailable = true;
+        _message = null;
+        return false;
+    }
   }
 
   Future<Uint8List?> _unwrapCurrentDek(MasterPasswordRecord record) async {
