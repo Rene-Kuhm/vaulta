@@ -56,8 +56,12 @@ import javax.crypto.spec.PSource
  * reaches screenshots, screen recordings, casting/mirroring or the
  * recents thumbnail. On API 33+ [setRecentsScreenshotEnabled] is also
  * disabled so the system does not snapshot the task at all. The
- * flag is always on; the BiometricPrompt is a system-owned dialog
- * and is unaffected.
+ * flag is always on. On API 29+ the BiometricPrompt is a
+ * system-owned dialog and is unaffected. On API 23-28 androidx.biometric
+ * draws its own fingerprint dialog (FingerprintDialogFragment /
+ * FingerprintDialogActivity) in a separate window that may not inherit
+ * the flag; it only shows the prompt strings, never vault secrets, so
+ * no extra protection is applied there.
  */
 class MainActivity : FlutterFragmentActivity() {
 
