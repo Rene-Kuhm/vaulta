@@ -97,10 +97,25 @@ Las specs provienen de dos fuentes, citadas literalmente:
   canal biométrico Kotlin + el lado Dart. Commit: `a4fc61b`.
 - **T6** (S7, S9) — Poner ADR-001, ADR-006, CRYPTO.md, THREAT_MODEL.md y
   hardening-status.md al día contra el código, con SHA citado. Route:
-  subagente escritor de docs, después de T3/T4/T5. Commit: `docs: ...`.
-- **T7** (todas) — Verificación de cierre: `flutter test` completo, `flutter
-  analyze`, ambos APKs, y re-correr el integration test de T1 sobre el código
-  nuevo. Route: inline.
+  subagente escritor de docs, después de T3/T5. Commit: `4945339`.
+- **T7** (todas) — Verificación de cierre. Route: inline. Estado: suite,
+  analyze, umbral de cobertura, ambos APKs y diferencial verdes; la review
+  nativa NO se pudo correr (ver L13) y T1 sigue bloqueado (ver L14).
+- **T8** (S4, derivado) — El copy de l10n que T5 volvió falso. Route: inline.
+  Commit: `2f13e49`.
+
+## Risk
+
+- **Risk: item 1** — T3, T4 y T8 escriben datos: el rewrite v2→v3 crea una DEK
+  nueva, re-sella cada item y persiste el record; la migración v3→v4 re-sella
+  items bajo una itemKey; un rollback fallido deja un vault que no abre.
+- **Risk: item 2** — T5 cambia la política de la clave del envelope biométrico
+  y el gate que decide si la bóveda se abre con biometría.
+- **Risk: item 3** — T3 cambia el contrato del RPC de sync (dos parámetros
+  nuevos) y T5 cambia la firma observable de `authenticateForUnlock`.
+
+Las tres están cubiertas por el camino de riesgo: tests de frontera, el
+diferencial contra el árbol base y el umbral de cobertura.
 
 ## Log
 
@@ -153,6 +168,51 @@ Las specs provienen de dos fuentes, citadas literalmente:
   `f2aa4a0`. Commiteados como tres unidades separadas antes de seguir.
   Estado: 411 tests verdes (54 nuevos sobre los 357 de la sesión anterior),
   analyze limpio, `assembleDebug` verde con el Kotlin recompilado.
+
+- **L12 (2026-10-21, verificación de cierre de T3-T5-T8):** suite 411
+  verdes, analyze limpio, `check_coverage.sh lib/core/security 60` en **85.9%**
+  (1534/1786 líneas), `assembleDebug` y `assembleRelease` (59.9 MB) verdes.
+  **Diferencial ejecutado**: la misma suite corrió contra el árbol base
+  (`git archive 5716334` a un `mktemp -d`) y contra el árbol nuevo, con
+  reporter JSON y comparación por nombre de test: **402 tests preexistentes,
+  0 cambios de resultado**, 9 tests nuevos. Ningún comportamiento anterior
+  que compartiera el código tocado cambió.
+
+- **L13 (2026-10-21, la review nativa NO se pudo correr — veredicto
+  ausente, no favorable):** `assess` dio `nativeRisk: high` y `reviewDue:
+  true`, así que correspondía revisar. `inspect` por defecto pointed a la
+  rama acumulada contra `origin/master` (100+ paths), que la regla prohíbe,
+  así que se acotó con `baseRef` explícito. Al START, el proveedor respondió
+  `lens_context_budget_exceeded` en preflight: la evidencia completa del
+  revisor excede el presupuesto de contexto nativo. Reducir el candidato de
+  40 paths a 21 tampoco alcanzó. Todos los intentos devolvieron
+  `lineage_created: false` y `mutation_performed: false`: no se creó
+  autoridad y no hay nada que abandonar ni reparar. **La vista externa
+  independiente sobre este slice falta**, y la verificación interna es la que
+  está. El verificador independiente por subagente también fue rechazado por
+  el harness porque las tareas nunca se cerraron con línea `Risk:`; no se
+  reintentó.
+
+- **L14 (2026-10-21, T1 sigue bloqueado, y ahora se sabe por qué):**
+  `adb install` falla con `INSTALL_FAILED_USER_RESTRICTED`. El logcat con
+  timestamps muestra el mecanismo: MIUI lanza
+  `com.miui.permcenter.install.AdbInstallActivity` en el `install-commit`,
+  la actividad **se dibuja y se destruye 7 ms después** (`WindowLeaked`), y
+  el sistema cierra la sesión con `INSTALL_CANCELED_BY_USER`. No es el
+  candado (`isKeyguardShowing=false`, `deviceLocked=0`) ni un permiso de la
+  app. Y **no se destruba desde ADB**: `settings put` da
+  `SecurityException: WRITE_SECURE_SETTINGS` incluso sobre `global`, y no hay
+  root ni `su`. Las 14 tentativas de la sesión anterior fallaban por esto
+  mismo, sin haberlo aislado. Sólo una persona en el teléfono lo abre.
+
+- **L15 (2026-10-21, T8, derivado de T5):** el subagente de docs reportó
+  que T5 dejaba dos textos de UI mintiendo y lo verifiqué: a un usuario con
+  huella enrolada en Android 9 se le decía "No detectamos biometría
+  disponible", y las notas de roadmap describían el payload v3 cuando el
+  build escribe v4. Corregidos en `2f13e49`. Queda pendiente separar los dos
+  motivos con precisión ("nada enrolado" vs "el SO es muy viejo"): ambos
+  llegan a Dart como `canUseStrong = false`, así que hace falta un canal de
+  motivo a través del controller, no un ajuste de texto.
 
 - **L4 (2026-10-21, observación al abrir G2):** `e12e71a` ya corrigió el
   lockout de v2, pero ADR-001 G2 lo sigue describiendo como defecto vigente.
