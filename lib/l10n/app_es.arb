@@ -53,7 +53,7 @@
   "settingsRevokeOthersDone": "Se revocaron las otras sesiones activas.",
   "settingsRevokeOthersFailed": "No pudimos revocar las otras sesiones. Reintenta en unos segundos.",
   "settingsRoadmapTitle": "Roadmap de seguridad de plataforma",
-  "settingsRoadmapNotes": "Los ítems del vault usan el payload v3 de ADR-001: Argon2id deriva una KEK desde la master password, una DEK aleatoria cifra cada entrada con AES-256-GCM y cada ciphertext queda atado a su id de registro y a su id de clave. Android recupera la DEK con biometría mediante una clave del KeyStore; iOS/macOS quedan pendientes.",
+  "settingsRoadmapNotes": "Los ítems del vault usan el payload v4 de ADR-001: Argon2id deriva una KEK desde la master password, una DEK aleatoria abre la bóveda y cada ítem se sella con AES-256-GCM bajo su propia clave, con el ciphertext atado a su id de registro, id de clave de ítem, versión de clave de ítem e IV. Android recupera la DEK con biometría mediante una clave del KeyStore; iOS/macOS quedan pendientes.",
   "settingsSecureStorage": "Almacenamiento seguro",
   "settingsBiometricUnlock": "Recovery biométrico de clave",
   "settingsHardwareBackedKeys": "Claves con respaldo de hardware",
@@ -116,7 +116,7 @@
       "biometricLabel": {}
     }
   },
-  "securityBiometricUnavailable": "No detectamos biometría disponible. Igual vas a poder entrar con tu master password.",
+  "securityBiometricUnavailable": "El desbloqueo biométrico no está disponible: no hay biometría enrolled, o esta versión de Android no puede exigir una biometría. Igual vas a poder entrar con tu master password.",
   "securityCreateSecureAccess": "Crear acceso seguro al vault",
   "securityUnlockEyebrow": "Desbloquear",
   "securityUnlockTitle": "Tu vault queda cerrado hasta validar identidad real.",

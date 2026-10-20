@@ -155,7 +155,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsRoadmapTitle => 'Platform security roadmap';
 
   @override
-  String get settingsRoadmapNotes => 'Vault items use ADR-001 payload v3: Argon2id derives a KEK from the master password, a random DEK encrypts each entry with AES-256-GCM, and every ciphertext is bound to its record id and key id. Android recovers the DEK with biometrics through a KeyStore key; iOS/macOS bindings remain pending.';
+  String get settingsRoadmapNotes => 'Vault items use ADR-001 payload v4: Argon2id derives a KEK from the master password, a random DEK unlocks the vault, and every item is then sealed with AES-256-GCM under its own key, with the ciphertext bound to its record id, item key id, item key version and IV. Android recovers the DEK with biometrics through a KeyStore key; iOS/macOS bindings remain pending.';
 
   @override
   String get settingsSecureStorage => 'Secure storage';
@@ -302,7 +302,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get securityBiometricUnavailable => 'No biometrics detected. You can still unlock with your master password.';
+  String get securityBiometricUnavailable => 'Biometric unlock is unavailable: no biometrics are enrolled, or this Android version cannot require a biometric. You can still unlock with your master password.';
 
   @override
   String get securityCreateSecureAccess => 'Create secure vault access';
