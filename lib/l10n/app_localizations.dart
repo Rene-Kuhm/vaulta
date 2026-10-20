@@ -386,7 +386,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsRoadmapNotes.
   ///
   /// In en, this message translates to:
-  /// **'Vault items use ADR-001 v2: Argon2id derives a KEK from the master password, and a random DEK encrypts entries with AES-256-GCM. Android now uses KeyStore for biometric unlock; iOS/macOS bindings remain pending.'**
+  /// **'Vault items use ADR-001 payload v3: Argon2id derives a KEK from the master password, a random DEK encrypts each entry with AES-256-GCM, and every ciphertext is bound to its record id and key id. Android recovers the DEK with biometrics through a KeyStore key; iOS/macOS bindings remain pending.'**
   String get settingsRoadmapNotes;
 
   /// No description provided for @settingsSecureStorage.
@@ -1550,92 +1550,50 @@ abstract class AppLocalizations {
   /// No description provided for @accessTitle.
   ///
   /// In en, this message translates to:
-  /// **'Vault on every input'**
+  /// **'Autofill is on the way'**
   String get accessTitle;
 
   /// No description provided for @accessSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Set Vaulta as the system autofill provider and unlock your entries the moment a password field needs them.'**
+  /// **'Vaulta cannot fill passwords in other apps yet. This screen will walk you through the setup as soon as the Android autofill service ships.'**
   String get accessSubtitle;
 
   /// No description provided for @accessHeroTitle.
   ///
   /// In en, this message translates to:
-  /// **'One-tap autofill'**
+  /// **'Autofill: coming soon'**
   String get accessHeroTitle;
 
   /// No description provided for @accessHeroBody.
   ///
   /// In en, this message translates to:
-  /// **'Hardware-backed. Offline-first. No data leaves the device.'**
+  /// **'Until then, open the entry in Vaulta and copy the secret. Copied secrets are cleared from the clipboard automatically.'**
   String get accessHeroBody;
 
   /// No description provided for @accessPlatformAndroid.
   ///
   /// In en, this message translates to:
-  /// **'Android 11+'**
+  /// **'Android first'**
   String get accessPlatformAndroid;
 
-  /// No description provided for @accessPlatformBiometrics.
+  /// No description provided for @accessComingSoon.
   ///
   /// In en, this message translates to:
-  /// **'Biometric unlock'**
-  String get accessPlatformBiometrics;
+  /// **'Coming soon'**
+  String get accessComingSoon;
 
-  /// No description provided for @accessPlatformOffline.
+  /// No description provided for @accessStatusTitle.
   ///
   /// In en, this message translates to:
-  /// **'Offline by default'**
-  String get accessPlatformOffline;
+  /// **'Not available in this version'**
+  String get accessStatusTitle;
 
-  /// No description provided for @accessSetupTitle.
+  /// No description provided for @accessStatusBody.
   ///
   /// In en, this message translates to:
-  /// **'Setup in three steps'**
-  String get accessSetupTitle;
-
-  /// No description provided for @accessSetupSubtitle.
-  ///
-  /// In en, this message translates to:
-  /// **'On Android 11 and above the platform exposes an Autofill service that Vaulta can plug into.'**
-  String get accessSetupSubtitle;
-
-  /// No description provided for @accessSetupStep1Title.
-  ///
-  /// In en, this message translates to:
-  /// **'Open Android settings'**
-  String get accessSetupStep1Title;
-
-  /// No description provided for @accessSetupStep1Body.
-  ///
-  /// In en, this message translates to:
-  /// **'Go to System → Languages & input → Autofill service.'**
-  String get accessSetupStep1Body;
-
-  /// No description provided for @accessSetupStep2Title.
-  ///
-  /// In en, this message translates to:
-  /// **'Pick Vaulta'**
-  String get accessSetupStep2Title;
-
-  /// No description provided for @accessSetupStep2Body.
-  ///
-  /// In en, this message translates to:
-  /// **'Select Vaulta as the active service. Android will ask for confirmation.'**
-  String get accessSetupStep2Body;
-
-  /// No description provided for @accessSetupStep3Title.
-  ///
-  /// In en, this message translates to:
-  /// **'Unlock and approve'**
-  String get accessSetupStep3Title;
-
-  /// No description provided for @accessSetupStep3Body.
-  ///
-  /// In en, this message translates to:
-  /// **'Next time you tap a password field, Vaulta prompts for biometrics or master password and fills the right entry.'**
-  String get accessSetupStep3Body;
+  /// **'This build does not register an Android autofill service, so Vaulta will not appear under Settings → Autofill service yet. Nothing on this screen changes your system settings.'**
+  String get accessStatusBody;
 
   /// No description provided for @accessUnlockPostureTitle.
   ///
@@ -1646,7 +1604,7 @@ abstract class AppLocalizations {
   /// No description provided for @accessUnlockPostureBody.
   ///
   /// In en, this message translates to:
-  /// **'Autofill requests are gated by the same unlock state as the rest of the app.'**
+  /// **'When autofill ships, its requests will be gated by the same unlock state as the rest of the app.'**
   String get accessUnlockPostureBody;
 
   /// No description provided for @accessUnlocked.
@@ -1676,7 +1634,7 @@ abstract class AppLocalizations {
   /// No description provided for @accessRoadmapBody.
   ///
   /// In en, this message translates to:
-  /// **'iOS and desktop autofill ship after the biometric platform bindings (iOS/macOS) are in place.'**
+  /// **'Next up: a native Android autofill service that reuses this screen. iOS and desktop autofill come after it.'**
   String get accessRoadmapBody;
 }
 

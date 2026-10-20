@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:async';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../features/vault/domain/vault_item.dart';
 import '../../features/vault/domain/vault_summary.dart';
@@ -69,17 +70,38 @@ class LocalEncryptedVaultRepository implements VaultRepository {
   /// vault accepts after migration.
   static const currentItemPayloadVersion = 3;
 
-  /// Capability snapshot for the security screen. Marks vault
-  /// encryption as ready and explicitly notes that biometrics are
-  /// UX-only (not crypto-binding) on Android.
-  static const securityPlan = PlatformSecurityPlan(
-    secureStorage: true,
-    biometricUnlock: false,
-    hardwareBackedKeys: false,
-    vaultEncryptionReady: true,
-    notes:
-        'Los items del vault se guardan con formato v2: KEK Argon2id desde master password, DEK aleatoria por vault, DEK envuelta con AES-256-GCM y payloads AES-256-GCM. La DEK vive solo en memoria de sesion. Biometria queda como verificacion de UX y no desbloqueo criptografico porque local_auth no ata claves a hardware por si solo.',
-  );
+  /// Capability snapshot for the security screen on the current
+  /// platform. See [securityPlanFor].
+  static PlatformSecurityPlan get securityPlan =>
+      securityPlanFor(platform: defaultTargetPlatform, isWeb: kIsWeb);
+
+  /// Capability snapshot for [platform].
+  ///
+  /// On Android the app wires `AndroidKeystoreEnvelopeKeyProvider`
+  /// (see `password_manager_app.dart`): the DEK is wrapped under a seed
+  /// that is RSA-OAEP-encrypted by a KeyStore RSA-2048 key requiring a
+  /// fresh `BIOMETRIC_STRONG` prompt bound through a `CryptoObject`
+  /// (`MainActivity.kt`, `KeystoreChannel.kt`). Biometric unlock is
+  /// therefore a real key-recovery path backed by KeyStore keys. Every
+  /// other target uses a no-op envelope provider: the vault opens with
+  /// the master password only and no hardware-backed key is involved.
+  static PlatformSecurityPlan securityPlanFor({
+    required TargetPlatform platform,
+    bool isWeb = false,
+  }) {
+    final androidKeystore = !isWeb && platform == TargetPlatform.android;
+    const itemFormat =
+        'Items del vault en formato v3: KEK Argon2id desde la master password, DEK aleatoria por vault envuelta con AES-256-GCM, y cada item cifrado con AES-256-GCM usando como datos asociados (AAD) "vaulta:item:v3|<recordId>|<keyId>", asi un ciphertext no puede moverse a otro registro ni reutilizarse con otra clave. Tras migrar a v3 se rechazan payloads v1/v2. La DEK vive solo en memoria de sesion.';
+    return PlatformSecurityPlan(
+      secureStorage: true,
+      biometricUnlock: androidKeystore,
+      hardwareBackedKeys: androidKeystore,
+      vaultEncryptionReady: true,
+      notes: androidKeystore
+          ? '$itemFormat Desbloqueo biometrico: la DEK se recupera con una clave RSA-2048 del Android KeyStore que exige BIOMETRIC_STRONG con CryptoObject; el respaldo en TEE/StrongBox depende del dispositivo.'
+          : '$itemFormat En esta plataforma no hay desbloqueo biometrico ni claves con respaldo de hardware: el vault se abre solo con la master password.',
+    );
+  }
 
   final SecureStorageService _storage;
   final VaultCryptoService _cryptoService;

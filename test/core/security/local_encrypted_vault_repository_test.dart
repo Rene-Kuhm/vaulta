@@ -2,6 +2,7 @@
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:gestor_contrasenas/core/security/aes_gcm_vault_crypto_service.dart';
@@ -68,6 +69,41 @@ void main() {
       expect(firstPayload['payload']['alg'], 'AES-256-GCM');
       expect(firstPayload['payload']['nonce_b64'], isNotEmpty);
       expect(firstPayload['payload']['tag_b64'], isNotEmpty);
+    });
+
+    test('security plan matches the platform key-recovery path', () {
+      final android = LocalEncryptedVaultRepository.securityPlanFor(
+        platform: TargetPlatform.android,
+      );
+      expect(android.biometricUnlock, isTrue);
+      expect(android.hardwareBackedKeys, isTrue);
+      expect(android.vaultEncryptionReady, isTrue);
+      expect(android.notes, contains('v3'));
+      expect(android.notes, contains('KeyStore'));
+      expect(android.notes, isNot(contains('UX')));
+
+      for (final platform in [
+        TargetPlatform.windows,
+        TargetPlatform.linux,
+        TargetPlatform.macOS,
+        TargetPlatform.iOS,
+      ]) {
+        final plan = LocalEncryptedVaultRepository.securityPlanFor(
+          platform: platform,
+        );
+        expect(plan.biometricUnlock, isFalse, reason: '$platform');
+        expect(plan.hardwareBackedKeys, isFalse, reason: '$platform');
+        expect(plan.secureStorage, isTrue, reason: '$platform');
+        expect(plan.notes, contains('master password'), reason: '$platform');
+      }
+
+      // The web build never wires the KeyStore provider.
+      final web = LocalEncryptedVaultRepository.securityPlanFor(
+        platform: TargetPlatform.android,
+        isWeb: true,
+      );
+      expect(web.biometricUnlock, isFalse);
+      expect(web.hardwareBackedKeys, isFalse);
     });
 
     test('fails when no vault session is available', () async {

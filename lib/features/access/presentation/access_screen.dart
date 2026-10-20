@@ -7,14 +7,15 @@ import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../core/security/vault_repository.dart';
 import '../../../core/security/vault_security_controller.dart';
-import '../../../l10n/app_localizations.dart';
 
 /// Access & Autofill section.
 ///
-/// The platform-level AutofillService integration lives in
-/// `android/app/src/main/.../AutofillService.kt`; this screen is
-/// the in-app control center: it explains the setup, walks the
-/// user through the platform settings, and shows the unlock state.
+/// System autofill is not implemented yet: no Android
+/// `AutofillService` is registered in the manifest, so Vaulta cannot
+/// be picked as the system autofill provider. Until it is, this screen
+/// says so plainly ("coming soon"), explains the interim copy flow,
+/// and shows the unlock state. The native Android autofill service is
+/// the next feature and will reuse this screen for its setup steps.
 class AccessScreen extends StatelessWidget {
   /// Creates the "Access & Autofill" tab. Both [securityController]
   /// and [repository] are required so this tab never silently
@@ -56,33 +57,23 @@ class AccessScreen extends StatelessWidget {
             _AutofillHeroCard(),
             const SizedBox(height: AppSpacing.lg),
             AppPanel(
+              key: const ValueKey('access-autofill-status'),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    l10n.accessSetupTitle,
+                    l10n.accessStatusTitle,
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
                   ),
                   const SizedBox(height: AppSpacing.xs),
                   Text(
-                    l10n.accessSetupSubtitle,
+                    l10n.accessStatusBody,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
-                  const SizedBox(height: AppSpacing.md),
-                  for (var i = 0;
-                      i < _setupSteps(l10n).length;
-                      i++) ...[
-                    if (i != 0) const Divider(height: AppSpacing.lg),
-                    _SetupStepRow(
-                      step: i + 1,
-                      title: _setupSteps(l10n)[i].$1,
-                      body: _setupSteps(l10n)[i].$2,
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -212,18 +203,13 @@ class _AutofillHeroCard extends StatelessWidget {
             runSpacing: AppSpacing.xs,
             children: [
               AppPill(
+                icon: Icons.schedule_rounded,
+                label: l10n.accessComingSoon,
+                tint: AppPillTint.warning,
+              ),
+              AppPill(
                 icon: Icons.android_rounded,
                 label: l10n.accessPlatformAndroid,
-                tint: AppPillTint.crimson,
-              ),
-              AppPill(
-                icon: Icons.shield_moon_rounded,
-                label: l10n.accessPlatformBiometrics,
-                tint: AppPillTint.success,
-              ),
-              AppPill(
-                icon: Icons.cloud_off_rounded,
-                label: l10n.accessPlatformOffline,
                 tint: AppPillTint.neutral,
               ),
             ],
@@ -232,72 +218,4 @@ class _AutofillHeroCard extends StatelessWidget {
       ),
     );
   }
-}
-
-class _SetupStepRow extends StatelessWidget {
-  const _SetupStepRow({
-    required this.step,
-    required this.title,
-    required this.body,
-  });
-
-  final int step;
-  final String title;
-  final String body;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: AppColors.crimson,
-            borderRadius: BorderRadius.circular(AppSpacing.radiusFull),
-          ),
-          child: Text(
-            '$step',
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: AppColors.paperDark,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                title,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                body,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-List<(String, String)> _setupSteps(AppLocalizations l10n) {
-  return [
-    (l10n.accessSetupStep1Title, l10n.accessSetupStep1Body),
-    (l10n.accessSetupStep2Title, l10n.accessSetupStep2Body),
-    (l10n.accessSetupStep3Title, l10n.accessSetupStep3Body),
-  ];
 }

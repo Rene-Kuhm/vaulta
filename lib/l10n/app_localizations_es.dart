@@ -155,7 +155,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get settingsRoadmapTitle => 'Roadmap de seguridad de plataforma';
 
   @override
-  String get settingsRoadmapNotes => 'Los ítems del vault usan ADR-001 v2: Argon2id deriva una KEK desde la master password y una DEK aleatoria cifra entradas con AES-256-GCM. Android ya usa KeyStore para desbloqueo biométrico; iOS/macOS quedan pendientes.';
+  String get settingsRoadmapNotes => 'Los ítems del vault usan el payload v3 de ADR-001: Argon2id deriva una KEK desde la master password, una DEK aleatoria cifra cada entrada con AES-256-GCM y cada ciphertext queda atado a su id de registro y a su id de clave. Android recupera la DEK con biometría mediante una clave del KeyStore; iOS/macOS quedan pendientes.';
 
   @override
   String get settingsSecureStorage => 'Almacenamiento seguro';
@@ -779,55 +779,34 @@ class AppLocalizationsEs extends AppLocalizations {
   String get accessEyebrow => 'Autofill y acceso';
 
   @override
-  String get accessTitle => 'Tu vault en cada input';
+  String get accessTitle => 'El autofill está en camino';
 
   @override
-  String get accessSubtitle => 'Configurá Vaulta como proveedor de autofill del sistema y desbloqueá tus entradas en el momento que un campo de password las necesita.';
+  String get accessSubtitle => 'Vaulta todavía no puede completar contraseñas en otras apps. Esta pantalla te va a guiar en la configuración apenas salga el servicio de autofill para Android.';
 
   @override
-  String get accessHeroTitle => 'Autofill en un toque';
+  String get accessHeroTitle => 'Autofill: próximamente';
 
   @override
-  String get accessHeroBody => 'Respaldado por hardware. Offline por defecto. Nada sale del dispositivo.';
+  String get accessHeroBody => 'Mientras tanto, abrí la entrada en Vaulta y copiá el secreto. Los secretos copiados se borran del portapapeles automáticamente.';
 
   @override
-  String get accessPlatformAndroid => 'Android 11+';
+  String get accessPlatformAndroid => 'Primero en Android';
 
   @override
-  String get accessPlatformBiometrics => 'Desbloqueo biométrico';
+  String get accessComingSoon => 'Próximamente';
 
   @override
-  String get accessPlatformOffline => 'Offline por defecto';
+  String get accessStatusTitle => 'No disponible en esta versión';
 
   @override
-  String get accessSetupTitle => 'Configuracion en tres pasos';
-
-  @override
-  String get accessSetupSubtitle => 'En Android 11 y superiores el sistema expone un servicio de Autofill al que Vaulta se puede conectar.';
-
-  @override
-  String get accessSetupStep1Title => 'Abrí Ajustes de Android';
-
-  @override
-  String get accessSetupStep1Body => 'Andá a Sistema → Idiomas y entrada → Servicio de Autofill.';
-
-  @override
-  String get accessSetupStep2Title => 'Elegí Vaulta';
-
-  @override
-  String get accessSetupStep2Body => 'Seleccioná Vaulta como servicio activo. Android va a pedir confirmacion.';
-
-  @override
-  String get accessSetupStep3Title => 'Desbloqueá y aprobá';
-
-  @override
-  String get accessSetupStep3Body => 'La próxima vez que toques un campo de password, Vaulta pide biometria o master password y completa la entrada correcta.';
+  String get accessStatusBody => 'Esta versión no registra un servicio de autofill de Android, así que Vaulta todavía no aparece en Ajustes → Servicio de Autofill. Nada en esta pantalla cambia los ajustes del sistema.';
 
   @override
   String get accessUnlockPostureTitle => 'Postura de desbloqueo';
 
   @override
-  String get accessUnlockPostureBody => 'Las solicitudes de autofill usan el mismo estado de desbloqueo que el resto de la app.';
+  String get accessUnlockPostureBody => 'Cuando salga el autofill, sus solicitudes van a usar el mismo estado de desbloqueo que el resto de la app.';
 
   @override
   String get accessUnlocked => 'Vault desbloqueado';
@@ -842,5 +821,5 @@ class AppLocalizationsEs extends AppLocalizations {
   String get accessRoadmapTitle => 'Lo que viene';
 
   @override
-  String get accessRoadmapBody => 'El autofill de iOS y desktop sale despues de los bindings biometricos (iOS/macOS) que faltan.';
+  String get accessRoadmapBody => 'Lo próximo: un servicio nativo de autofill para Android que reutiliza esta pantalla. El autofill de iOS y desktop viene después.';
 }
