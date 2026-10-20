@@ -3,8 +3,13 @@ name: Build signed dev APK and publish to GitHub Releases
 # Rebuilds the signed APK on every push to master and overwrites the
 # `dev-latest` GitHub Release with the new asset. The native
 # UpdateChannel queries api.github.com/repos/<owner>/<repo>/releases
-# /tags/dev-latest, so this single tag acts as the "rolling latest"
-# channel for internal testing.
+# /tags/dev-latest only when the user opts into the dev channel in
+# Settings; by default the app follows /releases/latest (stable tags
+# cut by release.yml). The dev-latest release is therefore marked as
+# a pre-release so it never becomes "Latest".
+#
+# A SHA256SUMS asset is uploaded next to the APK: the in-app updater
+# refuses to install any APK whose SHA-256 is not listed there.
 #
 # The APK must keep the same signing key across builds or Android
 # will reject in-place updates. This workflow therefore requires the
@@ -81,6 +86,9 @@ jobs:
           cp "$APK" "$PUBLISH_APK"
           echo "apk_path=$PUBLISH_APK" >> "$GITHUB_OUTPUT"
           echo "apk_size=$(stat -c %s "$PUBLISH_APK")" >> "$GITHUB_OUTPUT"
+          (cd "$(dirname "$PUBLISH_APK")" && sha256sum vaulta.apk > SHA256SUMS)
+          echo "sums_path=$(dirname "$PUBLISH_APK")/SHA256SUMS" >> "$GITHUB_OUTPUT"
+          cat "$(dirname "$PUBLISH_APK")/SHA256SUMS"
 
       - name: Compute changelog
         id: changelog
@@ -119,7 +127,9 @@ jobs:
           GH_TOKEN: ${{ secrets.VAULTA_RELEASE_TOKEN || github.token }}
         run: |
           cat > release-notes.md <<'EOF'
-          Aplicacion oficial de Vaulta para Android.
+          Build de desarrollo (canal dev) de Vaulta para Android.
+          No es una version estable: la app solo la ofrece si activas
+          el canal dev en Ajustes > Actualizaciones.
 
           Vaulta version: ${{ steps.app_version.outputs.version }}
           Archivo de instalacion: `vaulta.apk`
@@ -137,13 +147,16 @@ jobs:
           ${{ steps.changelog.outputs.changelog }}
           EOF
 
-          gh release upload dev-latest "${{ steps.apk.outputs.apk_path }}" \
+          gh release upload dev-latest \
+            "${{ steps.apk.outputs.apk_path }}" \
+            "${{ steps.apk.outputs.sums_path }}" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
           gh release edit dev-latest \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Vaulta para Android" \
+            --title "Vaulta para Android (dev)" \
             --notes-file release-notes.md \
             --draft=false \
-            --prerelease=false
+            --prerelease \
+            --latest=false

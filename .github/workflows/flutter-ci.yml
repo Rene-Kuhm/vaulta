@@ -35,3 +35,25 @@ jobs:
         # Baseline 52.4% (medido 2026-06-11). Umbral inicial 50% con plan
         # trimestral de subida (ver docs/architecture/ADR-005-repo-hygiene.md).
         run: bash scripts/check_coverage.sh coverage/lcov.info lib/core/security 50
+
+  build-windows:
+    # Build-only smoke test so Windows-specific breakage (plugins,
+    # CMake, runner) is caught on the PR instead of at release time.
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows release
+        run: flutter build windows --release
