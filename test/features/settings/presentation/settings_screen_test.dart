@@ -13,7 +13,47 @@ import 'package:gestor_contrasenas/core/sync/device_session_revocation_service.d
 import 'package:gestor_contrasenas/features/settings/presentation/settings_screen.dart';
 import 'package:gestor_contrasenas/l10n/app_localizations.dart';
 
+import '../../backup/backup_test_support.dart' show InMemoryVaultRepository;
+
 void main() {
+  group('SettingsScreen backup section', () {
+    testWidgets('renders only when a repository is provided', (tester) async {
+      final controller = await _buildUnlockedController();
+      final localeController = AppLocaleController(
+        storage: _InMemorySecureStorageService(),
+      );
+      await localeController.initialize();
+      addTearDown(controller.dispose);
+      _setLargeViewport(tester);
+
+      await tester.pumpWidget(
+        _testApp(
+          SettingsScreen(
+            securityController: controller,
+            localeController: localeController,
+          ),
+        ),
+      );
+      await _pumpUi(tester);
+      expect(find.text('Encrypted backup'), findsNothing);
+
+      await tester.pumpWidget(
+        _testApp(
+          SettingsScreen(
+            key: const ValueKey('with-repository'),
+            securityController: controller,
+            localeController: localeController,
+            repository: InMemoryVaultRepository(),
+          ),
+        ),
+      );
+      await _pumpUi(tester);
+      expect(find.text('Encrypted backup'), findsOneWidget);
+      expect(find.text('Export backup'), findsOneWidget);
+      expect(find.text('Restore backup'), findsOneWidget);
+    });
+  });
+
   group('SettingsScreen change master password', () {
     testWidgets('updates master password and closes dialog on success', (
       tester,

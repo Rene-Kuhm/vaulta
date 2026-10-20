@@ -167,6 +167,7 @@ class _AppShellState extends State<AppShell> {
         conflictResolver: widget.conflictResolver,
         revocationService: widget.revocationService,
         secureStorage: widget.secureStorage,
+        repository: widget.repository,
       ),
     ];
 

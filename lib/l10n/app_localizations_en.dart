@@ -837,4 +837,151 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get accessRoadmapBody => 'iOS and desktop autofill ship after the biometric platform bindings (iOS/macOS) are in place.';
+
+  @override
+  String get backupSectionTitle => 'Encrypted backup';
+
+  @override
+  String get backupSectionSubtitle => 'Export your vault to an encrypted .vaulta file so you can restore it on a new device. Keep the file somewhere other than this device.';
+
+  @override
+  String get backupExportAction => 'Export backup';
+
+  @override
+  String get backupRestoreAction => 'Restore backup';
+
+  @override
+  String get backupExportTitle => 'Export encrypted backup';
+
+  @override
+  String get backupReauthBody => 'Re-enter your master password to export the vault.';
+
+  @override
+  String get backupMasterPasswordLabel => 'Master password';
+
+  @override
+  String get backupContinue => 'Continue';
+
+  @override
+  String get backupMasterPasswordMismatch => 'The master password does not match.';
+
+  @override
+  String backupItemCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'The backup will contain $count entries.',
+      one: 'The backup will contain 1 entry.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupPasswordLabel => 'Backup password';
+
+  @override
+  String get backupPasswordConfirmLabel => 'Confirm backup password';
+
+  @override
+  String get backupPasswordHint => 'At least 12 characters, mixing upper and lower case letters, numbers and symbols.';
+
+  @override
+  String get backupPasswordWarning => 'Vaulta cannot recover the backup password. If you forget it, nobody can open this backup, not even you.';
+
+  @override
+  String backupPasswordTooShort(int min) {
+    return 'Use at least $min characters.';
+  }
+
+  @override
+  String get backupPasswordWeak => 'Combine upper and lower case letters, numbers and symbols.';
+
+  @override
+  String get backupPasswordMismatch => 'The confirmation does not match the backup password.';
+
+  @override
+  String get backupCreateAction => 'Create backup';
+
+  @override
+  String get backupSaveAgain => 'Save file';
+
+  @override
+  String get backupSaveCancelled => 'Saving was cancelled. No file was written.';
+
+  @override
+  String get backupExportSuccess => 'Encrypted backup saved.';
+
+  @override
+  String get backupExportFailed => 'The backup could not be created. Try again.';
+
+  @override
+  String get backupReauthExpired => 'Your confirmation expired. Start the export again.';
+
+  @override
+  String get backupRestoreTitle => 'Restore backup';
+
+  @override
+  String get backupRestoreIntro => 'Pick a .vaulta file and enter its backup password. Nothing is written to your vault until you confirm.';
+
+  @override
+  String get backupPickFile => 'Choose backup file';
+
+  @override
+  String get backupPickFailed => 'The file could not be opened.';
+
+  @override
+  String get backupUnlockAction => 'Open backup';
+
+  @override
+  String get backupOpenFailed => 'The backup could not be opened. Check the backup password; the file may also be damaged or modified.';
+
+  @override
+  String get backupUnsupportedVersion => 'This backup was made by a newer version of Vaulta. Update the app and try again.';
+
+  @override
+  String get backupPreviewTitle => 'Backup contents';
+
+  @override
+  String backupPreviewCreatedAt(String date) {
+    return 'Created $date';
+  }
+
+  @override
+  String backupPreviewSummary(int total, int fresh, int conflicts, int duplicates) {
+    return '$total entries: $fresh new, $conflicts kept next to a similar entry, $duplicates already in your vault.';
+  }
+
+  @override
+  String get backupConflictSuffix => ' (restored)';
+
+  @override
+  String backupRestoreConfirm(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Restore $count entries',
+      one: 'Restore 1 entry',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupRestoreNothing => 'Every entry in this backup is already in your vault.';
+
+  @override
+  String backupRestoreSuccess(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Restored $count entries.',
+      one: 'Restored 1 entry.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupRestoreFailed => 'The restore was interrupted. Entries written before the error were kept.';
+
+  @override
+  String get backupRestoreLocked => 'Unlock Vaulta to restore a backup.';
 }

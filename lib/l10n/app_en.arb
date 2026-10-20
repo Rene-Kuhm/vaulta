@@ -371,5 +371,96 @@
   "accessLocked": "Vault is locked",
   "accessLockNow": "Lock vault now",
   "accessRoadmapTitle": "What's next",
-  "accessRoadmapBody": "iOS and desktop autofill ship after the biometric platform bindings (iOS/macOS) are in place."
+  "accessRoadmapBody": "iOS and desktop autofill ship after the biometric platform bindings (iOS/macOS) are in place.",
+
+  "backupSectionTitle": "Encrypted backup",
+  "backupSectionSubtitle": "Export your vault to an encrypted .vaulta file so you can restore it on a new device. Keep the file somewhere other than this device.",
+  "backupExportAction": "Export backup",
+  "backupRestoreAction": "Restore backup",
+  "backupExportTitle": "Export encrypted backup",
+  "backupReauthBody": "Re-enter your master password to export the vault.",
+  "backupMasterPasswordLabel": "Master password",
+  "backupContinue": "Continue",
+  "backupMasterPasswordMismatch": "The master password does not match.",
+  "backupItemCount": "{count, plural, =1{The backup will contain 1 entry.} other{The backup will contain {count} entries.}}",
+  "@backupItemCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupPasswordLabel": "Backup password",
+  "backupPasswordConfirmLabel": "Confirm backup password",
+  "backupPasswordHint": "At least 12 characters, mixing upper and lower case letters, numbers and symbols.",
+  "backupPasswordWarning": "Vaulta cannot recover the backup password. If you forget it, nobody can open this backup, not even you.",
+  "backupPasswordTooShort": "Use at least {min} characters.",
+  "@backupPasswordTooShort": {
+    "placeholders": {
+      "min": {
+        "type": "int"
+      }
+    }
+  },
+  "backupPasswordWeak": "Combine upper and lower case letters, numbers and symbols.",
+  "backupPasswordMismatch": "The confirmation does not match the backup password.",
+  "backupCreateAction": "Create backup",
+  "backupSaveAgain": "Save file",
+  "backupSaveCancelled": "Saving was cancelled. No file was written.",
+  "backupExportSuccess": "Encrypted backup saved.",
+  "backupExportFailed": "The backup could not be created. Try again.",
+  "backupReauthExpired": "Your confirmation expired. Start the export again.",
+  "backupRestoreTitle": "Restore backup",
+  "backupRestoreIntro": "Pick a .vaulta file and enter its backup password. Nothing is written to your vault until you confirm.",
+  "backupPickFile": "Choose backup file",
+  "backupPickFailed": "The file could not be opened.",
+  "backupUnlockAction": "Open backup",
+  "backupOpenFailed": "The backup could not be opened. Check the backup password; the file may also be damaged or modified.",
+  "backupUnsupportedVersion": "This backup was made by a newer version of Vaulta. Update the app and try again.",
+  "backupPreviewTitle": "Backup contents",
+  "backupPreviewCreatedAt": "Created {date}",
+  "@backupPreviewCreatedAt": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "backupPreviewSummary": "{total} entries: {fresh} new, {conflicts} kept next to a similar entry, {duplicates} already in your vault.",
+  "@backupPreviewSummary": {
+    "placeholders": {
+      "total": {
+        "type": "int"
+      },
+      "fresh": {
+        "type": "int"
+      },
+      "conflicts": {
+        "type": "int"
+      },
+      "duplicates": {
+        "type": "int"
+      }
+    }
+  },
+  "backupConflictSuffix": " (restored)",
+  "backupRestoreConfirm": "{count, plural, =1{Restore 1 entry} other{Restore {count} entries}}",
+  "@backupRestoreConfirm": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupRestoreNothing": "Every entry in this backup is already in your vault.",
+  "backupRestoreSuccess": "{count, plural, =1{Restored 1 entry.} other{Restored {count} entries.}}",
+  "@backupRestoreSuccess": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupRestoreFailed": "The restore was interrupted. Entries written before the error were kept.",
+  "backupRestoreLocked": "Unlock Vaulta to restore a backup."
 }
