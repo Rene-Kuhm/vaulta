@@ -3,8 +3,13 @@ name: Build signed dev APK and publish to GitHub Releases
 # Rebuilds the signed APK on every push to master and overwrites the
 # `dev-latest` GitHub Release with the new asset. The native
 # UpdateChannel queries api.github.com/repos/<owner>/<repo>/releases
-# /tags/dev-latest, so this single tag acts as the "rolling latest"
-# channel for internal testing.
+# /tags/dev-latest only when the user opts into the dev channel in
+# Settings; by default the app follows /releases/latest (stable tags
+# cut by release.yml). The dev-latest release is therefore marked as
+# a pre-release so it never becomes "Latest".
+#
+# A SHA256SUMS asset is uploaded next to the APK: the in-app updater
+# refuses to install any APK whose SHA-256 is not listed there.
 #
 # The APK must keep the same signing key across builds or Android
 # will reject in-place updates. This workflow therefore requires the
@@ -30,21 +35,26 @@ jobs:
   build-and-release:
     name: Build APK + publish to dev-latest
     runs-on: ubuntu-latest
+    # Lets the owner scope the signing secrets to an environment that
+    # only the master branch can deploy to (see docs/release-process.md).
+    # Until the secrets are moved there, repository secrets still apply.
+    environment: dev
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: '17'
           cache: gradle
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
+          flutter-version: 3.47.7
           cache: true
 
       - name: Install dependencies
@@ -53,24 +63,39 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
+      # Secrets are passed through env and referenced as "$VAR" so they
+      # are never interpolated into the script text. The keystore lives
+      # in $RUNNER_TEMP (outside the checkout) and is always deleted.
       - name: Validate signing secrets
+        env:
+          VAULTA_UPLOAD_KEYSTORE_BASE64: ${{ secrets.VAULTA_UPLOAD_KEYSTORE_BASE64 }}
+          VAULTA_UPLOAD_STORE_PASSWORD: ${{ secrets.VAULTA_UPLOAD_STORE_PASSWORD }}
+          VAULTA_UPLOAD_KEY_ALIAS: ${{ secrets.VAULTA_UPLOAD_KEY_ALIAS }}
+          VAULTA_UPLOAD_KEY_PASSWORD: ${{ secrets.VAULTA_UPLOAD_KEY_PASSWORD }}
         run: |
-          test -n "${{ secrets.VAULTA_UPLOAD_KEYSTORE_BASE64 }}" || (echo "Missing VAULTA_UPLOAD_KEYSTORE_BASE64" && exit 1)
-          test -n "${{ secrets.VAULTA_UPLOAD_STORE_PASSWORD }}" || (echo "Missing VAULTA_UPLOAD_STORE_PASSWORD" && exit 1)
-          test -n "${{ secrets.VAULTA_UPLOAD_KEY_ALIAS }}" || (echo "Missing VAULTA_UPLOAD_KEY_ALIAS" && exit 1)
-          test -n "${{ secrets.VAULTA_UPLOAD_KEY_PASSWORD }}" || (echo "Missing VAULTA_UPLOAD_KEY_PASSWORD" && exit 1)
+          test -n "$VAULTA_UPLOAD_KEYSTORE_BASE64" || { echo "Missing VAULTA_UPLOAD_KEYSTORE_BASE64"; exit 1; }
+          test -n "$VAULTA_UPLOAD_STORE_PASSWORD" || { echo "Missing VAULTA_UPLOAD_STORE_PASSWORD"; exit 1; }
+          test -n "$VAULTA_UPLOAD_KEY_ALIAS" || { echo "Missing VAULTA_UPLOAD_KEY_ALIAS"; exit 1; }
+          test -n "$VAULTA_UPLOAD_KEY_PASSWORD" || { echo "Missing VAULTA_UPLOAD_KEY_PASSWORD"; exit 1; }
 
       - name: Restore signing keystore
+        env:
+          VAULTA_UPLOAD_KEYSTORE_BASE64: ${{ secrets.VAULTA_UPLOAD_KEYSTORE_BASE64 }}
         run: |
-          echo "${{ secrets.VAULTA_UPLOAD_KEYSTORE_BASE64 }}" | base64 --decode > android/upload-keystore.jks
+          umask 077
+          printf '%s' "$VAULTA_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload-keystore.jks"
 
       - name: Build signed APK
         env:
-          VAULTA_UPLOAD_STORE_FILE: upload-keystore.jks
+          VAULTA_UPLOAD_STORE_FILE: ${{ runner.temp }}/upload-keystore.jks
           VAULTA_UPLOAD_STORE_PASSWORD: ${{ secrets.VAULTA_UPLOAD_STORE_PASSWORD }}
           VAULTA_UPLOAD_KEY_ALIAS: ${{ secrets.VAULTA_UPLOAD_KEY_ALIAS }}
           VAULTA_UPLOAD_KEY_PASSWORD: ${{ secrets.VAULTA_UPLOAD_KEY_PASSWORD }}
         run: flutter build apk --release
+
+      - name: Remove signing keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload-keystore.jks"
 
       - name: Resolve APK path
         id: apk
@@ -80,6 +105,9 @@ jobs:
           cp "$APK" "$PUBLISH_APK"
           echo "apk_path=$PUBLISH_APK" >> "$GITHUB_OUTPUT"
           echo "apk_size=$(stat -c %s "$PUBLISH_APK")" >> "$GITHUB_OUTPUT"
+          (cd "$(dirname "$PUBLISH_APK")" && sha256sum vaulta.apk > SHA256SUMS)
+          echo "sums_path=$(dirname "$PUBLISH_APK")/SHA256SUMS" >> "$GITHUB_OUTPUT"
+          cat "$(dirname "$PUBLISH_APK")/SHA256SUMS"
 
       - name: Compute changelog
         id: changelog
@@ -118,7 +146,9 @@ jobs:
           GH_TOKEN: ${{ secrets.VAULTA_RELEASE_TOKEN || github.token }}
         run: |
           cat > release-notes.md <<'EOF'
-          Aplicacion oficial de Vaulta para Android.
+          Build de desarrollo (canal dev) de Vaulta para Android.
+          No es una version estable: la app solo la ofrece si activas
+          el canal dev en Ajustes > Actualizaciones.
 
           Vaulta version: ${{ steps.app_version.outputs.version }}
           Archivo de instalacion: `vaulta.apk`
@@ -136,13 +166,16 @@ jobs:
           ${{ steps.changelog.outputs.changelog }}
           EOF
 
-          gh release upload dev-latest "${{ steps.apk.outputs.apk_path }}" \
+          gh release upload dev-latest \
+            "${{ steps.apk.outputs.apk_path }}" \
+            "${{ steps.apk.outputs.sums_path }}" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
           gh release edit dev-latest \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Vaulta para Android" \
+            --title "Vaulta para Android (dev)" \
             --notes-file release-notes.md \
             --draft=false \
-            --prerelease=false
+            --prerelease \
+            --latest=false

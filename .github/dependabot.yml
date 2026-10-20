@@ -1,0 +1,29 @@
+# Weekly dependency update PRs. Every PR still has to pass Flutter CI
+# (analyze, tests, coverage gate, Windows build) before merging.
+version: 2
+updates:
+  - package-ecosystem: pub
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build(deps)
+
+  - package-ecosystem: gradle
+    directory: /android
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build(deps)
+
+  # Actions are pinned to full commit SHAs; Dependabot bumps the SHA
+  # and the trailing version comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: ci(deps)

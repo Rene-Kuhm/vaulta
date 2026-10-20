@@ -1,0 +1,271 @@
+name: Release
+
+# Cuts a stable release when a `vX.Y.Z` tag is pushed.
+#
+# Pipeline:
+#   1. verify   - the tag must equal the pubspec version name and the
+#                 CHANGELOG must contain a section for it.
+#   2. android  - analyze + test, then build the signed release APK
+#                 with the same VAULTA_UPLOAD_* secrets used by
+#                 dev-apk-release.yml (same key => in-place updates).
+#   3. windows  - build the Windows release bundle and zip it with the
+#                 executable renamed to `vaulta.exe`.
+#   4. publish  - generate SHA256SUMS over every asset and create the
+#                 GitHub Release with the CHANGELOG section as notes.
+#
+# The in-app updater reads /releases/latest and refuses any APK whose
+# SHA-256 is not listed in the release's SHA256SUMS, so publishing
+# without that file would break updates by design.
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  verify:
+    name: Verify tag matches pubspec
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      version_name: ${{ steps.version.outputs.version_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      # Only commits already merged to master (i.e. reviewed through a
+      # PR with green CI) may become a stable release.
+      - name: Require tagged commit to be on master
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "::error::Tagged commit $GITHUB_SHA is not on origin/master; refusing to release"
+            exit 1
+          fi
+
+      - name: Compare tag with pubspec version
+        id: version
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          test -n "$VERSION" || { echo "Could not read pubspec version"; exit 1; }
+          VERSION_NAME="${VERSION%%+*}"
+          if [ "v${VERSION_NAME}" != "$TAG" ]; then
+            echo "::error::Tag $TAG does not match pubspec version $VERSION (expected v${VERSION_NAME})"
+            exit 1
+          fi
+          if ! grep -q "^## \[${VERSION_NAME}\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [${VERSION_NAME}]' section"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+
+  android:
+    name: Build signed APK
+    needs: verify
+    runs-on: ubuntu-latest
+    # Signing secrets live in the `release` environment, which requires
+    # a reviewer's approval (see docs/release-process.md).
+    environment: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      # Secrets are passed through env and referenced as "$VAR" so they
+      # are never interpolated into the script text. The keystore lives
+      # in $RUNNER_TEMP (outside the checkout) and is always deleted.
+      - name: Validate signing secrets
+        env:
+          VAULTA_UPLOAD_KEYSTORE_BASE64: ${{ secrets.VAULTA_UPLOAD_KEYSTORE_BASE64 }}
+          VAULTA_UPLOAD_STORE_PASSWORD: ${{ secrets.VAULTA_UPLOAD_STORE_PASSWORD }}
+          VAULTA_UPLOAD_KEY_ALIAS: ${{ secrets.VAULTA_UPLOAD_KEY_ALIAS }}
+          VAULTA_UPLOAD_KEY_PASSWORD: ${{ secrets.VAULTA_UPLOAD_KEY_PASSWORD }}
+        run: |
+          test -n "$VAULTA_UPLOAD_KEYSTORE_BASE64" || { echo "Missing VAULTA_UPLOAD_KEYSTORE_BASE64"; exit 1; }
+          test -n "$VAULTA_UPLOAD_STORE_PASSWORD" || { echo "Missing VAULTA_UPLOAD_STORE_PASSWORD"; exit 1; }
+          test -n "$VAULTA_UPLOAD_KEY_ALIAS" || { echo "Missing VAULTA_UPLOAD_KEY_ALIAS"; exit 1; }
+          test -n "$VAULTA_UPLOAD_KEY_PASSWORD" || { echo "Missing VAULTA_UPLOAD_KEY_PASSWORD"; exit 1; }
+
+      - name: Restore signing keystore
+        env:
+          VAULTA_UPLOAD_KEYSTORE_BASE64: ${{ secrets.VAULTA_UPLOAD_KEYSTORE_BASE64 }}
+        run: |
+          umask 077
+          printf '%s' "$VAULTA_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload-keystore.jks"
+
+      - name: Build signed APK
+        env:
+          VAULTA_UPLOAD_STORE_FILE: ${{ runner.temp }}/upload-keystore.jks
+          VAULTA_UPLOAD_STORE_PASSWORD: ${{ secrets.VAULTA_UPLOAD_STORE_PASSWORD }}
+          VAULTA_UPLOAD_KEY_ALIAS: ${{ secrets.VAULTA_UPLOAD_KEY_ALIAS }}
+          VAULTA_UPLOAD_KEY_PASSWORD: ${{ secrets.VAULTA_UPLOAD_KEY_PASSWORD }}
+        run: flutter build apk --release
+
+      - name: Remove signing keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload-keystore.jks"
+
+      - name: Verify APK signature
+        run: |
+          set -euo pipefail
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+          test -n "$APKSIGNER" || { echo "::error::apksigner not found"; exit 1; }
+          "$APKSIGNER" verify --print-certs "$APK" | tee apksigner.txt
+          if grep -q "CN=Android Debug" apksigner.txt; then
+            echo "::error::Release APK is signed with the debug key"
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$APK" dist/vaulta.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android
+          path: dist/vaulta.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: Build Windows bundle
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Package bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bundle = 'build/windows/x64/runner/Release'
+          if (-not (Test-Path "$bundle/gestor_contrasenas.exe")) {
+            throw "Expected $bundle/gestor_contrasenas.exe after flutter build windows"
+          }
+          Rename-Item "$bundle/gestor_contrasenas.exe" 'vaulta.exe'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path "$bundle/*" -DestinationPath 'dist/vaulta-windows-bundle.zip'
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows
+          path: dist/vaulta-windows-bundle.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: [verify, android, windows]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          sha256sum vaulta.apk vaulta-windows-bundle.zip > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Extract release notes from CHANGELOG
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          VERSION_NAME: ${{ needs.verify.outputs.version_name }}
+        run: |
+          set -euo pipefail
+          SECTION=$(awk -v v="$VERSION_NAME" '
+            index($0, "## [" v "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md)
+          test -n "$SECTION" || { echo "::error::Empty CHANGELOG section for $VERSION_NAME"; exit 1; }
+          {
+            # The in-app updater parses this line to compare builds.
+            echo "Version: ${VERSION}"
+            echo
+            echo "$SECTION"
+            echo
+            echo "## Verify downloads"
+            echo
+            echo "Every asset is listed in \`SHA256SUMS\`. Verify with:"
+            echo
+            echo '```'
+            echo 'sha256sum --check --ignore-missing SHA256SUMS'
+            echo '```'
+          } > release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.VAULTA_RELEASE_TOKEN || github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/vaulta.apk \
+            dist/vaulta-windows-bundle.zip \
+            dist/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "Vaulta $GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
+            --latest
