@@ -21,6 +21,12 @@ import 'package:flutter/services.dart';
 /// current clip is someone else's. That is what makes the timer work
 /// after the user switches apps to paste.
 ///
+/// On Android the Dart timer is the foreground path; the native side
+/// also arms an inexact AlarmManager alarm for the same delay because
+/// Android 12+ freezes cached apps and the Dart timer may not fire
+/// until the user returns. Both paths are idempotent: whichever runs
+/// first clears, and the other finds nothing pending.
+///
 /// The app shares a single instance, [shared], so the screen that
 /// copies and the controller that locks act on the same pending clip.
 class SensitiveClipboardService {
@@ -120,7 +126,13 @@ class SensitiveClipboardService {
   Future<void> _write(String text) async {
     if (_isAndroid) {
       try {
-        await _channel.invokeMethod<void>('copySensitive', {'text': text});
+        await _channel.invokeMethod<void>('copySensitive', {
+          'text': text,
+          // Native arms an inexact AlarmManager backup clear with the
+          // same delay, for when Android freezes the cached app and
+          // this Dart timer cannot run.
+          'clearAfterMs': clearAfter.inMilliseconds,
+        });
         _fallbackText = null;
         return;
       } on PlatformException catch (e) {

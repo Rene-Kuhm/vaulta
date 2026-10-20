@@ -56,7 +56,10 @@ void main() {
       await service.copySensitive('s3cret!');
 
       expect(nativeCalls.single.method, 'copySensitive');
-      expect(nativeCalls.single.arguments, {'text': 's3cret!'});
+      expect(nativeCalls.single.arguments, {
+        'text': 's3cret!',
+        'clearAfterMs': 30000,
+      });
       expect(
         plainClipboardWrites,
         isEmpty,
@@ -119,6 +122,11 @@ void main() {
 
         await service.copySensitive('s3cret!', onAutoCleared: () => cleared++);
         expect(nativeCalls.map((c) => c.method), ['copySensitive']);
+        expect(
+          (nativeCalls.single.arguments as Map)['clearAfterMs'],
+          shortDelay.inMilliseconds,
+          reason: 'the native backup alarm uses the same delay as the timer',
+        );
 
         await Future<void>.delayed(shortDelay * 3);
 
