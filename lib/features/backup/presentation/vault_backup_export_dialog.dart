@@ -62,6 +62,10 @@ class _VaultBackupExportDialogState extends State<VaultBackupExportDialog> {
 
   @override
   void dispose() {
+    // Drop the sealed envelope and the grant with the dialog (the
+    // SecurityGate pops it on lock).
+    _sealed = null;
+    _grant = null;
     _masterController.dispose();
     _passwordController.dispose();
     _confirmController.dispose();
@@ -296,6 +300,15 @@ class _VaultBackupExportDialogState extends State<VaultBackupExportDialog> {
   Future<void> _save() async {
     final sealed = _sealed;
     if (sealed == null) return;
+    if (!widget.securityController.isUnlocked) {
+      // Never hand the backup to a save dialog once the vault locked.
+      setState(() {
+        _sealed = null;
+        _grant = null;
+        _feedback = context.l10n.backupReauthExpired;
+      });
+      return;
+    }
     setState(() {
       _busy = true;
       _feedback = null;

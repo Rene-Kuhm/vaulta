@@ -58,6 +58,10 @@ class _VaultBackupRestoreScreenState extends State<VaultBackupRestoreScreen> {
 
   @override
   void dispose() {
+    // Drop the decrypted preview with the screen (the SecurityGate pops
+    // it on lock).
+    _preview = null;
+    _bytes = null;
     _passwordController.dispose();
     super.dispose();
   }
