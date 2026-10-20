@@ -1,0 +1,618 @@
+diff --git i/.github/workflows/flutter-ci.yml w/.github/workflows/flutter-ci.yml
+index 60058e4..dda8f0a 100644
+--- i/.github/workflows/flutter-ci.yml
++++ w/.github/workflows/flutter-ci.yml
+@@ -38,6 +38,39 @@ jobs:
+         # (ver docs/architecture/ADR-005-repo-hygiene.md).
+         run: bash scripts/check_coverage.sh coverage/lcov.info lib/core/security 60
+ 
++  android-unit-tests:
++    # JVM unit tests for the native update verification core
++    # (android/app/src/test). Flutter is needed because the Gradle
++    # build resolves the Flutter SDK and plugins via `flutter pub get`.
++    runs-on: ubuntu-latest
++    steps:
++      - name: Checkout
++        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
++
++      - name: Set up JDK 17
++        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
++        with:
++          distribution: temurin
++          java-version: '17'
++          cache: gradle
++
++      - name: Set up Flutter
++        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
++        with:
++          channel: stable
++          flutter-version: 3.47.7
++          cache: true
++
++      # gradlew and gradle-wrapper.jar are gitignored (Flutter template);
++      # --config-only regenerates them plus local.properties without
++      # building an APK.
++      - name: Generate Android Gradle configuration
++        run: flutter build apk --debug --config-only
++
++      - name: Android unit tests
++        working-directory: android
++        run: ./gradlew :app:testDebugUnitTest --console=plain
++
+   build-windows:
+     # Build-only smoke test so Windows-specific breakage (plugins,
+     # CMake, runner) is caught on the PR instead of at release time.
+diff --git i/android/app/build.gradle.kts w/android/app/build.gradle.kts
+index 7ef9bba..6832e6e 100644
+--- i/android/app/build.gradle.kts
++++ w/android/app/build.gradle.kts
+@@ -91,6 +91,10 @@ dependencies {
+     // projects targeting Android 14/15.
+     implementation("androidx.biometric:biometric:1.4.0-alpha07")
+     implementation("androidx.fragment:fragment-ktx:1.6.2")
++
++    // JVM unit tests for the update verification core
++    // (src/test/kotlin, run with :app:testDebugUnitTest).
++    testImplementation("junit:junit:4.13.2")
+ }
+ 
+ flutter {
+diff --git i/android/app/src/main/kotlin/com/insyd/gestor_contrasenas/UpdateChannel.kt w/android/app/src/main/kotlin/com/insyd/gestor_contrasenas/UpdateChannel.kt
+index e5f430b..6938c33 100644
+--- i/android/app/src/main/kotlin/com/insyd/gestor_contrasenas/UpdateChannel.kt
++++ w/android/app/src/main/kotlin/com/insyd/gestor_contrasenas/UpdateChannel.kt
+@@ -20,8 +20,11 @@ import java.io.FileOutputStream
+ import java.net.HttpURLConnection
+ import java.net.URL
+ import java.security.MessageDigest
++import java.util.UUID
+ import java.util.concurrent.ExecutorService
+ import java.util.concurrent.Executors
++import java.util.concurrent.locks.ReentrantLock
++import kotlin.concurrent.withLock
+ 
+ /**
+  * Over-the-air update bridge.
+@@ -43,13 +46,21 @@ import java.util.concurrent.Executors
+  *   * `checkForUpdate(owner, repo, currentVersion, channel)` -> map
+  *     describing whether a new release is available.
+  *   * `downloadChecksums(url)` -> SHA256SUMS text (size-capped).
+- *   * `downloadApk(apkUrl)` -> absolute file path to the cached APK.
++ *   * `downloadApk(apkUrl, expectedSize)` -> path of a uniquely named
++ *     temporary download (size-capped).
+  *   * `sha256File(filePath)` -> lowercase hex SHA-256 of the file.
+  *   * `verifyApkSigner(filePath)` -> true if the APK signer matches
+  *     the installed app.
+- *   * `discardDownload(filePath)` -> deletes a cached APK.
++ *   * `promoteVerified(filePath, expectedSha256)` -> re-verifies the
++ *     temporary file and atomically renames it to `<sha256>.apk`;
++ *     returns that path.
++ *   * `discardDownload(filePath)` -> deletes a cached download.
+  *   * `openInstallPrompt(filePath, expectedSha256)` -> bool, true if
+- *     the system installer was launched.
++ *     the system installer was launched. Only accepts a
++ *     content-addressed `<sha256>.apk` whose name matches the digest.
++ *
++ * Path checks, size limits and signer-set comparison live in
++ * [UpdateVerification] so they can be unit-tested on the JVM.
+  */
+ class UpdateChannel(
+     engine: FlutterEngine,
+@@ -95,12 +106,23 @@ class UpdateChannel(
+                 }
+                 "downloadApk" -> {
+                     val apkUrl = call.argument<String>("apkUrl")
++                    val expectedSize = call.argument<Number>("expectedSize")?.toLong() ?: 0L
+                     if (apkUrl.isNullOrBlank()) {
+                         result.error("ARG", "apkUrl is required", null)
+                         return
+                     }
+                     runInBackground(call.method, result) {
+-                        downloadApk(apkUrl)
++                        downloadApk(apkUrl, expectedSize)
++                    }
++                }
++                "promoteVerified" -> {
++                    val file = requireUpdateFile(call.argument<String>("filePath"))
++                    val expectedSha256 = call.argument<String>("expectedSha256")
++                    require(expectedSha256 != null && UpdateVerification.isSha256Hex(expectedSha256)) {
++                        "expectedSha256 must be a lowercase SHA-256 hex digest"
++                    }
++                    runInBackground(call.method, result) {
++                        promoteVerified(file, expectedSha256)
+                     }
+                 }
+                 "sha256File" -> {
+@@ -120,10 +142,15 @@ class UpdateChannel(
+                     result.success(file.delete())
+                 }
+                 "openInstallPrompt" -> {
+-                    val file = requireUpdateFile(call.argument<String>("filePath"))
++                    val file = requireUpdateFile(
++                        call.argument<String>("filePath"),
++                        requireContentName = true,
++                    )
+                     val expectedSha256 = call.argument<String>("expectedSha256")
+-                    if (expectedSha256.isNullOrBlank()) {
+-                        result.error("ARG", "expectedSha256 is required", null)
++                    if (expectedSha256.isNullOrBlank() ||
++                        file.name != UpdateVerification.contentFileName(expectedSha256)
++                    ) {
++                        result.error("ARG", "filePath does not match expectedSha256", null)
+                         return
+                     }
+                     runInBackground(call.method, result) {
+@@ -165,17 +192,13 @@ class UpdateChannel(
+     }
+ 
+     /**
+-     * Resolves [filePath] and rejects anything outside
+-     * `filesDir/updates`, so the hashing, signer, delete and install
++     * Resolves [filePath] and rejects anything that is not a direct
++     * child of `filesDir/updates` with a safe name (symlinks are
++     * resolved first), so the hashing, signer, delete and install
+      * methods cannot be pointed at arbitrary app files.
+      */
+-    private fun requireUpdateFile(filePath: String?): File {
+-        require(!filePath.isNullOrBlank()) { "filePath is required" }
+-        val file = File(filePath).canonicalFile
+-        val root = updatesDir.canonicalFile
+-        require(file.parentFile == root) { "filePath is outside the updates directory" }
+-        return file
+-    }
++    private fun requireUpdateFile(filePath: String?, requireContentName: Boolean = false): File =
++        UpdateVerification.resolveUpdateFile(updatesDir, filePath, requireContentName)
+ 
+     /** Only HTTPS downloads are accepted. */
+     private fun requireHttpsUrl(url: String): URL {
+@@ -346,45 +369,89 @@ class UpdateChannel(
+     // ---- downloadApk ----
+ 
+     /**
+-     * Streams the APK to filesDir/updates/<basename>.apk. Returns
+-     * the absolute file path so the Dart side can verify it and hand
+-     * it back to `openInstallPrompt`. A partial file is deleted if
+-     * the download fails.
++     * Streams the APK to a uniquely named `filesDir/updates/dl-<uuid>.apk`
++     * and returns its path. Nothing is ever written to the final
++     * `<sha256>.apk` name here: that only happens in [promoteVerified].
++     *
++     * The download aborts (and the partial file is deleted) once it
++     * exceeds the asset size reported by the release API, or
++     * [UpdateVerification.MAX_APK_BYTES]. A process-wide lock allows a
++     * single download at a time, and stale files from earlier runs are
++     * removed before starting.
+      */
+-    private fun downloadApk(apkUrl: String): String {
+-        Log.d(TAG, "downloadApk: GET $apkUrl")
+-        val conn = (requireHttpsUrl(apkUrl).openConnection() as HttpURLConnection).apply {
+-            requestMethod = "GET"
+-            connectTimeout = 30_000
+-            readTimeout = 60_000
+-            setRequestProperty("User-Agent", "Vaulta-UpdateChannel/1.0")
++    private fun downloadApk(apkUrl: String, expectedSize: Long): String {
++        val limit = UpdateVerification.downloadLimit(expectedSize)
++        if (limit <= 0) throw UpdateVerification.DownloadTooLargeException(UpdateVerification.MAX_APK_BYTES)
++        if (!downloadLock.tryLock()) {
++            throw IllegalStateException("Another update download is already in progress")
+         }
+-        val dir = updatesDir.apply { mkdirs() }
+-        val rawName = apkUrl.substringAfterLast('/')
+-        val basename = if (SAFE_FILE_NAME.matches(rawName)) rawName else "vaulta-update.apk"
+-        val target = File(dir, basename)
+         try {
+-            val code = conn.responseCode
+-            if (code !in 200..299) {
+-                throw RuntimeException("APK download failed: HTTP $code")
++            val dir = updatesDir.apply { mkdirs() }
++            cleanStaleFiles(dir, keep = null)
++            val target = File(dir, "dl-${UUID.randomUUID()}.apk")
++            Log.d(TAG, "downloadApk: GET $apkUrl (limit $limit bytes)")
++            val conn = (requireHttpsUrl(apkUrl).openConnection() as HttpURLConnection).apply {
++                requestMethod = "GET"
++                connectTimeout = 30_000
++                readTimeout = 60_000
++                setRequestProperty("User-Agent", "Vaulta-UpdateChannel/1.0")
+             }
+-            conn.inputStream.use { input ->
+-                FileOutputStream(target).use { output ->
+-                    val buf = ByteArray(64 * 1024)
+-                    while (true) {
+-                        val n = input.read(buf)
+-                        if (n <= 0) break
+-                        output.write(buf, 0, n)
++            try {
++                val code = conn.responseCode
++                if (code !in 200..299) {
++                    throw RuntimeException("APK download failed: HTTP $code")
++                }
++                val declared = conn.contentLengthLong
++                if (declared > limit) throw UpdateVerification.DownloadTooLargeException(limit)
++                val written = conn.inputStream.use { input ->
++                    FileOutputStream(target).use { output ->
++                        UpdateVerification.copyWithLimit(input, output, limit)
+                     }
+                 }
++                Log.d(TAG, "downloadApk: wrote $written bytes to ${target.name}")
++                return target.absolutePath
++            } catch (e: Throwable) {
++                target.delete()
++                throw e
++            } finally {
++                conn.disconnect()
+             }
+-            Log.d(TAG, "downloadApk: wrote ${target.length()} bytes to ${target.absolutePath}")
+-            return target.absolutePath
+-        } catch (e: Throwable) {
+-            target.delete()
+-            throw e
+         } finally {
+-            conn.disconnect()
++            downloadLock.unlock()
++        }
++    }
++
++    /**
++     * Re-hashes and re-checks the signer of a temporary download, then
++     * atomically renames it (same directory, so `rename(2)`) to
++     * `<sha256>.apk`. The returned content-addressed path is the only
++     * one [openInstallPrompt] accepts. Other cached updates are removed.
++     */
++    private fun promoteVerified(file: File, expectedSha256: String): String {
++        downloadLock.withLock {
++            val ok = file.exists() &&
++                sha256Hex(file) == expectedSha256 &&
++                isSignedByInstalledSigner(file)
++            if (!ok) {
++                file.delete()
++                throw IllegalStateException("Downloaded APK failed verification")
++            }
++            val target = File(file.parentFile, UpdateVerification.contentFileName(expectedSha256))
++            if (file != target && !file.renameTo(target)) {
++                file.delete()
++                throw IllegalStateException("Could not move verified APK into place")
++            }
++            cleanStaleFiles(updatesDir, keep = target)
++            return target.absolutePath
++        }
++    }
++
++    /** Deletes every file in [dir] except [keep]. Caller holds [downloadLock]. */
++    private fun cleanStaleFiles(dir: File, keep: File?) {
++        dir.listFiles()?.forEach { stale ->
++            if (stale.isFile && stale.canonicalFile != keep?.canonicalFile) {
++                stale.delete()
++            }
+         }
+     }
+ 
+@@ -405,44 +472,41 @@ class UpdateChannel(
+ 
+     /**
+      * True when [apk] is signed by the certificate(s) of the
+-     * installed app. Returns false (never throws to "allow") when any
+-     * piece of signing information cannot be read.
++     * installed app. The Android calls only collect digests; the
++     * decision is made by [UpdateVerification.signersMatch] (API 28+,
++     * rotation-aware) or [UpdateVerification.legacySignersMatch]
++     * (below 28). Any missing information or exception is a rejection.
+      *
+-     * API 28+: uses GET_SIGNING_CERTIFICATES. The installed app's
+-     * current signer set must be contained in the archive's signer
+-     * set (its signing-certificate history when single-signed, which
+-     * keeps APK Signature Scheme v3 key rotation working). If the
+-     * platform returns no SigningInfo for the archive (seen on some
+-     * API 28 builds) it falls back to GET_SIGNATURES for the archive.
+-     *
+-     * Below API 28: uses GET_SIGNATURES and requires identical sets.
++     * If the platform returns no SigningInfo for the archive (seen on
++     * some API 28 builds) the archive's GET_SIGNATURES set is used.
+      */
+     private fun isSignedByInstalledSigner(apk: File): Boolean {
+         val pm = appContext.packageManager
+         val packageName = appContext.packageName
+-        return try {
++        return UpdateVerification.failClosed(onError = { Log.w(TAG, "verifyApkSigner failed", it) }) {
+             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                 val installed = pm.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+-                val installedCurrent = currentSigners(installed) ?: return false
+                 val archive = pm.getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
+-                    ?: return false
+-                if (archive.packageName != packageName) return false
+-                val archiveSigners = allSigners(archive)
+-                    ?: legacySignatures(pm, apk)
+-                    ?: return false
+-                installedCurrent.isNotEmpty() && archiveSigners.containsAll(installedCurrent)
++                val archiveSigners = archive?.let { allSigners(it) } ?: legacyArchiveSignatures(pm, apk)
++                UpdateVerification.signersMatch(
++                    installedPackage = packageName,
++                    installedCurrentSigners = currentSigners(installed),
++                    archivePackage = archive?.packageName,
++                    archiveSigners = archiveSigners,
++                )
+             } else {
+                 @Suppress("DEPRECATION")
+                 val installed = pm.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
+                 @Suppress("DEPRECATION")
+-                val installedSet = installed.signatures?.map { certDigest(it) }?.toSet()
+-                    ?: return false
+-                val archiveSet = legacySignatures(pm, apk) ?: return false
+-                installedSet.isNotEmpty() && installedSet == archiveSet
++                val archive = pm.getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNATURES)
++                @Suppress("DEPRECATION")
++                UpdateVerification.legacySignersMatch(
++                    installedPackage = packageName,
++                    installedSigners = installed.signatures?.map { certDigest(it) }?.toSet(),
++                    archivePackage = archive?.packageName,
++                    archiveSigners = archive?.signatures?.map { certDigest(it) }?.toSet(),
++                )
+             }
+-        } catch (e: Throwable) {
+-            Log.w(TAG, "verifyApkSigner failed", e)
+-            false
+         }
+     }
+ 
+@@ -450,12 +514,13 @@ class UpdateChannel(
+     private fun currentSigners(info: PackageInfo): Set<String>? {
+         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
+         val signingInfo = info.signingInfo ?: return null
+-        val signers = if (signingInfo.hasMultipleSigners()) {
+-            signingInfo.apkContentsSigners
++        return if (signingInfo.hasMultipleSigners()) {
++            signingInfo.apkContentsSigners?.map { certDigest(it) }?.toSet()
+         } else {
+-            signingInfo.signingCertificateHistory?.takeLast(1)?.toTypedArray()
+-        } ?: return null
+-        return signers.map { certDigest(it) }.toSet()
++            UpdateVerification.currentSignerFromHistory(
++                signingInfo.signingCertificateHistory?.map { certDigest(it) },
++            )
++        }
+     }
+ 
+     /** Every signer digest an archive proves, incl. rotation history (API 28+). */
+@@ -470,7 +535,8 @@ class UpdateChannel(
+         return signers.map { certDigest(it) }.toSet().ifEmpty { null }
+     }
+ 
+-    private fun legacySignatures(pm: PackageManager, apk: File): Set<String>? {
++    /** GET_SIGNATURES fallback for archives without SigningInfo. */
++    private fun legacyArchiveSignatures(pm: PackageManager, apk: File): Set<String>? {
+         @Suppress("DEPRECATION")
+         val archive = pm.getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNATURES)
+             ?: return null
+@@ -534,6 +600,11 @@ class UpdateChannel(
+         private const val CHANNEL_DEV = "dev"
+         private const val CHECKSUMS_ASSET = "SHA256SUMS"
+         private const val MAX_CHECKSUMS_BYTES = 64 * 1024
+-        private val SAFE_FILE_NAME = Regex("""^[A-Za-z0-9._-]{1,128}\.apk$""")
++
++        /**
++         * Process-wide: shared by every UpdateChannel / engine so two
++         * update flows can never write or promote files concurrently.
++         */
++        private val downloadLock = ReentrantLock()
+     }
+ }
+diff --git i/lib/core/update/update_service.dart w/lib/core/update/update_service.dart
+index fae1a0d..08eda8f 100644
+--- i/lib/core/update/update_service.dart
++++ w/lib/core/update/update_service.dart
+@@ -74,6 +74,7 @@ class UpdateInfo {
+     this.buildFingerprint = '',
+     this.checksumsUrl = '',
+     this.apkAssetName = '',
++    this.apkAssetSize = 0,
+     this.channel = UpdateReleaseChannel.stable,
+   });
+ 
+@@ -119,6 +120,11 @@ class UpdateInfo {
+   /// looked up in `SHA256SUMS`.
+   final String apkAssetName;
+ 
++  /// Size in bytes the release API reports for the APK asset, or 0
++  /// when unknown. The native download aborts once it reads more than
++  /// this (and never more than 200 MB).
++  final int apkAssetSize;
++
+   /// Channel the release was fetched from.
+   final UpdateReleaseChannel channel;
+ 
+@@ -136,6 +142,7 @@ class UpdateInfo {
+     this.buildFingerprint = '',
+     this.checksumsUrl = '',
+     this.apkAssetName = '',
++    this.apkAssetSize = 0,
+     this.channel = UpdateReleaseChannel.stable,
+   }) : available = false;
+ }
+@@ -329,6 +336,7 @@ class UpdateService {
+       final buildFingerprint = (raw['buildFingerprint'] as String?) ?? '';
+       final checksumsUrl = (raw['checksumsUrl'] as String?) ?? '';
+       final apkAssetName = (raw['assetName'] as String?) ?? '';
++      final apkAssetSize = (raw['assetSize'] as num?)?.toInt() ?? 0;
+       if (remoteVersion.isNotEmpty &&
+           !_isRemoteVersionNewer(remoteVersion, current)) {
+         return UpdateInfo(
+@@ -343,6 +351,7 @@ class UpdateService {
+           buildFingerprint: buildFingerprint,
+           checksumsUrl: checksumsUrl,
+           apkAssetName: apkAssetName,
++          apkAssetSize: apkAssetSize,
+           channel: releaseChannel,
+         );
+       }
+@@ -358,6 +367,7 @@ class UpdateService {
+         buildFingerprint: buildFingerprint,
+         checksumsUrl: checksumsUrl,
+         apkAssetName: apkAssetName,
++        apkAssetSize: apkAssetSize,
+         channel: releaseChannel,
+       );
+     } on PlatformException catch (error, stack) {
+@@ -390,7 +400,10 @@ class UpdateService {
+   /// 2. download the APK;
+   /// 3. compare its SHA-256 with the published digest;
+   /// 4. ask the native side to compare the APK signing certificate
+-  ///    with the installed app's.
++  ///    with the installed app's;
++  /// 5. have the native side re-verify the temporary file and
++  ///    atomically rename it to `<sha256>.apk`, which is the path
++  ///    returned and the only kind of path [openInstallPrompt] takes.
+   ///
+   /// On any failure the downloaded file is discarded and an
+   /// [UpdateVerificationException] is thrown.
+@@ -414,6 +427,7 @@ class UpdateService {
+     }
+     final path = await _channel.invokeMethod<String>('downloadApk', {
+       'apkUrl': info.apkUrl,
++      'expectedSize': info.apkAssetSize,
+     });
+     if (path == null || path.isEmpty) {
+       throw StateError('Downloaded APK path was empty.');
+@@ -436,8 +450,26 @@ class UpdateService {
+         UpdateVerificationFailure.signatureMismatch,
+       );
+     }
+-    _verifiedSha256ByPath[path] = expected;
+-    return path;
++    final String? verifiedPath;
++    try {
++      verifiedPath = await _channel.invokeMethod<String>('promoteVerified', {
++        'filePath': path,
++        'expectedSha256': expected,
++      });
++    } on PlatformException {
++      await _discard(path);
++      throw const UpdateVerificationException(
++        UpdateVerificationFailure.checksumMismatch,
++      );
++    }
++    if (verifiedPath == null || !verifiedPath.endsWith('/$expected.apk')) {
++      await _discard(path);
++      throw const UpdateVerificationException(
++        UpdateVerificationFailure.checksumMismatch,
++      );
++    }
++    _verifiedSha256ByPath[verifiedPath] = expected;
++    return verifiedPath;
+   }
+ 
+   Future<void> _discard(String path) async {
+diff --git i/test/core/update/update_service_verification_test.dart w/test/core/update/update_service_verification_test.dart
+index c418c11..9f30070 100644
+--- i/test/core/update/update_service_verification_test.dart
++++ w/test/core/update/update_service_verification_test.dart
+@@ -9,11 +9,12 @@ import 'package:gestor_contrasenas/core/update/update_service.dart';
+ import 'package:package_info_plus/package_info_plus.dart';
+ 
+ const _channel = MethodChannel('com.insyd.vaulta/update');
+-const _apkPath = '/data/user/0/app/files/updates/vaulta.apk';
++const _tempPath = '/data/user/0/app/files/updates/dl-1.apk';
+ const _goodSha =
+     '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08';
+ const _badSha =
+     '0000000000000000000000000000000000000000000000000000000000000000';
++const _apkPath = '/data/user/0/app/files/updates/$_goodSha.apk';
+ 
+ Map<Object?, Object?> _args(MethodCall call) => call.arguments as Map;
+ 
+@@ -37,6 +38,8 @@ class _FakeNative {
+   String apkSha = _goodSha;
+   bool sameSigner = true;
+   bool installLaunched = true;
++  bool promoteFails = false;
++  String? promotedPath = _apkPath;
+   Map<String, Object?> release = {
+     'available': true,
+     'tagName': 'v1.1.0',
+@@ -48,6 +51,7 @@ class _FakeNative {
+     'remoteVersion': '1.1.0+23',
+     'releaseId': 42,
+     'buildFingerprint': '42:1:t:1',
++    'assetSize': 55000000,
+   };
+ 
+   List<String> get methods => calls.map((c) => c.method).toList();
+@@ -60,7 +64,12 @@ class _FakeNative {
+       case 'downloadChecksums':
+         return sums;
+       case 'downloadApk':
+-        return _apkPath;
++        return _tempPath;
++      case 'promoteVerified':
++        if (promoteFails) {
++          throw PlatformException(code: 'UPDATE_FAILED');
++        }
++        return promotedPath;
+       case 'sha256File':
+         return apkSha;
+       case 'verifyApkSigner':
+@@ -158,8 +167,15 @@ void main() {
+         'downloadApk',
+         'sha256File',
+         'verifyApkSigner',
++        'promoteVerified',
+         'openInstallPrompt',
+       ]);
++      expect(_args(native.calls[2])['expectedSize'], 55000000);
++      expect(_args(native.calls[2])['apkUrl'], endsWith('/vaulta.apk'));
++      expect(_args(native.calls[3])['filePath'], _tempPath);
++      expect(_args(native.calls[5])['filePath'], _tempPath);
++      expect(_args(native.calls[5])['expectedSha256'], _goodSha);
++      expect(_args(native.calls.last)['filePath'], _apkPath);
+       expect(_args(native.calls.last)['expectedSha256'], _goodSha);
+     });
+ 
+@@ -256,6 +272,44 @@ void main() {
+       expect(native.methods, isNot(contains('openInstallPrompt')));
+     });
+ 
++    test('native re-verification failure on promote is refused', () async {
++      native.promoteFails = true;
++      final info = await check();
++      await expectLater(
++        service.downloadApk(info),
++        throwsA(isA<UpdateVerificationException>()),
++      );
++      expect(native.methods, contains('discardDownload'));
++      await expectLater(
++        service.openInstallPrompt(_apkPath),
++        throwsA(isA<UpdateVerificationException>()),
++      );
++      expect(native.methods, isNot(contains('openInstallPrompt')));
++    });
++
++    test('promoted path not named after the digest is refused', () async {
++      native.promotedPath = _tempPath;
++      final info = await check();
++      await expectLater(
++        service.downloadApk(info),
++        throwsA(isA<UpdateVerificationException>()),
++      );
++      await expectLater(
++        service.openInstallPrompt(_tempPath),
++        throwsA(isA<UpdateVerificationException>()),
++      );
++      expect(native.methods, isNot(contains('openInstallPrompt')));
++    });
++
++    test('the temporary download path is never installable', () async {
++      final info = await check();
++      await service.downloadApk(info);
++      await expectLater(
++        service.openInstallPrompt(_tempPath),
++        throwsA(isA<UpdateVerificationException>()),
++      );
++    });
++
+     test('openInstallPrompt refuses a path that was never verified', () async {
+       await expectLater(
+         service.openInstallPrompt(_apkPath),
+ .github/workflows/flutter-ci.yml                   |  33 +++
+ android/app/build.gradle.kts                       |   4 +
+ .../com/insyd/gestor_contrasenas/UpdateChannel.kt  | 229 ++++++++++++++-------
+ lib/core/update/update_service.dart                |  38 +++-
+ .../update/update_service_verification_test.dart   |  58 +++++-
+ 5 files changed, 278 insertions(+), 84 deletions(-)
