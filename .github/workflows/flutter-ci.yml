@@ -10,10 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           flutter-version: 3.47.7
@@ -32,9 +32,11 @@ jobs:
         run: flutter test --coverage
 
       - name: Check core coverage threshold
-        # Baseline 52.4% (medido 2026-06-11). Umbral inicial 50% con plan
-        # trimestral de subida (ver docs/architecture/ADR-005-repo-hygiene.md).
-        run: bash scripts/check_coverage.sh coverage/lcov.info lib/core/security 50
+        # Baseline 52.4% (medido 2026-06-11), umbral inicial 50%.
+        # Subido a 60% con la medicion 60.5% (756/1249, 2026-10-19,
+        # Flutter 3.47.7) redondeada hacia abajo al multiplo de 5
+        # (ver docs/architecture/ADR-005-repo-hygiene.md).
+        run: bash scripts/check_coverage.sh coverage/lcov.info lib/core/security 60
 
   build-windows:
     # Build-only smoke test so Windows-specific breakage (plugins,
@@ -43,10 +45,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           flutter-version: 3.47.7
