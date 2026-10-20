@@ -13,4 +13,5 @@ Estado inicial del pack: aprobado para implementacion por lotes.
 ## Otros documentos de arquitectura
 
 - [CRYPTO.md](./CRYPTO.md) — entry point para un audit externo de criptografia. Indice de fuentes, contrato criptografico, y lista de preguntas para el auditor.
+- [../security/hardening-status.md](../security/hardening-status.md) — estado de cada control de seguridad (Shipped / In progress / Planned) con evidencia `archivo:linea`. En ingles.
 - [THREAT_MODEL.md](./THREAT_MODEL.md) — modelo de amenaza honesto: que defendemos, que NO defendemos, y los riesgos residuales que el usuario acepta al elegir Vaulta.
