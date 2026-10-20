@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../../app/design_system/app_components.dart';
 import '../../../app/design_system/app_panel.dart';
@@ -9,6 +8,7 @@ import '../../../app/design_system/vault_entry_tile.dart';
 import '../../../app/localization/l10n.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
+import '../../../core/security/sensitive_clipboard_service.dart';
 import '../domain/vault_item.dart';
 
 /// Read-only detail view for a single [VaultItem].
@@ -30,6 +30,7 @@ class VaultEntryDetailScreen extends StatefulWidget {
     required this.item,
     this.onEdit,
     this.onDelete,
+    this.clipboardService,
   });
 
   /// The entry being shown. The screen does not mutate it directly;
@@ -44,14 +45,20 @@ class VaultEntryDetailScreen extends StatefulWidget {
   /// Invoked when the user confirms the delete action.
   final Future<void> Function()? onDelete;
 
+  /// Writes copied secrets to the clipboard flagged as sensitive.
+  /// Defaults to [SensitiveClipboardService.shared], the instance the
+  /// security controller also clears on lock; tests can inject their
+  /// own.
+  final SensitiveClipboardService? clipboardService;
+
   @override
   State<VaultEntryDetailScreen> createState() => _VaultEntryDetailScreenState();
 }
 
 class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
-  static const _clipboardClearDelay = Duration(seconds: 30);
-
   bool _obscureSecret = true;
+  late final SensitiveClipboardService _clipboard =
+      widget.clipboardService ?? SensitiveClipboardService.shared;
 
   @override
   Widget build(BuildContext context) {
@@ -195,7 +202,12 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
                       borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                       border: Border.all(color: AppColors.borderDark),
                     ),
-                    child: SelectableText(
+                    // Plain Text on purpose: a selectable secret would get
+                    // the platform toolbar (plain Copy without the
+                    // sensitive flag or auto-clear, Share, Translate and
+                    // other PROCESS_TEXT actions) and Ctrl+C on desktop.
+                    // The Copy button below is the only copy path.
+                    child: Text(
                       _obscureSecret ? _mask(item.secret) : item.secret,
                       style: theme.textTheme.titleMedium?.copyWith(
                         color: AppColors.paperDark,
@@ -266,8 +278,9 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
   }
 
   Future<void> _copySecret(String secret) async {
-    await Clipboard.setData(ClipboardData(text: secret));
-    unawaited(_clearClipboardIfUnchanged(secret));
+    // The service owns the 30 s "clear if unchanged" timer, so it keeps
+    // running after this screen closes and also works in background.
+    await _clipboard.copySensitive(secret, onAutoCleared: _showCleared);
 
     if (!mounted) {
       return;
@@ -278,15 +291,7 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
     ).showSnackBar(SnackBar(content: Text(context.l10n.secretCopiedLocally)));
   }
 
-  Future<void> _clearClipboardIfUnchanged(String secret) async {
-    await Future<void>.delayed(_clipboardClearDelay);
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    if (data?.text != secret) {
-      return;
-    }
-
-    await Clipboard.setData(const ClipboardData(text: ''));
-
+  void _showCleared() {
     if (!mounted) {
       return;
     }

@@ -1448,6 +1448,8 @@ class _SetupBiometricDialogState extends State<_SetupBiometricDialog> {
             TextField(
               controller: _passwordController,
               obscureText: _obscure,
+              autocorrect: false,
+              enableSuggestions: false,
               autofocus: true,
               onSubmitted: (_) => _submit(),
               decoration: InputDecoration(

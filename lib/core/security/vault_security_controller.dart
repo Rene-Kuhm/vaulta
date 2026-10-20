@@ -10,6 +10,7 @@ import 'master_password_record.dart';
 import 'master_password_service.dart';
 import 'native_biometric_auth_service.dart';
 import 'secure_storage_service.dart';
+import 'sensitive_clipboard_service.dart';
 import 'unlock_attempt_limiter.dart';
 import 'vault_session.dart';
 
@@ -58,7 +59,8 @@ class VaultSecurityController extends ChangeNotifier {
   /// from [storage]. [biometricUnlockService] is the runtime unlock
   /// orchestrator. [unlockAttemptLimiter] throttles master-password
   /// guesses; defaults to a limiter persisted in [storage] that uses
-  /// the system clock.
+  /// the system clock. [clipboard] is cleared on [lock]; defaults to
+  /// [SensitiveClipboardService.shared].
   VaultSecurityController({
     required SecureStorageService storage,
     required MasterPasswordService masterPasswordService,
@@ -67,6 +69,7 @@ class VaultSecurityController extends ChangeNotifier {
     BiometricKeyEnvelopeService? biometricEnvelopeService,
     BiometricUnlockService? biometricUnlockService,
     UnlockAttemptLimiter? unlockAttemptLimiter,
+    SensitiveClipboardService? clipboard,
   }) : _storage = storage,
        _masterPasswordService = masterPasswordService,
        _biometricAuthService = biometricAuthService,
@@ -75,7 +78,8 @@ class VaultSecurityController extends ChangeNotifier {
            BiometricKeyEnvelopeService(storage: storage),
        _biometricUnlockService = biometricUnlockService,
        _unlockAttemptLimiter =
-           unlockAttemptLimiter ?? UnlockAttemptLimiter(storage: storage);
+           unlockAttemptLimiter ?? UnlockAttemptLimiter(storage: storage),
+       _clipboard = clipboard ?? SensitiveClipboardService.shared;
 
   /// Secure storage key for the serialized [MasterPasswordRecord].
   static const masterPasswordRecordKey = 'vault_master_password_record';
@@ -103,6 +107,7 @@ class VaultSecurityController extends ChangeNotifier {
   final BiometricUnlockService? _biometricUnlockService;
   final UnlockAttemptLimiter _unlockAttemptLimiter;
   bool _unlockAttemptStateUnavailable = false;
+  final SensitiveClipboardService _clipboard;
 
   VaultSecurityStage _stage = VaultSecurityStage.loading;
   BiometricAvailability _biometricAvailability = const BiometricAvailability(
@@ -620,7 +625,15 @@ class VaultSecurityController extends ChangeNotifier {
   /// Drops the in-memory [VaultSession] and transitions to
   /// [VaultSecurityStage.locked]. The optional [reason] is shown in
   /// the lock screen (e.g. "auto-lock on background", "idle timeout").
-  Future<void> lock({String? reason}) async {
+  ///
+  /// Locking also clears a secret Vaulta copied to the clipboard,
+  /// unless [clearClipboard] is false. The background auto-lock passes
+  /// false on purpose: it fires the moment the user switches apps,
+  /// which is exactly when they switch to paste the secret they just
+  /// copied. In that case the clipboard's own 30-second timer (native
+  /// "clear if owned", which works from the background) removes it.
+  /// Manual, idle-timeout and device-revoked locks clear immediately.
+  Future<void> lock({String? reason, bool clearClipboard = true}) async {
     _cancelIdleTimer();
     _lastInteractionAt = null;
     _vaultSession = null;
@@ -632,6 +645,10 @@ class VaultSecurityController extends ChangeNotifier {
     // auto-lock is allowed to fire again on the next foreground loss.
     _longRunningFlowCount = 0;
     notifyListeners();
+    // Drop the session first (fail closed), then clear the clipboard.
+    if (clearClipboard) {
+      await _clipboard.clearIfOwned();
+    }
   }
 
   /// Toggles the auto-lock-on-background preference and persists it.
@@ -853,6 +870,9 @@ class VaultSecurityController extends ChangeNotifier {
           await lock(
             reason:
                 'Vaulta bloqueada automaticamente al salir de primer plano.',
+            // Keep copy-then-paste-in-another-app working; the
+            // clipboard timer clears it. See [lock].
+            clearClipboard: false,
           );
         }
         return;

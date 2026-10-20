@@ -1271,6 +1271,8 @@ class _ChangeMasterPasswordDialogState
                 TextField(
                   controller: _currentController,
                   obscureText: _obscureCurrent,
+                  autocorrect: false,
+                  enableSuggestions: false,
                   decoration: InputDecoration(
                     labelText: context.l10n.changeMasterPasswordCurrent,
                     suffixIcon: IconButton(
@@ -1291,6 +1293,8 @@ class _ChangeMasterPasswordDialogState
                 TextField(
                   controller: _newController,
                   obscureText: _obscureNew,
+                  autocorrect: false,
+                  enableSuggestions: false,
                   decoration: InputDecoration(
                     labelText: context.l10n.changeMasterPasswordNew,
                     suffixIcon: IconButton(
@@ -1311,6 +1315,8 @@ class _ChangeMasterPasswordDialogState
                 TextField(
                   controller: _confirmationController,
                   obscureText: _obscureConfirmation,
+                  autocorrect: false,
+                  enableSuggestions: false,
                   decoration: InputDecoration(
                     labelText: context.l10n.changeMasterPasswordConfirm,
                     suffixIcon: IconButton(
