@@ -18,17 +18,18 @@ void main() {
     lastUpdatedLabel: 'Updated now',
   );
 
-  late _RecordingClipboardService service;
   String? systemClipboard;
   late List<String?> systemWrites;
 
   setUp(() {
     systemClipboard = null;
     systemWrites = [];
-    service = _RecordingClipboardService(onCopy: (t) => systemClipboard = t);
   });
 
-  Future<void> pumpScreen(WidgetTester tester) async {
+  Future<void> pumpScreen(
+    WidgetTester tester,
+    SensitiveClipboardService service,
+  ) async {
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       SystemChannels.platform,
       (call) async {
@@ -72,51 +73,53 @@ void main() {
   testWidgets('copies the secret through the sensitive clipboard service', (
     tester,
   ) async {
-    await pumpScreen(tester);
+    final service = _RecordingClipboardService();
+    await pumpScreen(tester, service);
     await tapCopy(tester);
 
     expect(service.copies, ['StrongPass!2026']);
     expect(systemWrites, isEmpty);
-
-    // Let the pending 30-second clear timer complete.
-    await tester.pump(const Duration(seconds: 31));
   });
 
   testWidgets('clears the clipboard after 30 s when unchanged', (tester) async {
-    await pumpScreen(tester);
+    await pumpScreen(tester, SensitiveClipboardService(isAndroid: false));
     await tapCopy(tester);
+    expect(systemWrites, ['StrongPass!2026']);
 
     await tester.pump(const Duration(seconds: 29));
-    expect(systemWrites, isEmpty);
+    expect(systemWrites, ['StrongPass!2026']);
 
     await tester.pump(const Duration(seconds: 2));
-    expect(systemWrites, ['']);
+    expect(systemWrites, ['StrongPass!2026', '']);
+    // The "copied" snackbar is still queued ahead; let it time out.
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    expect(find.text('Clipboard cleared.'), findsOneWidget);
   });
 
   testWidgets(
     'does not clear the clipboard if the user copied something else',
     (tester) async {
-      await pumpScreen(tester);
+      await pumpScreen(tester, SensitiveClipboardService(isAndroid: false));
       await tapCopy(tester);
 
       systemClipboard = 'something else';
       await tester.pump(const Duration(seconds: 31));
 
-      expect(systemWrites, isEmpty);
+      expect(systemWrites, ['StrongPass!2026']);
       expect(systemClipboard, 'something else');
     },
   );
 }
 
 class _RecordingClipboardService extends SensitiveClipboardService {
-  _RecordingClipboardService({required this.onCopy}) : super(isAndroid: false);
+  _RecordingClipboardService() : super(isAndroid: false);
 
-  final void Function(String text) onCopy;
   final List<String> copies = [];
 
   @override
-  Future<void> copySensitive(String text) async {
+  Future<void> copySensitive(String text, {VoidCallback? onAutoCleared}) async {
     copies.add(text);
-    onCopy(text);
   }
 }

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../../app/design_system/app_components.dart';
 import '../../../app/design_system/app_panel.dart';
@@ -47,8 +46,9 @@ class VaultEntryDetailScreen extends StatefulWidget {
   final Future<void> Function()? onDelete;
 
   /// Writes copied secrets to the clipboard flagged as sensitive.
-  /// Defaults to a [SensitiveClipboardService] bound to the bundled
-  /// platform channel; tests can inject their own.
+  /// Defaults to [SensitiveClipboardService.shared], the instance the
+  /// security controller also clears on lock; tests can inject their
+  /// own.
   final SensitiveClipboardService? clipboardService;
 
   @override
@@ -56,11 +56,9 @@ class VaultEntryDetailScreen extends StatefulWidget {
 }
 
 class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
-  static const _clipboardClearDelay = Duration(seconds: 30);
-
   bool _obscureSecret = true;
   late final SensitiveClipboardService _clipboard =
-      widget.clipboardService ?? SensitiveClipboardService();
+      widget.clipboardService ?? SensitiveClipboardService.shared;
 
   @override
   Widget build(BuildContext context) {
@@ -275,8 +273,9 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
   }
 
   Future<void> _copySecret(String secret) async {
-    await _clipboard.copySensitive(secret);
-    unawaited(_clearClipboardIfUnchanged(secret));
+    // The service owns the 30 s "clear if unchanged" timer, so it keeps
+    // running after this screen closes and also works in background.
+    await _clipboard.copySensitive(secret, onAutoCleared: _showCleared);
 
     if (!mounted) {
       return;
@@ -287,15 +286,7 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
     ).showSnackBar(SnackBar(content: Text(context.l10n.secretCopiedLocally)));
   }
 
-  Future<void> _clearClipboardIfUnchanged(String secret) async {
-    await Future<void>.delayed(_clipboardClearDelay);
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    if (data?.text != secret) {
-      return;
-    }
-
-    await Clipboard.setData(const ClipboardData(text: ''));
-
+  void _showCleared() {
     if (!mounted) {
       return;
     }
