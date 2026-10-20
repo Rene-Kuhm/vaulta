@@ -107,7 +107,9 @@ class VaultItem {
   };
 
   /// Serializes the entry to a plain JSON map. The inverse is
-  /// [fromJson]. Used by the export feature and by tests.
+  /// [fromJson]. Used by the encrypted backup export
+  /// (`VaultBackupService`, ADR-006) for the payload items, and by
+  /// tests.
   Map<String, dynamic> toJson() {
     return {
       'id': id,

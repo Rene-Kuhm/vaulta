@@ -1114,6 +1114,36 @@ class VaultSecurityController extends ChangeNotifier {
     });
   }
 
+  /// Re-confirms the master password of an unlocked vault before a
+  /// sensitive action (encrypted backup export). Returns true only when
+  /// the vault is unlocked and [password] matches.
+  ///
+  /// Throttled by the same [UnlockAttemptLimiter] as
+  /// [unlockWithPassword]: while [isUnlockLockedOut] is true, or when
+  /// the attempt counter cannot be persisted, it returns false without
+  /// running the KDF. It never sets [message]; callers render localized
+  /// feedback (see `unlockThrottleMessage`).
+  Future<bool> reauthenticateWithPassword(String password) async {
+    final session = _vaultSession;
+    if (!isUnlocked || session == null || isUnlockLockedOut) {
+      return false;
+    }
+    return _runBusy(() async {
+      final record = await _readRecord();
+      if (record == null || record.keyId != session.keyId) {
+        return false;
+      }
+      final verified = await _verifyThrottled(
+        record: record,
+        password: password,
+        mismatchMessage: '',
+      );
+      _message = null;
+      // The vault may have been locked while the KDF ran.
+      return verified && isUnlocked && identical(_vaultSession, session);
+    });
+  }
+
   /// Runs the master-password verifier through the attempt limiter
   /// and maps the outcome onto [message]. Returns true on a match.
   ///
