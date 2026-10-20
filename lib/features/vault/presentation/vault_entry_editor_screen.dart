@@ -7,6 +7,7 @@ import '../../../app/design_system/app_panel.dart';
 import '../../../app/localization/l10n.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
+import '../../../core/security/secret_field_guard.dart';
 import '../domain/vault_item.dart';
 
 /// Form screen used both to create a new [VaultItem] and to edit an
@@ -183,35 +184,40 @@ class _VaultEntryEditorScreenState extends State<VaultEntryEditorScreen> {
                         ),
                       ),
                       const SizedBox(height: AppSpacing.md),
-                      TextFormField(
-                        controller: _secretController,
-                        obscureText: _obscureSecret,
-                        textInputAction: TextInputAction.next,
-                        decoration: InputDecoration(
-                          labelText: l10n.editorSecretLabel,
-                          prefixIcon: const Icon(Icons.password_rounded),
-                          suffixIcon: IconButton(
-                            onPressed: () {
-                              setState(
-                                () => _obscureSecret = !_obscureSecret,
-                              );
-                            },
-                            icon: Icon(
-                              _obscureSecret
-                                  ? Icons.visibility_rounded
-                                  : Icons.visibility_off_rounded,
+                      SecretFieldCopyBlocker(
+                        child: TextFormField(
+                          controller: _secretController,
+                          obscureText: _obscureSecret,
+                          // No Copy/Cut/Share/Translate on the secret; see
+                          // secret_field_guard.dart.
+                          contextMenuBuilder: secretFieldContextMenuBuilder,
+                          textInputAction: TextInputAction.next,
+                          decoration: InputDecoration(
+                            labelText: l10n.editorSecretLabel,
+                            prefixIcon: const Icon(Icons.password_rounded),
+                            suffixIcon: IconButton(
+                              onPressed: () {
+                                setState(
+                                  () => _obscureSecret = !_obscureSecret,
+                                );
+                              },
+                              icon: Icon(
+                                _obscureSecret
+                                    ? Icons.visibility_rounded
+                                    : Icons.visibility_off_rounded,
+                              ),
                             ),
                           ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return l10n.editorSecretRequiredValidation;
+                            }
+                            if (value.trim().length < 8) {
+                              return l10n.editorSecretMinValidation;
+                            }
+                            return null;
+                          },
                         ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return l10n.editorSecretRequiredValidation;
-                          }
-                          if (value.trim().length < 8) {
-                            return l10n.editorSecretMinValidation;
-                          }
-                          return null;
-                        },
                       ),
                       const SizedBox(height: AppSpacing.md),
                       Container(

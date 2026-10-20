@@ -111,6 +111,31 @@ void main() {
       expect(systemClipboard, 'something else');
     },
   );
+
+  testWidgets('revealed secret is not selectable, so it has no text '
+      'toolbar (no plain Copy, Share or PROCESS_TEXT)', (tester) async {
+    await pumpScreen(tester, _RecordingClipboardService());
+
+    await tester.tap(find.text('Show'));
+    await tester.pump();
+    expect(find.text('StrongPass!2026'), findsOneWidget);
+
+    expect(
+      find.ancestor(
+        of: find.text('StrongPass!2026'),
+        matching: find.byType(SelectableText),
+      ),
+      findsNothing,
+    );
+    expect(find.byType(SelectableText), findsNothing);
+
+    await tester.longPress(find.text('StrongPass!2026'));
+    await tester.pump();
+    expect(find.byType(AdaptiveTextSelectionToolbar), findsNothing);
+    expect(find.text('Copy'), findsNothing);
+    expect(find.text('Share'), findsNothing);
+    expect(systemWrites, isEmpty);
+  });
 }
 
 class _RecordingClipboardService extends SensitiveClipboardService {

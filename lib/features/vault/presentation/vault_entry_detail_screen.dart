@@ -202,7 +202,12 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
                       borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
                       border: Border.all(color: AppColors.borderDark),
                     ),
-                    child: SelectableText(
+                    // Plain Text on purpose: a selectable secret would get
+                    // the platform toolbar (plain Copy without the
+                    // sensitive flag or auto-clear, Share, Translate and
+                    // other PROCESS_TEXT actions) and Ctrl+C on desktop.
+                    // The Copy button below is the only copy path.
+                    child: Text(
                       _obscureSecret ? _mask(item.secret) : item.secret,
                       style: theme.textTheme.titleMedium?.copyWith(
                         color: AppColors.paperDark,
