@@ -492,32 +492,46 @@ class VaultSecurityController extends ChangeNotifier {
 
       var activeRecord = record;
       var activeSession = sourceSession;
+      var rewriteDeferred = false;
       if (_needsRecordMigration(record)) {
-        final migratedRecord = await _masterPasswordService.createRecord(
-          password,
-        );
-        final migratedSession = VaultSession.v2(
-          keyId: migratedRecord.keyId,
-          secretKey: await _masterPasswordService.deriveVaultKey(
-            record: migratedRecord,
-            password: password,
-          ),
-          kdf: migratedRecord.kdf!,
-          dekWrap: migratedRecord.dekWrap!,
-        );
-        await _rekeyEntries(
+        final rewrite = await _rewriteLegacyRecordOnUnlock(
+          legacyRecord: record,
+          password: password,
           sourceSession: sourceSession,
-          targetSession: migratedSession,
         );
-        await _storage.save(masterPasswordRecordKey, migratedRecord.encode());
-        activeRecord = migratedRecord;
-        activeSession = migratedSession;
-        // Re-enroll the envelope after migration so the new DEK is the
-        // one wrapped on disk, not the v1 derived key.
-        await _enrollBiometricEnvelopeIfNeeded(activeRecord);
+        if (!rewrite.recoverable) {
+          // Fail closed: the entries were rewritten under a DEK that no
+          // record on disk points to, and the undo did not land. This
+          // build cannot tell the user what their vault contains, so the
+          // only honest state is locked with an explanation.
+          _vaultSession = null;
+          _stage = VaultSecurityStage.locked;
+          _message =
+              'No pudimos actualizar el cifrado del vault y el rollback '
+              'tampoco se completo. Vaulta queda bloqueada por seguridad.';
+          return false;
+        }
+        activeRecord = rewrite.record;
+        activeSession = rewrite.session;
+        rewriteDeferred = !rewrite.migrated;
       }
 
       _vaultSession = activeSession;
+
+      if (activeRecord != record) {
+        // The DEK changed, so the envelope written for the legacy
+        // record wraps a key that no longer opens anything: a biometric
+        // unlock would report success and hand the vault a DEK that
+        // matches none of its items. Wipe it and wrap the new DEK.
+        //
+        // This must run *after* `_vaultSession` is set, because the
+        // enrollment helper reads the DEK out of the active session.
+        // Running it before (as it used to) made it a silent no-op, and
+        // the stale envelope then survived the migration.
+        await _biometricEnvelopeService.clear();
+        await _enrollBiometricEnvelopeIfNeeded(activeRecord);
+      }
+
       if (!await _migrateEntriesAfterUnlock()) {
         return false;
       }
@@ -536,9 +550,12 @@ class VaultSecurityController extends ChangeNotifier {
       }
       _envelopeEnrolled = await _biometricEnvelopeService.isEnrolled();
 
-      _message = activeRecord == record
-          ? 'Vaulta desbloqueada.'
-          : 'Vaulta desbloqueada y migrada a cifrado v2.';
+      _message = activeRecord != record
+          ? 'Vaulta desbloqueada y migrada a cifrado v3.'
+          : rewriteDeferred
+          ? 'Vaulta desbloqueada. La mejora de cifrado se reintentara en '
+                'el proximo desbloqueo.'
+          : 'Vaulta desbloqueada.';
       _stage = VaultSecurityStage.unlocked;
       _restartIdleTimer();
       return true;
@@ -814,42 +831,29 @@ class VaultSecurityController extends ChangeNotifier {
         dekWrap: newRecord.dekWrap!,
       );
 
-      try {
-        await _rekeyEntries(
-          sourceSession: sourceSession,
-          targetSession: targetSession,
-        );
-      } catch (_) {
-        _message =
-            'No pudimos completar el re-cifrado del vault. Se mantuvo tu clave actual para evitar inconsistencias.';
-        return false;
-      }
+      final write = await _rekeyThenPersistRecord(
+        sourceSession: sourceSession,
+        targetSession: targetSession,
+        targetRecord: newRecord,
+      );
 
-      try {
-        await _storage.save(masterPasswordRecordKey, newRecord.encode());
-      } catch (_) {
-        var rollbackSucceeded = false;
-        try {
-          await _rekeyEntries(
-            sourceSession: targetSession,
-            targetSession: sourceSession,
-          );
-          rollbackSucceeded = true;
-        } catch (_) {
-          rollbackSucceeded = false;
-        }
-
-        if (!rollbackSucceeded) {
+      switch (write) {
+        case _RecordWrite.rekeyFailed:
+          _message =
+              'No pudimos completar el re-cifrado del vault. Se mantuvo tu clave actual para evitar inconsistencias.';
+          return false;
+        case _RecordWrite.saveFailed:
+          _message =
+              'No pudimos guardar la nueva master password. Se mantuvo tu clave actual para evitar inconsistencias.';
+          return false;
+        case _RecordWrite.rollbackFailed:
           _vaultSession = null;
           _stage = VaultSecurityStage.locked;
           _message =
               'Fallo al persistir la nueva master password y no pudimos confirmar rollback completo. Vaulta queda bloqueada por seguridad.';
           return false;
-        }
-
-        _message =
-            'No pudimos guardar la nueva master password. Se mantuvo tu clave actual para evitar inconsistencias.';
-        return false;
+        case _RecordWrite.persisted:
+          break;
       }
 
       _vaultSession = targetSession;
@@ -1196,6 +1200,140 @@ class VaultSecurityController extends ChangeNotifier {
     }
   }
 
+  /// Rewrites a legacy master-password record into the current format
+  /// along with the entries sealed under its DEK.
+  ///
+  /// This is the v2 -> v3 (and v1 -> v3) boundary. The caller has
+  /// already verified the password, so by the time this runs the user
+  /// owns the vault; nothing here can lock them out.
+  ///
+  /// The rewrite is deliberately fail-safe, and the ordering is the
+  /// whole argument for that:
+  ///
+  ///  * The password is verified *before* this is called, so no rewrite
+  ///    can be triggered by a wrong guess.
+  ///  * The entries move first and the record second. At every instant
+  ///    in between, the record on disk is still a key that opens the
+  ///    *previous* entries, so a crash or a failed write cannot leave a
+  ///    record pointing at items it cannot read.
+  ///  * When the record write is the step that fails, the entry rewrite
+  ///    is undone. Without that undo the vault would hold items sealed
+  ///    under a DEK that exists nowhere on disk, which is silent data
+  ///    loss; with it, the legacy record and the legacy entries are a
+  ///    matching pair again.
+  ///  * When the rewrite cannot be completed but the legacy pair is
+  ///    still consistent, the caller unlocks on the legacy record and
+  ///    retries on the next unlock. Not migrating leaves the user with
+  ///    the older scheme, which is weaker but intact; a half-migrated
+  ///    vault would be neither.
+  ///
+  /// [migrated] is true only when the new record is persisted and the
+  /// entries are sealed under its DEK. [recoverable] is false only when
+  /// the entry rewrite could not be undone, which means the caller must
+  /// fail closed. In the non-migrated cases [record] and [session] are
+  /// the legacy pair, which still open the vault.
+  Future<
+      ({
+        bool migrated,
+        bool recoverable,
+        MasterPasswordRecord record,
+        VaultSession session,
+      })> _rewriteLegacyRecordOnUnlock({
+    required MasterPasswordRecord legacyRecord,
+    required String password,
+    required VaultSession sourceSession,
+  }) async {
+    final migratedRecord = await _masterPasswordService.createRecord(password);
+    final migratedSession = VaultSession.v2(
+      keyId: migratedRecord.keyId,
+      secretKey: await _masterPasswordService.deriveVaultKey(
+        record: migratedRecord,
+        password: password,
+      ),
+      kdf: migratedRecord.kdf!,
+      dekWrap: migratedRecord.dekWrap!,
+    );
+
+    final write = await _rekeyThenPersistRecord(
+      sourceSession: sourceSession,
+      targetSession: migratedSession,
+      targetRecord: migratedRecord,
+    );
+
+    return switch (write) {
+      _RecordWrite.persisted => (
+          migrated: true,
+          recoverable: true,
+          record: migratedRecord,
+          session: migratedSession,
+        ),
+      _RecordWrite.rekeyFailed || _RecordWrite.saveFailed => (
+          migrated: false,
+          recoverable: true,
+          record: legacyRecord,
+          session: sourceSession,
+        ),
+      _RecordWrite.rollbackFailed => (
+          migrated: false,
+          recoverable: false,
+          record: legacyRecord,
+          session: sourceSession,
+        ),
+    };
+  }
+
+  /// Re-encrypts every entry from [sourceSession] under [targetSession]
+  /// and then persists [targetRecord] as the live master-password
+  /// record.
+  ///
+  /// Single owner of that ordering, shared by [changeMasterPassword]
+  /// and [_rewriteLegacyRecordOnUnlock], because the two operations
+  /// have identical failure semantics and the invariant below is what
+  /// keeps a failed rewrite from destroying a vault: **the record is
+  /// written last, and a failure to write it undoes the entry
+  /// rewrite**. Every earlier failure leaves the pre-existing record
+  /// and the pre-existing entries as a pair that still opens.
+  ///
+  /// Never throws: every outcome is reported as a [_RecordWrite] so the
+  /// caller can decide between "keep the old key" and "fail closed"
+  /// without having to re-derive which writes already landed.
+  Future<_RecordWrite> _rekeyThenPersistRecord({
+    required VaultSession sourceSession,
+    required VaultSession targetSession,
+    required MasterPasswordRecord targetRecord,
+  }) async {
+    try {
+      await _rekeyEntries(
+        sourceSession: sourceSession,
+        targetSession: targetSession,
+      );
+    } catch (_) {
+      // The repository stages the new blob behind the rekey-in-progress
+      // marker and only swaps it in once the rewrite completes, so a
+      // throw here means the live entries are still the old ones.
+      return _RecordWrite.rekeyFailed;
+    }
+
+    try {
+      await _storage.save(masterPasswordRecordKey, targetRecord.encode());
+    } catch (_) {
+      // The entries now live under the target DEK and no record on
+      // disk references it. Put them back under the source DEK, which
+      // the still-live old record can open.
+      try {
+        await _rekeyEntries(
+          sourceSession: targetSession,
+          targetSession: sourceSession,
+        );
+      } catch (_) {
+        return _RecordWrite.rollbackFailed;
+      }
+      return _RecordWrite.saveFailed;
+    }
+
+    return _RecordWrite.persisted;
+  }
+
   /// Runs the [VaultMigrateEntries] hook against the session that was
   /// just activated. Fails closed: if the upgrade throws, the session
   /// is dropped and the vault stays locked (the stored items are left
@@ -1333,6 +1471,27 @@ class VaultSecurityController extends ChangeNotifier {
   }) async {
     throw UnsupportedError('Vault rekeying operation is not configured.');
   }
+}
+
+/// Outcome of re-encrypting the entries and then persisting a new
+/// master-password record. See [_rekeyThenPersistRecord] for the
+/// ordering that produces these four cases.
+enum _RecordWrite {
+  /// Both writes landed: the entries are sealed under the new DEK and
+  /// the new record is on disk.
+  persisted,
+
+  /// The entry rewrite threw and did not commit. The old record and the
+  /// old entries are still a matching pair.
+  rekeyFailed,
+
+  /// The record write threw and the entry rewrite was undone. The old
+  /// record and the old entries are still a matching pair.
+  saveFailed,
+
+  /// The record write threw *and* the undo threw. The entries and the
+  /// record disagree, so the caller must fail closed.
+  rollbackFailed,
 }
 
 /// True when [record] predates the current master-password format and the

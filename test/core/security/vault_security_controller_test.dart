@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
 import 'package:local_auth/local_auth.dart';
@@ -369,6 +372,161 @@ void main() {
       expect(rekeyCalls, 0);
       expect(controller.message, contains('actual no coincide'));
     });
+
+    // The three failure branches below share [_rekeyThenPersistRecord]
+    // with the v2 rewrite path, so they are pinned here to prove the
+    // extraction did not change what changeMasterPassword does.
+    group('change master password failure branches', () {
+      const current = 'StrongPass!2026';
+      const replacement = 'AnotherStrong!2027';
+
+      /// Unlocks a fresh vault with [current] as the master password and
+      /// [onRekey] wired as the repository rekey hook.
+      Future<VaultSecurityController> unlockedVault({
+        required Future<void> Function({
+          required VaultSession sourceSession,
+          required VaultSession targetSession,
+        }) onRekey,
+        required _InMemorySecureStorageService store,
+      }) async {
+        final controller = VaultSecurityController(
+          storage: store,
+          masterPasswordService: MasterPasswordService.test(),
+          biometricAuthService: const _FakeBiometricAuthService(),
+          rekeyEntries:
+              ({required sourceSession, required targetSession}) =>
+                  onRekey(
+                    sourceSession: sourceSession,
+                    targetSession: targetSession,
+                  ),
+        );
+        addTearDown(controller.dispose);
+        await controller.initialize();
+        await controller.createMasterPassword(
+          password: current,
+          confirmation: current,
+          enableBiometrics: false,
+        );
+        return controller;
+      }
+
+      test('a failed rekey keeps the vault unlocked on the old key',
+          () async {
+        final store = _InMemorySecureStorageService();
+        final controller = await unlockedVault(
+          store: store,
+          onRekey:
+              ({required sourceSession, required targetSession}) async =>
+                  throw StateError('keystore unavailable'),
+        );
+        final keyIdBefore = controller.vaultSession!.keyId;
+
+        final changed = await controller.changeMasterPassword(
+          currentPassword: current,
+          newPassword: replacement,
+          confirmation: replacement,
+        );
+
+        expect(changed, isFalse);
+        expect(controller.isUnlocked, isTrue);
+        expect(controller.vaultSession!.keyId, keyIdBefore);
+        expect(controller.message, contains('Se mantuvo tu clave actual'));
+        // Nothing was persisted, so the old password still opens it.
+        expect(await controller.unlockWithPassword(current), isTrue);
+      });
+
+      test('a failed record write rolls back and keeps the old key',
+          () async {
+        final store = _InMemorySecureStorageService();
+        final rekeyed = <String>[];
+        final controller = await unlockedVault(
+          store: store,
+          onRekey:
+              ({required sourceSession, required targetSession}) async {
+                rekeyed.add(targetSession.keyId);
+              },
+        );
+        final keyIdBefore = controller.vaultSession!.keyId;
+        store.failRecordSaves = true;
+
+        final changed = await controller.changeMasterPassword(
+          currentPassword: current,
+          newPassword: replacement,
+          confirmation: replacement,
+        );
+
+        expect(changed, isFalse);
+        expect(controller.isUnlocked, isTrue);
+        expect(controller.vaultSession!.keyId, keyIdBefore);
+        expect(controller.message, contains('Se mantuvo tu clave actual'));
+        expect(rekeyed, hasLength(2));
+        expect(rekeyed.last, keyIdBefore, reason: 'the undo targets the old key');
+        store.failRecordSaves = false;
+        expect(await controller.unlockWithPassword(current), isTrue);
+        expect(
+          await controller.unlockWithPassword(replacement),
+          isFalse,
+          reason: 'the new password was never persisted',
+        );
+      });
+
+      test('a failed rollback locks the vault by design', () async {
+        final store = _InMemorySecureStorageService();
+        var calls = 0;
+        final controller = await unlockedVault(
+          store: store,
+          onRekey: ({required sourceSession, required targetSession}) async {
+            calls += 1;
+            if (calls == 2) {
+              // The forward rewrite committed; the undo does not.
+              throw StateError('keystore unavailable');
+            }
+          },
+        );
+        store.failRecordSaves = true;
+
+        final changed = await controller.changeMasterPassword(
+          currentPassword: current,
+          newPassword: replacement,
+          confirmation: replacement,
+        );
+
+        expect(changed, isFalse);
+        expect(controller.stage, VaultSecurityStage.locked);
+        expect(controller.vaultSession, isNull);
+        expect(controller.message, contains('bloqueada por seguridad'));
+      });
+    });
+
+    test('an already-current record is not rewritten on unlock', () async {
+      var rekeyCalls = 0;
+      final storage = _InMemorySecureStorageService();
+      final controller = VaultSecurityController(
+        storage: storage,
+        masterPasswordService: MasterPasswordService.test(),
+        biometricAuthService: const _FakeBiometricAuthService(),
+        rekeyEntries: ({required sourceSession, required targetSession}) async {
+          rekeyCalls += 1;
+        },
+      );
+      addTearDown(controller.dispose);
+
+      await controller.initialize();
+      await controller.createMasterPassword(
+        password: 'StrongPass!2026',
+        confirmation: 'StrongPass!2026',
+        enableBiometrics: false,
+      );
+      final keyId = controller.vaultSession!.keyId;
+      await controller.lock();
+
+      expect(await controller.unlockWithPassword('StrongPass!2026'), isTrue);
+
+      expect(rekeyCalls, 0, reason: 'a v3 record has nothing to migrate');
+      expect(controller.vaultSession!.keyId, keyId);
+      expect(controller.message, 'Vaulta desbloqueada.');
+      expect(controller.messageIsError, isFalse);
+    });
   });
 
   group('VaultSecurityController unlock throttling', () {
@@ -536,6 +694,300 @@ void main() {
       );
     });
   });
+
+  group('v2 record rewrite on unlock', () {
+    // A v2 master-password record is what the previous release wrote:
+    // Argon2id over the RAW password bytes, the 32-byte KDF output used
+    // directly as the KEK (no HKDF split), and a DEK wrapped under it.
+    // `pwNorm` is absent, so `isCurrentFormat` is false and the unlock
+    // path has to rewrite it. The records here are real — real Argon2id,
+    // real AES-GCM wrap — because the whole point of the boundary is
+    // that the derived DEK has to match byte for byte.
+    const password = 'StrongPass!2026';
+    const v2Salt = [11, 22, 33, 44, 55, 66, 77, 88, 1, 2, 3, 4, 5, 6, 7, 8];
+
+    /// Real Argon2id with tiny parameters. `MasterPasswordService.test()`
+    /// uses a stub KDF that cannot interoperate with a record written by
+    /// real Argon2id, so a test that hands a real v2 record to the
+    /// controller must hand it a real-KDF service too.
+    final realKdf = MasterPasswordService(
+      encryptionIterations: 1,
+      argon2MemoryKiB: 1024,
+      argon2Parallelism: 1,
+    );
+
+    late _InMemorySecureStorageService storage;
+    late List<int> legacyDek;
+
+    Future<MasterPasswordRecord> buildV2Record() async {
+      final kek = await Argon2id(
+        memory: 1024,
+        parallelism: 1,
+        iterations: 1,
+        hashLength: 32,
+      ).deriveKeyFromPassword(password: password, nonce: v2Salt);
+      final verifier = await Argon2id(
+        memory: 1024,
+        parallelism: 1,
+        iterations: 1,
+        hashLength: 32,
+      ).deriveKeyFromPassword(password: password, nonce: v2Salt);
+      final box = await AesGcm.with256bits().encrypt(
+        legacyDek,
+        secretKey: kek,
+      );
+      return MasterPasswordRecord(
+        version: 2,
+        verifierIterations: 1,
+        verifierSalt: base64Encode(v2Salt),
+        verifier: base64Encode(await verifier.extractBytes()),
+        encryptionIterations: 1,
+        encryptionSalt: base64Encode(v2Salt),
+        keyId: 'legacy-v2-key',
+        createdAt: DateTime.utc(2025),
+        kdf: {
+          'name': 'argon2id',
+          'salt_b64': base64Encode(v2Salt),
+          'memory_kib': 1024,
+          'iterations': 1,
+          'parallelism': 1,
+          'dk_len': 32,
+        },
+        dekWrap: {
+          'alg': 'AES-256-GCM',
+          'nonce_b64': base64Encode(box.nonce),
+          'ciphertext_b64': base64Encode(box.cipherText),
+          'tag_b64': base64Encode(box.mac.bytes),
+        },
+      );
+    }
+
+    setUp(() async {
+      storage = _InMemorySecureStorageService();
+      legacyDek = List<int>.generate(32, (i) => i + 1);
+      await storage.save(
+        VaultSecurityController.masterPasswordRecordKey,
+        (await buildV2Record()).encode(),
+      );
+    });
+
+    /// Builds a controller whose repository rekey hook records every
+    /// call instead of touching storage, plus the record on disk after
+    /// each unlock so tests can assert on what was persisted.
+    ({VaultSecurityController controller, List<({String from, String to})> rekeys})
+        buildLockedVault({
+      Future<void> Function({
+        required VaultSession sourceSession,
+        required VaultSession targetSession,
+      })? onRekey,
+      BiometricUnlockService? unlocker,
+      MasterPasswordService? passwords,
+    }) {
+      final rekeys = <({String from, String to})>[];
+      final controller = VaultSecurityController(
+        storage: storage,
+        masterPasswordService: passwords ?? realKdf,
+        biometricAuthService: const _FakeBiometricAuthService(),
+        biometricUnlockService: unlocker,
+        rekeyEntries:
+            ({required sourceSession, required targetSession}) async {
+          rekeys.add((from: sourceSession.keyId, to: targetSession.keyId));
+          await onRekey?.call(
+            sourceSession: sourceSession,
+            targetSession: targetSession,
+          );
+        },
+      );
+      addTearDown(controller.dispose);
+      return (controller: controller, rekeys: rekeys);
+    }
+
+    Future<MasterPasswordRecord> readPersistedRecord() async {
+      final raw = await storage.read(
+        VaultSecurityController.masterPasswordRecordKey,
+      );
+      return MasterPasswordRecord.decode(raw!);
+    }
+
+    test('the v2 record on disk is not in the current format', () async {
+      // Sanity: the premise of every other test in this group. If this
+      // ever stops holding, the rewrite assertions below prove nothing.
+      final record = await readPersistedRecord();
+
+      expect(record.version, 2);
+      expect(record.pwNorm, isNull);
+      expect(record.isCurrentFormat, isFalse);
+    });
+
+    test('unlocking with the password rewrites the record as v3',
+        () async {
+      final vault = buildLockedVault();
+      await vault.controller.initialize();
+
+      expect(await vault.controller.unlockWithPassword(password), isTrue);
+
+      final rewritten = await readPersistedRecord();
+      expect(rewritten.version, 3);
+      expect(rewritten.isCurrentFormat, isTrue);
+      expect(rewritten.pwNorm, MasterPasswordRecord.nfcMarker);
+      expect(rewritten.kdf!['split'], 'hkdf-sha256-v3');
+      expect(rewritten.kdf!['dk_len'], 64);
+      // One Argon2id run now feeds both halves, so all three salts are
+      // the same value — the structural proof of the v3 split.
+      expect(rewritten.verifierSalt, rewritten.kdf!['salt_b64']);
+      expect(rewritten.encryptionSalt, rewritten.kdf!['salt_b64']);
+      expect(rewritten.keyId, isNot('legacy-v2-key'));
+    });
+
+    test('the same password still unlocks the rewritten record', () async {
+      final vault = buildLockedVault();
+      await vault.controller.initialize();
+
+      expect(await vault.controller.unlockWithPassword(password), isTrue);
+      await vault.controller.lock();
+
+      // Second unlock reads the *rewritten* record off disk, so this
+      // proves the persisted v3 record is self-consistent rather than
+      // just that a migration ran.
+      final restarted = buildLockedVault();
+      await restarted.controller.initialize();
+      expect(await restarted.controller.unlockWithPassword(password), isTrue);
+      expect(restarted.rekeys, isEmpty, reason: 'already v3: nothing to rekey');
+    });
+
+    test('the entries are rekeyed from the old key to the new one', () async {
+      final vault = buildLockedVault();
+      await vault.controller.initialize();
+
+      expect(await vault.controller.unlockWithPassword(password), isTrue);
+
+      expect(vault.rekeys, hasLength(1));
+      expect(vault.rekeys.single.from, 'legacy-v2-key');
+      expect(
+        (await readPersistedRecord()).keyId,
+        vault.rekeys.single.to,
+      );
+    });
+
+    test('the session that opens the vault carries the new DEK', () async {
+      final vault = buildLockedVault();
+      await vault.controller.initialize();
+
+      expect(await vault.controller.unlockWithPassword(password), isTrue);
+
+      final session = vault.controller.vaultSession!;
+      final rewritten = await readPersistedRecord();
+      expect(session.keyId, rewritten.keyId);
+      // The DEK is the v3 one: re-deriving it from the rewritten record
+      // with the same password must reproduce the in-memory bytes.
+      expect(
+        await session.secretKey.extractBytes(),
+        await (await realKdf.deriveVaultKey(
+          record: rewritten,
+          password: password,
+        )).extractBytes(),
+      );
+      expect(
+        await session.secretKey.extractBytes(),
+        isNot(legacyDek),
+        reason: 'a rewritten record wraps a fresh DEK, not the v2 one',
+      );
+    });
+
+    test('a wrong password rewrites nothing at all', () async {
+      final before = await readPersistedRecord();
+      final vault = buildLockedVault();
+      await vault.controller.initialize();
+
+      expect(await vault.controller.unlockWithPassword('WrongPass!2026'),
+          isFalse);
+
+      expect(vault.rekeys, isEmpty);
+      expect((await readPersistedRecord()).version, 2);
+      expect((await readPersistedRecord()).keyId, before.keyId);
+      expect(vault.controller.vaultSession, isNull);
+    });
+
+    test('a failed rekey leaves the v2 record on disk and still unlocks',
+        () async {
+      // Fail-safe: not migrating is a strictly better outcome than a
+      // half-migrated vault. The v2 scheme still works, so a failed
+      // rewrite must be invisible to the user's unlock.
+      final vault = buildLockedVault(
+        onRekey: ({required sourceSession, required targetSession}) async {
+          throw StateError('keystore unavailable');
+        },
+      );
+      await vault.controller.initialize();
+
+      expect(await vault.controller.unlockWithPassword(password), isTrue);
+
+      expect((await readPersistedRecord()).version, 2);
+      expect(vault.controller.isUnlocked, isTrue);
+      expect(vault.controller.vaultSession!.keyId, 'legacy-v2-key');
+      // The unlock succeeded on the legacy scheme, so the message must
+      // not render in the error tone even though a rewrite was skipped.
+      expect(vault.controller.message, contains('reintentara'));
+      expect(vault.controller.messageIsError, isFalse);
+    });
+
+    test('a failed record write rolls the entries back to the old key',
+        () async {
+      final rekeys = <String>[];
+      storage.failRecordSaves = true;
+      final vault = buildLockedVault(
+        onRekey: ({required sourceSession, required targetSession}) async {
+          rekeys.add(targetSession.keyId);
+        },
+      );
+      await vault.controller.initialize();
+
+      expect(await vault.controller.unlockWithPassword(password), isTrue);
+
+      // Items were rewritten under the new DEK, so the rollback has to
+      // put them back under the v2 DEK before the old record can open
+      // them again. The two calls therefore target different keys: the
+      // forward rewrite under the fresh one, the undo under the legacy
+      // one.
+      expect(rekeys, hasLength(2));
+      expect(rekeys.first, isNot('legacy-v2-key'));
+      expect(rekeys.last, 'legacy-v2-key');
+      expect((await readPersistedRecord()).version, 2);
+      expect(vault.controller.vaultSession!.keyId, 'legacy-v2-key');
+    });
+
+    test('migration re-enrolls the biometric envelope under the new DEK',
+        () async {
+      // The v2 vault already had a working biometric unlock, so an
+      // envelope wrapping the OLD DEK is on disk. After the rewrite the
+      // record points at a fresh DEK, and an envelope left untouched
+      // would hand that fresh record a key that opens nothing.
+      await storage.save(
+        VaultSecurityController.biometricEnabledKey,
+        'true',
+      );
+      final envelopeKey = SecretKey(List<int>.generate(32, (i) => i * 5 + 2));
+      final envelope = BiometricKeyEnvelopeService(storage: storage);
+      await envelope.enroll(
+        dekBytes: Uint8List.fromList(legacyDek),
+        envelopeKey: envelopeKey,
+      );
+
+      final vault = buildLockedVault(
+        unlocker: _FixedKeyUnlockService(storage, envelopeKey),
+      );
+      await vault.controller.initialize();
+
+      expect(await vault.controller.unlockWithPassword(password), isTrue);
+
+      // The envelope on disk must now unwrap to the session's DEK.
+      final unwrapped = await envelope.unwrap(envelopeKey: envelopeKey);
+      expect(
+        unwrapped,
+        await vault.controller.vaultSession!.secretKey.extractBytes(),
+      );
+    });
+  });
 }
 
 class _CountingMasterPasswordService extends MasterPasswordService {
@@ -586,6 +1038,10 @@ class _InMemorySecureStorageService implements SecureStorageService {
   /// an unavailable keystore.
   bool failSaves = false;
 
+  /// When true, writes of the master-password record throw. Used to
+  /// pin the rollback behaviour of the record rewrite.
+  bool failRecordSaves = false;
+
   @override
   Future<void> delete(String key) async {
     _values.remove(key);
@@ -599,7 +1055,39 @@ class _InMemorySecureStorageService implements SecureStorageService {
     if (failSaves && key == UnlockAttemptLimiter.stateKey) {
       throw StateError('keystore unavailable');
     }
+    if (failRecordSaves &&
+        key == VaultSecurityController.masterPasswordRecordKey) {
+      throw StateError('keystore unavailable');
+    }
     _values[key] = value;
+  }
+}
+
+/// Unlock service whose envelope-key provider hands out a fixed key, so
+/// a test can enroll and then unwrap the real envelope.
+class _FixedKeyUnlockService extends BiometricUnlockService {
+  _FixedKeyUnlockService(SecureStorageService storage, SecretKey envelopeKey)
+    : super(
+        storage: storage,
+        biometricAuthService: const _FakeBiometricAuthService(),
+        envelopeService: BiometricKeyEnvelopeService(storage: storage),
+        envelopeKeyProvider: _FixedKeyProvider(envelopeKey),
+      );
+}
+
+class _FixedKeyProvider implements BiometricEnvelopeKeyProvider {
+  const _FixedKeyProvider(this.key);
+
+  final SecretKey key;
+
+  @override
+  Future<BiometricEnvelopeKeyResult> acquireEnvelopeKey() async {
+    return BiometricEnvelopeKeyResult.success(key);
+  }
+
+  @override
+  Future<BiometricEnvelopeKeyResult> releaseEnvelopeKey() async {
+    return BiometricEnvelopeKeyResult.success(key);
   }
 }
 
