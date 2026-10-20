@@ -4,8 +4,12 @@
 > file has a corresponding implementation, ADR, or test that the
 > auditor can read directly.
 >
-> Snapshot of `master` at `618e5f1`. Line references point at that
-> commit. Where this file and the code disagree, the code wins.
+> Snapshot of `feat/enterprise-closure` at `e0de33c` (2026-10-21).
+> Line references point at that commit. The previous snapshot was
+> `master` at `618e5f1`, which predates `7590912`, `e12e71a`, `51517c2`,
+> `5716334` and `a4fc61b` — every gap and every biometric-envelope claim
+> below has been re-checked against the current tree. Where this file and
+> the code disagree, the code wins.
 
 ## What to read, in order
 
@@ -96,29 +100,50 @@
   (`info="vaulta:v3:kek"`). One Argon2id run per unlock, not two; the
   `info` labels are domain separation between the halves. Records
   written by this build are `version: 3` and carry `pw_norm: "NFC"`.
-  See `master_password_service.dart:59-68`, `:120-155`, `:237-250`,
-  `master_password_record.dart`, and ADR-001.
+  See `master_password_service.dart:54-68` (constants), `:120-142`
+  (`createRecord`), `:239-250` (`deriveVaultKey`), `:256`
+  (`_splitMasterKey`), `master_password_record.dart:126-133`, and
+  ADR-001. Re-verified at `e0de33c`, 2026-10-21.
   - **Cost, measured** (`tool/kdf_benchmark.dart`, development
     machine, median of 5): one run 389 ms, two runs 771 ms, and output
     length is free — 392 ms at 64 B against 389 ms at 32 B. That is why
     the 64-byte master key is affordable and the split is a pure win.
 - **Password normalization**: NFC, via `unorm_dart`, applied before
-  every KDF call (`password_policy.dart:104`). Records record it as
-  `pw_norm: "NFC"`. **Legacy v1/v2 records are hashed raw and stay
-  that way** — NFC changes the byte sequence of a decomposed password,
-  so normalizing the legacy path would lock existing owners out.
+  the KDF on the current path (`password_policy.dart:131`). Records
+  record it as `pw_norm: "NFC"`. **Legacy v1/v2 records are hashed raw
+  and stay that way** — NFC changes the byte sequence of a decomposed
+  password, so normalizing the legacy path would lock existing owners
+  out. The v2 branch passes `password` unnormalized on purpose
+  (`master_password_service.dart:227-234`), so "NFC before every KDF
+  call" is true of record v3 and false of v1/v2 by design.
 - **Password policy**: NIST SP 800-63B §3.1.1.2. Minimum 12, maximum
-  1024, plus an offline screen against a **curated** list of common
-  breached passwords. The composition rule (upper + lower + digit +
-  symbol) is gone, and so are rotation prompts, paste blocking and
-  autofill blocking. Nothing is ever sent to a network service.
-  - **Honest limitation**: the shipped list is a hand-curated subset
-    (339 tokens / 319 distinct / 304 after folding, counted from
-    `common_password_blocklist.dart:32-140`), **not** the Pwned
-    Passwords corpus, which is not shippable in an APK. It catches the
-    common cases, not the comprehensive ones. `common_password_blocklist.dart:20-26`
-    documents how to swap in a compressed SHA-1 prefix corpus without
-    touching a single call site.
+  1024, plus an offline screen against a breach corpus. The composition
+  rule (upper + lower + digit + symbol) is gone, and so are rotation
+  prompts, paste blocking and autofill blocking. Nothing is ever sent to
+  a network service.
+  - **Honest limitation (unchanged, and the reason this bullet is not a
+    strength claim)**: the corpus is the UK NCSC **top-100k**
+    most-used/breached passwords — 99 838 entries after filtering, shipped
+    as 161 426 truncated SHA-256 digests in
+    `assets/security/breached_password_sha256.txt` (2 744 242 bytes),
+    generated in `7590912` on 2026-10-20 from the SecLists mirror
+    `Passwords/Common-Credentials/100k-most-used-passwords-NCSC.txt`.
+    **It is not the Pwned Passwords corpus**, which is not shippable in
+    an APK. A password outside those 99 838 entries that appears in some
+    other breach corpus will still be accepted. Shipped as **SHA-256
+    digests, never plaintext** — 16 lowercase hex chars of each digest,
+    because a truncated SHA-256 is no more invertible than a full one and
+    a 64-bit prefix collision can only cause a false *rejection*, never a
+    false acceptance. Count pinned by
+    `test/core/security/password_policy_test.dart`.
+    Each entry is indexed under four pre-folded forms (`lower`,
+    `fold(lower)`, `stripDigits(lower)`, `stripDigits(fold(lower))`) by
+    the *same* `foldForBlocklist` / `stripTrailingDigits` the runtime
+    uses, which is why 99 838 entries become 161 426 digests.
+  - A curated in-source list is still shipped and is what screens a
+    password in the frames before the corpus finishes loading — degraded
+    but never a wrong rejection. Full recipe and reasoning:
+    `common_password_blocklist.dart:78-121`.
 - **KEK → DEK wrap**: AES-256-GCM, fresh 12-byte nonce per wrap.
   DEK is random 32 bytes per vault. The wrap envelope is
   persisted as `{alg, salt_b64, nonce_b64, ciphertext_b64,
@@ -140,47 +165,93 @@
   v1/v2 (no AAD) and v3 (AAD without the version) still decrypt
   (`:150-180`).
 - **Migration + downgrade defense**: after each successful unlock,
-  `migrateItemsToCurrentVersion` rewrites items **below v3** in one
-  staged swap (`local_encrypted_vault_repository.dart:282-323`) and the
-  result is written as v4. It then sets
-  `vault_item_payload_min_version = "3"`
-  (`:607-615`). From then on v1/v2 payloads are refused at rest and
-  from sync (`aes_gcm_vault_crypto_service.dart:164-169`). If the
-  migration fails, the vault stays locked
-  (`vault_security_controller.dart:521`).
-  - **v3 items are not force-migrated.** A vault can hold v3 and v4
-    items side by side; a v3 item becomes v4 when the user next edits
-    it or when the master password changes. The v3 floor is deliberate,
-    not an oversight (`local_encrypted_vault_repository.dart:72`).
+  `migrateItemsToCurrentVersion` — now an alias for
+  `migrateItemsToItemKeyed` — rewrites every item whose payload version
+  is **below v4** in one staged swap
+  (`local_encrypted_vault_repository.dart:293-335`, threshold at
+  `:301-307`; alias at `:347`), and the result is written as v4. It then
+  sets `vault_item_payload_min_version = "3"`
+  (`currentItemPayloadVersion = 3`, `:73`). From then on v1/v2 payloads
+  are refused at rest and from sync
+  (`aes_gcm_vault_crypto_service.dart:150-180`). If the migration fails,
+  the vault stays locked.
+  - **v3 items ARE force-migrated (`51517c2`, 2026-10-20).** This
+    sub-bullet previously read "v3 items are not force-migrated … a v3
+    item becomes v4 when the user next edits it". That was true of
+    `618e5f1` and is no longer. The migration is automatic, runs on every
+    unlock, needs no user action, is idempotent, and is safe to interrupt:
+    the new blob is staged behind the rekey-in-progress marker and swapped
+    in only once the rewrite completes, so a crash leaves either the
+    intact pre-migration vault (retried next unlock) or a complete v4
+    vault.
+  - **What did NOT change: the floor is still 3.** A v3 payload arriving
+    from another device is still decrypted, not refused. G2b closed the
+    scheduling gap, not the downgrade defense.
 - **Sync wire form (v3 and below only)**: `key_version = 3`. The
   `ciphertext` column holds `base64url_nopad(recordId) + "." +
   base64(ciphertext)` (`lib/core/sync/sync_item_payload_codec.dart:31-39`).
   The pull path accepts the bound id only when it derives to the row it
   arrived under (`lib/core/sync/bidirectional_sync_service.dart:257`).
   CAS and idempotency (ADR-002) are unchanged.
-- **Sync does not carry v4, and says so by refusing**: the wire has no
-  field for the item key salt, so a v4 snapshot would open with the
-  wrong key on the receiving device. The repository therefore does not
-  queue a v4 mutation at all
-  (`local_encrypted_vault_repository.dart:405-407`, `:196-212`). Local
-  writes and tombstones are unaffected. This is silent — no UI warning.
-  See ADR-002's 2026-10-20 amendment. Nothing is lost today only
-  because a release build has no sync backend configured at all
-  (`lib/core/sync/device_sync_bootstrap.dart:46-51`; no workflow passes
-  the required `--dart-define`s).
-- **Biometric envelope** (Android): RSA-2048 in AndroidKeyStore
-  with `setUserAuthenticationRequired(true)` and, on API 30+,
+- **Sync carries v4 (`51517c2`, 2026-10-21).** The item key salt and item
+  key version travel as their own columns, `item_key_salt` and
+  `item_key_version`, so a v4 snapshot opened on a second device derives
+  the same item key. The write path refuses only a payload that claims v4
+  *and* lacks a usable salt/version or carries a non-base64 salt
+  (`local_encrypted_vault_repository.dart:429-439`) — the base64 check
+  keeps a malformed salt from throwing out of `_decryptV4` inside
+  `applyRemoteSnapshots` and aborting a whole pull batch. The read path
+  gates on `keyVersion >= 4` rather than on the columns' presence
+  (`:568-579`): an older client never names them in its UPDATE, so
+  presence proves nothing. Migration:
+  `supabase/migrations/20261021120000_add_vault_item_key_salt.sql`.
+  **Unverified:** that SQL has never been executed against a real
+  Postgres, and no workflow in `.github/workflows/` applies it. The Dart
+  side is covered by tests added in the same commit.
+- **Biometric envelope** (Android, **API 30+ only**): RSA-2048 in
+  AndroidKeyStore with `setUserAuthenticationRequired(true)` and
   `setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG)`
-  (`KeystoreChannel.kt:154-159`; API < 30 falls back to
-  `setUserAuthenticationValidityDuration(0)`). Wraps a
+  (`KeystoreChannel.kt:275`, `:278-281`). Wraps a
   fresh AES-256 seed per enrollment. The seed is RSA-OAEP-encrypted
   with the public key, the ciphertext is persisted in secure
   storage, and the private key is used **only inside
   `MainActivity.authenticateAndDecrypt`, within a
   `BiometricPrompt.CryptoObject`**
-  (`android/app/src/main/kotlin/com/insyd/gestor_contrasenas/MainActivity.kt:226`). The unauthenticated RSA decrypt
+  (`android/app/src/main/kotlin/com/insyd/gestor_contrasenas/MainActivity.kt:226`,
+  prompt at `:344`). The unauthenticated RSA decrypt
   path that used to sit on the Keystore channel was deleted, not merely
-  left unused (`KeystoreChannel.kt:199-206`).
+  left unused.
+  - **Below API 30 there is no biometric unlock at all (`a4fc61b`).** An
+    earlier version of this file said API < 30 "falls back to
+    `setUserAuthenticationValidityDuration(0)`". **That is no longer what
+    the code does and the fallback is gone.**
+    `setUserAuthenticationParameters` and `AUTH_BIOMETRIC_STRONG` were
+    introduced in API 30 (`KeystoreChannel.kt:195-196`); below it a key
+    that requires user auth is equally authorized by the device
+    PIN/pattern/password, so there is no keystore-level way to say
+    "biometric only". The channel therefore **refuses**: `isAvailable()`
+    answers false (`:129-138`) and `ensureKey` throws
+    `UnsupportedOperationException` (`:229-239`) — before the alias
+    check, so a leftover key cannot keep unlocking through the PIN. The
+    app installs from API 23 (`android/app/build.gradle.kts:52`), so this
+    means **Android 6-10 users have master-password-only unlock**. Raising
+    `minSdk` to 30 was the alternative and was not taken; it would drop
+    those users entirely for a feature they still would not get.
+  - **One prompt, by type, not by branch (`a4fc61b`).** `BiometricStack`
+    is a sealed class (`lib/app/bootstrap/password_manager_app.dart:127`)
+    with one final case per platform, and the prompt-owning half is a
+    type (`PromptingBiometricAuthService` vs
+    `NonPromptingBiometricAuthService`,
+    `lib/core/security/biometric_auth_service.dart:83`, `:95`), so pairing
+    a self-prompting gate with the prompting provider is unrepresentable.
+    The gate also asks `canUseStrong`, not
+    `canUseStrongOrCredential`
+    (`lib/core/security/native_biometric_auth_service.dart:256`), which
+    matches what the key actually requires.
+  - **No automated coverage of the API < 30 refusal.** It needs an
+    API < 30 device or emulator and this repository has neither. The Dart
+    half of the gate is tested; the Kotlin refusal is verified by reading
+    the code only.
 - **Unlock throttling**: 4 free failures, then a lockout starting at
   30 s and doubling per further failure to a 15 min cap. State is
   persisted in secure storage, merged rather than overwritten on
@@ -212,33 +283,54 @@ following are explicit non-goals for the current release:
   keys limit the blast radius of one *item key*, but every item key
   is derived from the DEK, so a compromised DEK still reaches all of
   them.
-- **No coverage of the full breach corpus.** The password screen
-  uses a curated list of ~300 common passwords, not the Pwned corpus.
-  It catches `Password1!`-shaped choices; it does not catch a
-  password that appeared in a breach corpus we did not copy.
+- **No coverage of the full breach corpus.** The password screen uses
+  the NCSC top-100k (99 838 entries, `7590912`), not the Pwned corpus.
+  It catches `Password1!`-shaped choices; it does not catch a password
+  that appeared in a breach corpus we did not copy.
+- **No biometric unlock below Android 11.** API 30+ only, by choice
+  (`a4fc61b`): below it the KeyStore cannot declare biometric-only
+  authentication, and the alternative — a key the device PIN also
+  authorizes — is the hole the API 30 declaration exists to close. The app
+  still installs from API 23, so this is a missing feature on Android
+  6-10, not a missing install. The refusal itself is not test-covered.
 - **No defense against a compromised device.** A rooted/jailbroken
   device with the master password in memory is a sandbox
   bypass; we do not attempt to detect that.
 
 ### Known gaps, stated where an auditor will hit them
 
-- **Sync cannot carry the current item format.** Item payload v4
-  needs the item key salt, the wire does not carry it, so the
-  repository refuses to queue a v4 mutation
-  (`local_encrypted_vault_repository.dart:405-407`). Sync is
-  therefore **not working with the current format**, silently. See
-  ADR-002 (2026-10-20) and ADR-001 G1. Carrying the salt through
-  the wire and the Supabase schema is the required follow-up.
-- **A v2 master-password record does not currently derive its DEK.**
-  `deriveVaultKey` routes every record below version 3 through a
-  PBKDF2 legacy path, so a vault still on the v2 record format
-  verifies but does not open. See ADR-001 G2. This is a defect, not
-  a design choice, and it is untested.
-- **The biometric envelope has no automated coverage on `master`.**
-  All 8 tests in `android_keystore_envelope_key_provider_test.dart` at
-  `618e5f1` skip themselves when they are not running on Android, and CI
-  runs on Linux, so the most sensitive path in the app is exercised only
-  by hand.
+**As of 2026-10-21 (`e0de33c`).** Three of the four gaps this section
+listed at `618e5f1` are closed; they are kept below with the commit that
+closed them. The fourth — the biometric envelope's test coverage — was
+closed for the Dart half and remains open for the Kotlin half.
+
+- **CLOSED by `51517c2` — sync cannot carry the current item format.**
+  Item payload v4 needs the item key salt; the wire had nowhere to put
+  it, so the repository refused to queue a v4 mutation
+  (`local_encrypted_vault_repository.dart:405-407` at `618e5f1`). The salt
+  and the item key version now travel as `item_key_salt` /
+  `item_key_version`, gated on read by `keyVersion >= 4`. See the
+  contract above and ADR-001 G1. **Residual limit:** the Supabase
+  migration `20261021120000_add_vault_item_key_salt.sql` has never been
+  run against a real Postgres.
+- **CLOSED by `e12e71a` — a v2 master-password record does not derive its
+  DEK.** `deriveVaultKey` used to route every record below version 3
+  through a PBKDF2 legacy path, so a vault still on the v2 record format
+  verified but did not open (ADR-001 G2). v2 records now have their own
+  Argon2id branch (`master_password_service.dart:225-235`), and
+  `_needsRecordMigration` (`vault_security_controller.dart:1505-1508`)
+  rewrites a v2 record as v3 on the next `unlockWithPassword`. Both
+  halves of that gap entry were already false when it was written;
+  `5716334` additionally made the rewrite fail-safe (a failed record
+  write rolls the rekey back rather than stranding the entries).
+- **CLOSED for the Dart half by `7590912`, still open for the Kotlin
+  half — the biometric envelope's test coverage.** At `618e5f1` all 8
+  tests in `android_keystore_envelope_key_provider_test.dart` skipped
+  themselves off Android, and CI runs on Linux. The file no longer skips:
+  it takes an `isAndroid` seam and runs on the host, and now holds **33
+  tests, all green** at `e0de33c`. What remains uncovered is the Kotlin
+  API < 30 refusal, which needs an API < 30 device or emulator that this
+  repository does not have.
 
 See `THREAT_MODEL.md` for the full list of residual risks and the
 trust assumptions.
@@ -251,9 +343,12 @@ flutter test test/core/sync/       # sync CAS, retry, conflict
 flutter test test/features/security/  # SecurityGate widget
 ```
 
-The full suite is **310 tests, all passing** on `master` at `618e5f1`
-(verified with `flutter test`; `test/core/security/` alone is 176).
-The crypto tests cover the contract behaviors: round-trip, rekey,
+The full suite is **411 tests, all passing** at `e0de33c`
+(2026-10-21, verified with `flutter test`; `test/core/security/` alone is
+258, and `android_keystore_envelope_key_provider_test.dart` is 33 of
+them). The 310-test figure this section carried previously was measured
+at `618e5f1`; re-run the suite rather than trusting either number. The
+crypto tests cover the contract behaviors: round-trip, rekey,
 envelope persistence and CAS conflict registration. They also cover the
 adversarial cases: record swap, keyId relabel, id mismatch, v1/v2
 downgrade, item-key-version rewrite, per-item key isolation, and a v4
@@ -261,11 +356,12 @@ payload presented without a salt.
 
 What the suite does **not** cover, so an auditor does not assume it does:
 
-- the Android biometric envelope
-  (`android_keystore_envelope_key_provider_test.dart` is inert
-  off-device at `618e5f1`);
-- the v2-record → DEK path (there is no test for it — see ADR-001 G2);
-- sync round-tripping a v4 payload, because the code refuses to send one.
+- the **Kotlin** biometric envelope — the Dart provider is tested on the
+  host through an `isAndroid` seam, but the API < 30 refusal in
+  `KeystoreChannel.kt` is not exercised anywhere;
+- the Supabase SQL migration, which has never met a real Postgres;
+- sync round-tripping a v4 payload **against a live backend** — the Dart
+  codec and repository are tested, the database round-trip is not.
 
 Wider adversarial analysis is still the auditor's job.
 

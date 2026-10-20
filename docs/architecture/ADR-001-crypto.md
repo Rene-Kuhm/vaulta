@@ -8,7 +8,9 @@
 
 - Estado: Aprobado
 - Fecha: 2026-03-23
-- Ultima actualizacion: 2026-10-20 (Amendment "master password record v3 and item payload v4")
+- Ultima actualizacion: 2026-10-21 (cierre de gaps G1, G2 y G2b; G3 sigue
+  abierto). Amendment "master password record v3 and item payload v4":
+  2026-10-20.
 
 ## Contexto
 
@@ -436,114 +438,253 @@ v1, v2 and v3 payloads all still decrypt (`aes_gcm_vault_crypto_service.dart:150
 This matters for an auditor, because "items migrate to v4" is only
 partly true.
 
-- `migrateItemsToCurrentVersion` rewrites items whose payload version is
-  **below 3** (`local_encrypted_vault_repository.dart:282-323`, threshold
-  `currentItemPayloadVersion = 3` at `:72`). A v3 item is left **as v3**.
+> **Updated 2026-10-21 (`51517c2`).** Before that commit this section
+> said `migrateItemsToCurrentVersion` rewrote only items below v3 and left
+> v3 items sealed under the DEK. Both statements were correct then and
+> are not now.
+
+- `migrateItemsToCurrentVersion` is now an alias for
+  `migrateItemsToItemKeyed` (`local_encrypted_vault_repository.dart:347`),
+  and the function it delegates to rewrites items whose payload version is
+  **below 4** — `payloadVersionV4`, not the `currentItemPayloadVersion = 3`
+  constant at `:73` (`:293-335`, threshold at `:301-307`). **A v3 item is
+  no longer left as v3**; this is the change that closes G2b, made in
+  `51517c2`.
 - A legacy item that *is* rewritten comes out as **v4**, because `encrypt`
   only ever writes the current version. So the vault goes v1/v2 → v4
   directly, never through v3 at rest.
-- A v3 item upgrades to v4 when the user next **edits** it
-  (`_saveEncryptedItems` → `encrypt`, `:347-368`), or when the master
-  password changes (`rekeyEntries` re-encrypts the whole list, `:237-270`).
+- A v3 item also upgrades to v4 when the user next **edits** it
+  (`_saveEncryptedItems` → `encrypt`), or when the master password changes
+  (`rekeyEntries` re-encrypts the whole list). After `51517c2` those two
+  user-driven paths are no longer the only ones.
 - `vault_item_payload_min_version` is written as `3`, not `4`
-  (`:607-615`). v3 remains an accepted floor. The downgrade defense is
+  (`currentItemPayloadVersion`, `:73`; `_markMigratedToCurrentVersion`,
+  `:696-703`). v3 remains an accepted floor. The downgrade defense is
   therefore unchanged from the 2026-10-19 amendment: v1/v2 are refused,
   v3 is not.
 - `currentItemPayloadVersion = 3` is also the threshold for "this payload
-  carries a record binding" in `_decryptStoredItem` (`:563`) and for
-  "this wire column is a bound payload" in `applyRemoteSnapshots`. Moving
-  it to 4 would be defensible on the binding path — a v4 payload *is*
-  record-bound — but it would change reject/retry behavior on paths that
-  currently work. No code comment or ADR records a decision either way, so
-  treat this constant as **undecided** rather than as a reviewed choice.
+  carries a record binding" in `_decryptStoredItem` (`:652`) and, on the
+  sync path, `SyncItemPayloadCodec.boundPayloadVersion` separates "bound"
+  from "item-keyed". Moving the constant to 4 would be defensible on the
+  binding path — a v4 payload *is* record-bound — but it would change
+  reject/retry behavior on paths that currently work. **Still undecided**
+  as of 2026-10-21: no code comment and no ADR records a decision either
+  way, so treat this constant as undecided rather than as a reviewed
+  choice. Note this is a *different* threshold from the one that closed
+  G2b, which compares against `payloadVersionV4`.
 
 ### Known gaps in this amendment
 
 These are **not decisions**. They are things this document must not
 paper over. Each needs a code change and an owner.
 
-#### G1. Sync cannot carry a v4 payload, and refuses to queue one
+**Status as of 2026-10-21.** G1, G2 and G2b are **closed**; each entry
+below says so and names the commit that closed it. G3 is **still open**
+and is restated as a bounded, dated limit. The closed entries are kept
+rather than deleted, because the earlier text described a real defect at
+the time and an auditor diffing this document needs to see what changed
+and when.
 
-**ADR-002's wire does not carry the item key salt.** The `vault_blobs`
-table has `ciphertext`, `nonce`, `gcm_tag` and `key_version` and nothing
+#### G1. CLOSED by `51517c2` — sync now carries the v4 item key salt
+
+**Status: closed 2026-10-20 in `51517c2`** ("feat(sync): carry the v4 item
+key salt across the wire"). The text below describes the gap as it stood
+before that commit; the closing paragraph states what replaced it.
+
+**ADR-002's wire did not carry the item key salt.** The `vault_blobs`
+table had `ciphertext`, `nonce`, `gcm_tag` and `key_version` and nothing
 else (`supabase/migrations/20260323100000_initial_vault_schema.sql:35-39`).
 A v4 snapshot without its salt would make the receiving device derive a
 different item key and fail to open the payload.
 
-So the repository **declines to queue the mutation at all** rather than
-queueing a broken one: `_extractSyncPayload` returns `null` for any
-payload at version 4 or above
-(`local_encrypted_vault_repository.dart:405-407`), and `saveItem` only
-emits the mutation when that returns non-null (`:196-212`). The local
-write still happens; only the sync queueing is skipped. Tombstones are
-unaffected — they carry no ciphertext.
+So the repository **declined to queue the mutation at all** rather than
+queueing a broken one: `_extractSyncPayload` returned `null` for any
+payload at version 4 or above, and `saveItem` only emitted the mutation
+when that returned non-null. The local write still happened; only the
+sync queueing was skipped. Tombstones were unaffected — they carry no
+ciphertext.
 
-Nothing is lost today because **a stock build has no sync at all**: the
+Nothing was lost because **a stock build has no sync at all**: the
 sync bootstrap returns `null` unless the APK was compiled with
 `--dart-define=SUPABASE_URL=...` and `SUPABASE_ANON_KEY=...`
 (`lib/core/sync/device_sync_bootstrap.dart:46-51`), and no release
 workflow passes them (`.github/workflows/dev-apk-release.yml`).
 
-**Required follow-up:** add the item key salt to the wire (`ciphertext`
-column encoding or a new column) and to the Supabase schema, then lift the
-`>= 4` refusal. Until then, enabling sync on a vault that holds v4 items
-silently stops those changes from propagating. ADR-002 records this.
+**What replaced it (`51517c2`).** `vault_blobs` gains
+`item_key_salt` and `item_key_version`, and the upsert RPC is
+drop-and-recreated because `CREATE OR REPLACE FUNCTION` cannot add
+parameters; the two new ones are trailing defaults, so an existing
+9-argument call still resolves. The Supabase migration is
+`supabase/migrations/20261021120000_add_vault_item_key_salt.sql`.
 
-#### G2. A v2 record's KEK derivation regressed and is not covered
+- **The refusal is gone, not merely widened.** `_extractSyncPayload` now
+  refuses a payload only when it claims v4 (>= `SyncItemPayloadCodec.
+  itemKeyPayloadVersion`, `= 4`, `sync_item_payload_codec.dart:42`) and
+  the salt is missing, empty, not a positive integer item-key version, or
+  **not valid base64** (`local_encrypted_vault_repository.dart:429-439`).
+  The base64 check is what keeps a malformed salt from throwing out of
+  `_decryptV4` inside `applyRemoteSnapshots` and aborting a whole pull
+  batch; `_isBase64` (`:485-491`) is a try/`base64Decode`/`FormatException`
+  probe.
+- **The reader gates on the version, not on the columns' presence**
+  (`:568-579`). An older client never names `item_key_salt` or
+  `item_key_version` in its UPDATE, so their presence on a row proves
+  nothing about who wrote it. The same gate and the same base64 check are
+  applied on read, and an item-keyed snapshot that arrives without them is
+  refused rather than decrypted against a wrong key.
 
-`deriveVaultKey` branches on
-`record.version < _recordVersion || record.kdf == null`, where
-`_recordVersion` is `MasterPasswordRecord.currentVersion`, now `3`
-(`master_password_service.dart:209-211`, `:53`). A **v2 record therefore
-falls into `_deriveLegacyVaultKey`**, which is
-**PBKDF2-HMAC-SHA256** over `encryptionSalt` (`:252-266`) — not Argon2id.
-Before `b6e6236`, a v2 record took the Argon2id `_deriveKek` path.
+**Limit on this closure.** The SQL migration
+`supabase/migrations/20261021120000_add_vault_item_key_salt.sql` has
+**never been executed against a real Postgres**. No workflow in
+`.github/workflows/` applies it (`dev-apk-release.yml`, `flutter-ci.yml`,
+`release.yml` — none reference the migration), and there is no local
+Postgres in this repo. The Dart side of the wire is covered by tests
+(`test/core/security/local_encrypted_vault_repository_test.dart`,
+`test/core/sync/bidirectional_sync_service_test.dart`,
+`test/core/sync/local_remote_vault_store_test.dart`, all added in
+`51517c2`); the SQL itself is unverified against a running database.
 
-Consequence as the code stands: `verify` still succeeds for a v2 record
-(Argon2id over `verifierSalt`, `:193-197`), but `deriveVaultKey` returns a
-key that is not the DEK, so the vault does not open.
-`master_password_service_v3_test.dart:184` covers v2 **verification** only;
-there is no test for v2 `deriveVaultKey`, which is why this is not caught.
+#### G2. CLOSED by `e12e71a`; made fail-safe by `5716334`
 
-This is a defect, not a design choice, and this ADR does not ratify it.
-Recorded here because the previous version of this document implied every
-existing v2 vault upgrades cleanly, and that is no longer what the code
-does. **It needs a code decision**: either restore a v2 Argon2id KEK
-branch, or accept that v2 vaults are unrecoverable and say so in the UI.
+**Status: this entry described a defect that was already fixed when it
+was written, and the fix is older than the base of this branch.**
+`e12e71a` ("fix(security): v2 master-password records could not derive
+their DEK") corrected the derivation path and the rewrite hook on
+2026-10-20, and it is an ancestor of `f2aa4a0`. Both halves of the old
+text below were therefore false at `f2aa4a0`; they are kept so the diff
+against the previous version of this ADR is legible.
 
-Compounding it: **nothing migrates a v2 record to v3.** The single
-rewrite hook is in `unlockWithPassword` and still tests
-`record.version < 2 || record.kdf == null || record.dekWrap == null`
-(`vault_security_controller.dart:495`), as do the two envelope-enrollment
-guards (`:967`, `:1091`). So a v2 record is never rewritten as v3, never
-acquires `pw_norm`, and never benefits from the HKDF split. The only v3
-records that exist are the ones `createRecord` writes for a new vault.
-The feature brief for this work specified extending that hook to
-`record.version < 3`; the code does not do it.
+**What the old text got wrong, checked against the code at `e0de33c`:**
 
-#### G2b. v3 items are not force-migrated to v4
+- *"A v2 record therefore falls into `_deriveLegacyVaultKey`, which is
+  PBKDF2."* **False.** `deriveVaultKey` sends only `record.version < 2`
+  to the legacy PBKDF2 path (`master_password_service.dart:209-211`). A
+  v2 record has its own Argon2id branch at `:225-235`, deriving the KEK
+  from the record's own `salt_b64` / `iterations` / `memory_kib` /
+  `parallelism` / `dk_len` with the **raw** password, because a v2 record
+  hashed the raw bytes. The comment there says exactly this and names the
+  failure mode the old text described. The old claim was a real defect
+  from `b6e6236` until `e12e71a`; it is not one now.
+- *"nothing migrates a v2 record to v3 ... a v2 record is never rewritten
+  as v3, never acquires `pw_norm`."* **False.** The three call sites the
+  old text cited — `vault_security_controller.dart:495`, `:967`, `:1091`
+  — do not contain the comparison the entry quotes. They all call
+  `_needsRecordMigration` (`:496`, `:971`, `:1095`), which discriminates
+  on `!record.isCurrentFormat || record.kdf == null || record.dekWrap ==
+  null` (`:1505-1508`), and `isCurrentFormat` is
+  `version == 3 && pwNorm == "NFC"`
+  (`master_password_record.dart:126`). A v2 record has `pwNorm == null`,
+  so it is rewritten as v3 on the next `unlockWithPassword` and on both
+  enrollment guards. The helper's own comment says this check is
+  deliberately not `record.version < 2`.
+- *"there is no test for v2 `deriveVaultKey`, which is why this is not
+  caught."* **False now.** `e12e71a` added that coverage; see
+  `test/core/security/master_password_service_v3_test.dart` and the v2
+  record tests in `test/core/security/vault_security_controller_test.dart`
+  (both green at `e0de33c`, 411 tests).
 
-Mechanism in section 5 above; the risk, stated once: "every item has
-its own key" is true of items written from this build on, not
-necessarily of every item already in a vault. A pre-existing v3 item
-stays sealed directly under the DEK until the user edits it or changes
-the master password, and nothing schedules that work.
+**What `5716334` changed, and why it is not what S3 asked for.** The
+hook S3 wanted did not exist to be extended — it was already correct. What
+`5716334` ("fix(security): make the v2->v3 record rewrite fail-safe")
+fixed is that the rewrite is a four-step write (new DEK → re-seal entries →
+persist record → re-wrap the biometric envelope) and **all three of its
+failure paths could leave a half-migrated vault**:
 
-#### G3. The blocklist is a real corpus, still not the Pwned corpus
+- `unlockWithPassword` had no `try`/`catch`, so a throwing rewrite escaped
+  the public API as an unhandled async error from a button while every
+  sibling path returns a `bool` plus a message;
+- a record-write failure left the entries already rekeyed under a DEK that
+  then existed nowhere on disk;
+- the envelope was re-wrapped **before** `_vaultSession` was set, so the
+  unwrap found no DEK and skipped, the stale envelope kept wrapping the
+  **old** DEK, `isEnrolled()` stayed true so the retry never fired, and
+  the next biometric unlock reported success with a key that opens nothing.
 
-**Superseded 2026-10-20.** The hand-curated list is still shipped and is
-still what screens a password until the corpus loads, but it is no longer
-the whole control.
+The guarantee now is **ordering**, not a lock:
 
-The corpus is the UK NCSC top-100k most-used passwords (835 538 B,
-sha256 `c2e5696…c576e0`), filtered to **99 838** entries and shipped as
-**161 426** truncated SHA-256 digests (first 8 bytes, 16 lowercase hex
-chars) in `assets/security/breached_password_sha256.txt`, 2 744 242 B.
-Each entry is indexed in four pre-folded forms — `lower`,
-`fold(lower)`, `stripDigits(lower)`, `stripDigits(fold(lower))` — computed
-at build time with the *same* `foldForBlocklist` / `stripTrailingDigits`
-the runtime uses, because folding a digest set in Dart is impossible.
-Loading is 22 ms; `isCommon` with the corpus loaded is 2.06 us.
+> At every instant the record on disk is a key that opens the PREVIOUS
+> entries.
+
+So a rekey or save failure **unlocks on the legacy pair and defers to the
+next attempt** — it does not fail closed. Only a failure to *undo* the
+rekey (`_RecordWrite.rollbackFailed`) fails closed, because that is the
+single state nothing can recover. That is a deliberate design decision,
+not an oversight: a half-migrated vault is neither the old vault nor the
+new one, whereas the legacy pair is consistent and opens.
+
+`_rewriteLegacyRecordOnUnlock` (`:1241-1279`) and the shared
+`_rekeyThenPersistRecord` (`:1298+`, also used by `changeMasterPassword`)
+never throw; every outcome is a `_RecordWrite` the caller maps to
+"keep the old key" or "fail closed".
+
+**Deliberately untouched.** `biometric_unlock_service.dart:216` and
+`master_password_service.dart:187` / `:210` / `:226` still test
+`record.version < 2`. They are **not** migration hooks — they ask "can a
+DEK be recovered from this record" — and relaxing them to `< 3` would break
+biometric unlock of v2 vaults that work today.
+
+#### G2b. CLOSED by `51517c2` — v3 items are re-sealed to v4
+
+**Status: closed 2026-10-20 in `51517c2`**, same commit as G1.
+
+The old text: a pre-existing v3 item stays sealed directly under the DEK
+until the user edits it or changes the master password, and "nothing
+schedules that work". The scheduling was the gap, and it now exists.
+
+`migrateItemsToItemKeyed()` (`local_encrypted_vault_repository.dart:293-335`)
+is the path. It selects every stored item whose inspected payload version
+is below `AesGcmVaultCryptoService.payloadVersionV4` (`:301-307`), decrypts
+and re-seals each one through `encrypt` — which only ever writes the
+current version — and commits the whole list in one staged swap before
+writing the migration marker. `migrateItemsToCurrentVersion()` is now a
+delegating alias for it (`:347`), so the unlock path that already called
+the old name gets the stronger behavior with no new call site.
+
+It is called after every successful unlock, needs no user action, and is
+idempotent. It is also safe to interrupt: the repository stages the new
+blob behind the rekey-in-progress marker and swaps it in only once the
+rewrite completes, so a crash leaves either the intact pre-migration vault
+(the next unlock retries) or a complete v4 vault.
+
+**What is still true.** The `vault_item_payload_min_version` floor is
+still written as **`3`**, not `4` (`currentItemPayloadVersion = 3`,
+`:73`; `_markMigratedToCurrentVersion`, `:696-703`). v3 remains an
+accepted floor at rest and from sync. After this migration a v3 item
+should not survive in a vault that has been unlocked on this build, but
+the floor is not raised, so a v3 payload arriving over the wire is still
+decrypted rather than refused.
+
+#### G3. OPEN — the blocklist is a real corpus, still not the Pwned corpus
+
+**Status: still open as of 2026-10-21 (`e0de33c`).** This is a bounded,
+dated limit, not a defect. Recorded here so no reader mistakes the
+control for corpus coverage.
+
+**What is actually shipped, stated as a limit an auditor can check:**
+
+| | |
+|---|---|
+| Source | UK NCSC **top-100k most-used/breached passwords**, fetched as `Passwords/Common-Credentials/100k-most-used-passwords-NCSC.txt` from the `danielmiessler/SecLists` mirror (a mirror of the NCSC list, not ncsc.gov.uk directly) |
+| Upstream file | 835 538 bytes, sha256 `c2e5696882c603b76bb67a47ee970897e5a76fc4c3f5547abe3d0ca340c576e0` |
+| After filtering | **99 838** entries (blank, control-byte, whitespace-bearing and over-64-char lines dropped; deduplicated) |
+| Shipped artifact | **161 426** truncated SHA-256 digests — first 8 bytes, 16 lowercase hex chars — in `assets/security/breached_password_sha256.txt`, 2 744 242 bytes |
+| Date | corpus generated and shipped in `7590912`, 2026-10-20. **The retrieval date is not recorded anywhere in the repo** — only the commit date of the asset is; the SecLists mirror is a `refs/heads/master` path, so the upstream file can change under the same URL. |
+| Source, filter and generator steps | `lib/core/security/common_password_blocklist.dart:78-121` |
+
+**This is not "the Pwned Passwords corpus"** and must never be described
+as such. It is the NCSC top-100k, roughly a tenth of the frequently-used
+space that a full corpus would cover. A password outside these 99 838
+entries that appears in some other breach corpus **will still be
+accepted**. That is the known limit, and enlarging the corpus is a
+deliberate decision about APK size and generation cost, not a bug to fix.
+
+The 161 426 figure is not 161 426 distinct passwords: each entry is
+indexed in four pre-folded forms — `lower`, `fold(lower)`,
+`stripDigits(lower)`, `stripDigits(fold(lower))` — computed at build time
+with the *same* `foldForBlocklist` / `stripTrailingDigits` the runtime
+uses, because folding a digest set in Dart is impossible. The four forms
+collapse into one digest set, which is why 99 838 entries produce 161 426
+digests.
 
 **Digests, never plaintext.** Shipping 100k passwords in clear inside the
 APK would hand anyone who unpacks it a ready-made wordlist. A truncated
@@ -560,11 +701,9 @@ password typed in the first moments after launch is screened against the
 short list. That trade is deliberate and is the reason `validate()` stays
 synchronous.
 
-**What still holds from the original finding:** this is the NCSC top-100k,
-not the full Pwned Passwords corpus (~800 MB even truncated), which remains
-unshippable. A password outside these 100k that appears in some other
-breach corpus will still be accepted. The count is pinned by a test, so a
-regeneration must update the constant or fail loudly.
+The count is pinned by a test
+(`test/core/security/password_policy_test.dart`, `expect(lines.length,
+161426)`), so a regeneration must update the constant or fail loudly.
 
 The original finding is preserved below.
 
@@ -625,9 +764,21 @@ machine at 64 MiB x 3, p=1; they are not a claim about any user's device.
 - One item's key is not another's. The blast radius of a plaintext
   exposure in one item drops from the whole vault to one item.
 - **Records and items upgrade at different rates and by different paths.**
-  A vault can hold v3 records, v3 items and v4 items simultaneously, and
-  only editing an item or changing the master password moves a v3 item to
-  v4. Nothing forces the last v3 item out.
+  A vault can hold v3 records and v3 items and v4 items simultaneously.
+  Since `51517c2` the item upgrade is no longer user-driven only:
+  `migrateItemsToItemKeyed` re-seals every item below v4 on each unlock,
+  so a vault unlocked on this build converges to all-v4 items without the
+  user editing anything. What is still true is that the *floor* stayed at
+  v3 — a v3 payload that arrives from another device is still decrypted,
+  not refused — so "v3 items exist" remains possible, just no longer the
+  default outcome of an ordinary unlock.
+- **The legacy record rewrite is a migration, not a transaction.** The
+  invariant "the record on disk always opens the previous entries"
+  (`5716334`) means a failed v2 → v3 rewrite leaves a working vault, not
+  a lost one, but it also means the upgrade is **deferred, not
+  completed**: a user whose rewrite keeps failing stays on the v2 record
+  indefinitely and will be told so on every unlock, with no count of how
+  many attempts have failed.
 - **The item key version is now part of the authenticated data.** Any
   future change to `currentItemKeyVersion` is a format change, not a
   config tweak: old payloads keep their own `iv` and stay readable
@@ -637,6 +788,12 @@ machine at 64 MiB x 3, p=1; they are not a claim about any user's device.
 - Password quality now depends on a corpus this project downloads,
   filters and hashes (G3). That is a maintenance obligation with a
   generator step, not a solved problem, and it is still not the full
-  Pwned corpus.
-- Sync remains unusable for this format (G1). It was usable for v3.
-ADR-002 states this.
+  Pwned corpus — it is the NCSC top-100k, 99 838 entries, shipped in
+  `7590912` on 2026-10-20.
+- **Sync carries v4 again (`51517c2`), with one unverified piece.** The
+  item key salt and item key version travel as `item_key_salt` /
+  `item_key_version`, and the Dart side is tested. The Supabase migration
+  `20261021120000_add_vault_item_key_salt.sql` has never been run against
+  a real Postgres, so "a v4 item written on one device opens on another"
+  is verified in Dart and **not** verified against a live backend.
+  ADR-002 records the wire.

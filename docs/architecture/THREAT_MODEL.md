@@ -5,8 +5,10 @@
 > product. Written for an external auditor, but also useful to
 > the user when deciding whether Vaulta fits their threat profile.
 >
-> Snapshot of `master` at `618e5f1`. Where this document and the
-> code disagree, the code wins.
+> Snapshot of `feat/enterprise-closure` at `e0de33c` (2026-10-21),
+> re-checked against the code after `7590912`, `e12e71a`, `51517c2`,
+> `5716334` and `a4fc61b`. The previous snapshot was `master` at
+> `618e5f1`. Where this document and the code disagree, the code wins.
 
 ## What we defend against
 
@@ -95,17 +97,57 @@ decide whether Vaulta is appropriate for their use case:
   format that has a non-ASCII master password is only unlockable by
   typing the password in the exact composition it was created with.
   Vaulta does not tell the user which composition that was, and
-  cannot. There is currently **no automatic v2 → v3 rewrite**: the
-  only hook that rewrites a legacy record still tests
-  `record.version < 2` (`vault_security_controller.dart:495`), so a
-  v2 record stays v2 indefinitely and only a fresh vault creation
-  produces a v3 one.
+  cannot. **Correction (2026-10-21):** this entry previously went on to
+  say "There is currently no automatic v2 → v3 rewrite: the only hook that
+  rewrites a legacy record still tests `record.version < 2`
+  (`vault_security_controller.dart:495`), so a v2 record stays v2
+  indefinitely". **That was false, and already false at `f2aa4a0`.**
+  `e12e71a` replaced all three call sites with `_needsRecordMigration`
+  (`vault_security_controller.dart:496`, `:971`, `:1095`), which
+  discriminates on `!record.isCurrentFormat || record.kdf == null ||
+  record.dekWrap == null` (`:1505-1508`); `isCurrentFormat` is `version
+  == 3 && pwNorm == "NFC"` (`master_password_record.dart:126`). A v2
+  record has no `pwNorm`, so **it is rewritten as v3 on the next
+  `unlockWithPassword`**. What remains true is that the raw-password
+  constraint above is a property of the *legacy* record while it exists,
+  and the migration can be **deferred indefinitely** if it keeps failing:
+  `5716334` made a failed rewrite fall back to unlocking on the legacy
+  pair instead of failing closed, so a user whose rewrite does not
+  succeed stays on v2 with no visible counter of attempts.
+- **No biometric unlock on Android 6 through 10 (API 23-29).** The app
+  installs from API 23 (`android/app/build.gradle.kts:52`), but the
+  biometric envelope key is only minted on API 30+, where the KeyStore
+  can be told "a biometric, not a device PIN"
+  (`setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG)`). Below
+  API 30 no such declaration exists and a
+  `setUserAuthenticationRequired(true)` key is authorized by the
+  PIN/pattern/password just as readily as by a fingerprint, so `a4fc61b`
+  made the channel **refuse** rather than mint a weaker key: `isAvailable`
+  answers false and `ensureKey` throws
+  (`KeystoreChannel.kt:129-138`, `:229-239`). **Consequence: on Android
+  6-10 there is no biometric unlock at all and the master password is
+  the only way in.** That is an accepted trade — the alternative is
+  raising `minSdk` to 30, which would drop those users entirely for a
+  feature they still would not get. Two limits on top of it: the refusal
+  has **no automated test coverage** (it needs an API < 30 device or
+  emulator, and this repository has neither), and the UI tells those
+  users "No biometrics detected" rather than naming the API floor, so
+  the reason they are shown is not the real one.
 - **A password that is breached but not on our list.** The
-  breached-password screen runs against a hand-curated subset of
-  common breached passwords (a few hundred entries), not the full
-  Pwned Passwords corpus, which is not shippable inside an APK. It
-  is a speed bump against `Password1!`, not coverage of the corpus.
-  Nothing is ever sent to a network service to check a password,
+  breached-password screen runs against the UK NCSC top-100k
+  most-used/breached passwords — **99 838 entries** after filtering,
+  shipped as **161 426** truncated SHA-256 digests in
+  `assets/security/breached_password_sha256.txt`, generated in
+  `7590912` on **2026-10-20** from the SecLists mirror
+  `Passwords/Common-Credentials/100k-most-used-passwords-NCSC.txt`
+  (upstream 835 538 B, sha256 `c2e5696…c576e0`). A curated in-source
+  list still screens the first frames after launch, before the corpus
+  loads. **It is not the Pwned Passwords corpus**, which is not
+  shippable inside an APK: roughly a tenth of the frequently-used
+  space, so a password outside those 99 838 entries that appears in
+  some other breach corpus **will still be accepted**. It is a speed
+  bump against `Password1!`, not coverage of the corpus. Nothing is
+  ever sent to a network service to check a password,
   so there is also no server-side component that grows smarter over
   time.
 - **Forward secrecy on sync.** The same DEK encrypts all
@@ -151,34 +193,64 @@ decide whether Vaulta is appropriate for their use case:
 Not threats the user chooses to accept; gaps in what ships today.
 Each is stated here so nobody has to infer it from silence.
 
-1. **Sync cannot carry the current item format.** Item payload v4
-   needs the item key salt, and the sync wire has nowhere to put
-   it. Vaulta therefore refuses to queue a v4 mutation at all
-   rather than queue one the other device cannot open, and does so
-   silently: no error, no banner, and nothing recorded about the
-   skipped mutation.
-   If you enable sync, **item changes made after this build will
-   not propagate.** A release build has no sync backend configured
-   at all (the bootstrap returns without `SUPABASE_URL` /
-   `SUPABASE_ANON_KEY`), so this cannot surprise anyone today; it
-   becomes live the moment those defines are supplied. Carrying the
-   salt through the wire and the Supabase schema is the required
-   follow-up. See ADR-002 (2026-10-20).
-2. **A v2 master-password record does not currently open its
-   vault.** Verification still works, but the key-derivation path
-   for records below version 3 no longer uses Argon2id, so an
-   existing vault created before this build may fail to decrypt its
-   contents. This is a defect, not a trade-off, and it is currently
-   untested. See ADR-001 G2.
-3. **The biometric envelope has no automated test coverage on
-   `master`.** Every test in
-   `android_keystore_envelope_key_provider_test.dart` at `618e5f1`
-   skips itself when it is not running on Android, and CI runs on
-   Linux, so the most sensitive path in the app is exercised only by
-   hand.
-4. **The password blocklist is maintained by hand.** There is no
-   process to refresh it from a new breach corpus, and no test
-   pins its contents, so it can only drift toward being smaller.
+**Status as of 2026-10-21 (`e0de33c`).** Gaps 1, 2 and 4 were closed
+after this list was written and are kept below with the commit that
+closed them. Gap 3 is closed for the Dart half and still open for the
+Kotlin half. Two new limits were added by `51517c2` and `a4fc61b` and
+are numbered 5 and 6.
+
+1. **CLOSED by `51517c2` — sync could not carry the current item format.**
+   Item payload v4 needs the item key salt, and the sync wire had nowhere
+   to put it, so Vaulta refused to queue a v4 mutation rather than queue
+   one the other device cannot open, and did so silently. The salt and the
+   item key version now travel as `item_key_salt` /
+   `item_key_version`, gated on read by `keyVersion >= 4`
+   (`local_encrypted_vault_repository.dart:429-439`, `:568-579`).
+   **Residual limit, new:** the Supabase migration
+   `20261021120000_add_vault_item_key_salt.sql` has never been executed
+   against a real Postgres and no workflow applies it, so the
+   cross-device claim is verified in Dart and not against a live backend.
+   See ADR-001 G1.
+2. **CLOSED by `e12e71a` — a v2 master-password record did not open its
+   vault.** Verification worked, but the key-derivation path for records
+   below version 3 went to PBKDF2 and returned a key that was not the
+   DEK, so an existing vault created before that build could fail to
+   decrypt its contents. v2 records now take their own Argon2id branch
+   (`master_password_service.dart:225-235`) and are rewritten as v3 on
+   the next unlock (`vault_security_controller.dart:1505-1508`). See
+   ADR-001 G2. **Residual limit, new:** `5716334` made a failed rewrite
+   unlock on the legacy pair instead of failing closed, so the upgrade
+   is safe but may be deferred indefinitely without the user being told
+   how many attempts have failed.
+3. **PARTIALLY closed — the biometric envelope's automated coverage.**
+   At `618e5f1` every test in
+   `android_keystore_envelope_key_provider_test.dart` skipped itself when
+   not running on Android, and CI runs on Linux. `7590912` gave the
+   provider an `isAndroid` seam so the Dart side runs on the host; the
+   file now holds **33 tests, all green** at `e0de33c`. **Still open:** the
+   Kotlin API < 30 refusal added by `a4fc61b` has no coverage at all,
+   because verifying it needs an API < 30 device or emulator and this
+   repository has neither.
+4. **CLOSED by `7590912` — the password blocklist was maintained by hand.**
+   There was no process to refresh it and no test pinning its contents.
+   The corpus is now generated by a documented recipe
+   (`common_password_blocklist.dart:78-121`), refreshed as a deliberate
+   change, and its size is pinned by a test
+   (`test/core/security/password_policy_test.dart`). The blocklist is
+   still not comprehensive — see the NCSC top-100k limit above — but it
+   can no longer drift silently.
+5. **The Supabase schema change for v4 sync is unverified.**
+   `supabase/migrations/20261021120000_add_vault_item_key_salt.sql`
+   (`51517c2`) drops and recreates the upsert RPC with two new trailing
+   default parameters. It has never been run against a real Postgres
+   instance, and no workflow in `.github/workflows/` applies it. A
+   reviewer should treat "v4 items sync between two devices" as
+   unit-tested in Dart and unproven end to end.
+6. **The Android < 30 biometric refusal is unverified by execution.**
+   The Kotlin code refuses to mint the envelope key below API 30
+   (`KeystoreChannel.kt:229-239`) and `a4fc61b` says so in its own commit
+   message, but no test can run it here. The Dart half of the gate is
+   tested; the Kotlin half is verified by reading only.
 
 ## Trust model
 
@@ -188,8 +260,11 @@ We **trust**:
 - The OS-provided secure storage (Android Keystore / iOS Keychain
   / Windows Credential Manager) to be intact.
 - On Android, the device's TEE / StrongBox to actually hold
-  the RSA private key (we use `setUserAuthenticationRequired`,
-  but the device's hardware backing is OS-managed).
+  the RSA private key (we use `setUserAuthenticationRequired` **and**
+  `setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG)`, so the
+  device PIN is not an accepted substitute — but the device's hardware
+  backing is OS-managed, and on API < 30 we do not mint the key at all
+  rather than accept a weaker guarantee).
 - The Dart / Flutter runtime to not leak memory to the JS bridge
   or to background isolates (we use the `cryptography` package
   with `SecretKey` which holds bytes; the package's own
@@ -236,15 +311,18 @@ MVP:
    a crypto-binding guarantee. (`local_auth` does not bind
    keys to hardware by itself; the RSA-2048 wrapping in
    `AndroidKeystoreEnvelopeKeyProvider` does, but a compromised
-   Keystore breaks the chain.)
+   Keystore breaks the chain.) It is also **not available at all below
+   Android 11 / API 30** — see the limitations list above.
 4. Sync is disabled by default; the user has to opt in to
    Supabase sync, which moves the trust boundary to include
-   the backend. Note the caveat above: with the current item
-   format, opting in gives you a sync that silently does not
-   carry item changes.
-5. The master password is checked against a curated blocklist
-   rather than a full breach corpus, so password strength is
-   less enforceable than it looks in the UI.
+   the backend. The v4 item format is carried by the wire as of
+   `51517c2`, but the Supabase migration behind it has never been run
+   against a real Postgres, so opting in on an un-migrated backend is
+   untested.
+5. The master password is checked against the NCSC top-100k
+   breach corpus (99 838 entries, `7590912`, 2026-10-20), not a full
+   breach corpus, so password strength is less enforceable than it
+   looks in the UI.
 6. Vaulta's item-level key separation reduces the damage of a
    single item exposure, but every item key descends from the DEK,
    so there is no forward secrecy and no protection against a DEK
@@ -278,11 +356,27 @@ MVP:
 8. Does the biometric envelope survive a Keystore wipe (e.g.
    user changes device PIN)? If yes, how does the user
    recover their vault?
-9. Is a hand-curated blocklist a defensible control, or does it
+9. Is the NCSC top-100k corpus a defensible control, or does it
    give users more assurance than it can actually deliver? What
-   is the smallest realistic path to real corpus coverage?
-10. What is the right remediation for a v2 record that verifies
-    but cannot derive its DEK, and for a user already on one?
+   is the smallest realistic path to broader corpus coverage,
+   and what does that cost in APK size?
+10. ~~What is the right remediation for a v2 record that verifies
+    but cannot derive its DEK?~~ **Answered in code:** `e12e71a` gave
+    v2 records their own Argon2id branch and `_needsRecordMigration`
+    rewrites them as v3 on unlock. The open question is now the
+    migration's *ordering* guarantee — `5716334` chose "unlock on the
+    legacy pair and defer" over "fail closed" — and whether deferring
+    indefinitely, with no attempt counter shown to the user, is
+    acceptable.
+11. Is refusing the biometric envelope below API 30 the right trade,
+    given it costs Android 6-10 users the feature entirely while the
+    app still installs there? The alternative considered and rejected was
+    `minSdk = 30`. And: the refusal is unverified by execution — how
+    should that be closed without an API < 30 device in CI?
+12. The Supabase migration for the v4 sync wire has never run against a
+    real Postgres. What is the smallest end-to-end test (a throwaway
+    database in CI?) that would make "v4 items sync between two
+    devices" a claim rather than an inference?
 
 The answers to these belong in the audit report, not in
 this document.

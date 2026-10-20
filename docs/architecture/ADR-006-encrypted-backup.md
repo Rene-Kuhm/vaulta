@@ -48,15 +48,43 @@ is not wrapped by the master-password KEK either.
 
 ### 2. KDF parameters: never weaker than the vault
 
-- **Export** uses the ADR-001 vault parameters: `memory_kib = 65536`,
-  `iterations = 3`, `parallelism = 1`, `dk_len = 32`, 16-byte random
-  salt. `VaultBackupService` throws `ArgumentError` if constructed with
-  anything weaker, so a future refactor cannot silently produce cheaper
-  backups.
+> **Corrected 2026-10-21.** The first bullet below previously read "uses
+> the ADR-001 vault parameters: … `dk_len = 32`". Both the framing and
+> the "inherited parameter" reading were wrong. Checked against
+> `lib/core/security/vault_backup_service.dart` at `e0de33c`; the backup
+> code has not changed since `f718411`, so the error was in this ADR, not
+> in the code.
+
+- **Export** derives the backup key with Argon2id at `memory_kib = 65536`,
+  `iterations = 3`, `parallelism = 1`, over a 16-byte random salt
+  (`VaultBackupService.vaultMemoryKiB = 65536`, `vaultIterations = 3`,
+  default `parallelism = 1`, `_saltBytes = 16`; written into the header at
+  `:242-245`). The constructor throws `ArgumentError` if
+  `memoryKiB < vaultMemoryKiB`, `iterations < vaultIterations`,
+  `parallelism < 1` or `parallelism > maxParallelism` (`:127-134`), so a
+  future refactor cannot silently produce cheaper backups.
+- **`dk_len = 32` is correct as a number and wrong as "the ADR-001 vault
+  parameter".** The backup derives a **single 32-byte key directly** with
+  Argon2id and stops there (`_keyBytes = 32`, `:187`; `hashLength:
+  _keyBytes`, `:505`). The vault record v3 derives **64 bytes** and splits
+  them with HKDF-SHA256 into a verifier half and a KEK half
+  (`master_password_service.dart:59`, `:123-131`). So the backup **shares
+  the vault's memory and iteration cost but not its key composition**:
+  there is no verifier half and no HKDF split, and `dk_len = 32` is the
+  backup's own constant, not one inherited from ADR-001.
+- **"Never weaker than the vault" rests on two copied constants, not one
+  shared source of truth.** `VaultBackupService.vaultMemoryKiB` /
+  `vaultIterations` (`:159`, `:162`) are hand-copied from the vault
+  parameters rather than referenced from `MasterPasswordService`. If
+  someone raises the vault KDF, the backup floor does **not** follow, and
+  the constructor docstring's claim that "a backup must never be cheaper
+  to brute-force than the vault it copies" (`:111-113`) silently becomes
+  false. Flagged, not changed here — that is a code decision.
 - **Import floor (downgrade defense):** an envelope with
   `memory_kib < 19456` (19 MiB, the OWASP Argon2id minimum) or
-  `iterations < 2` is refused with `VaultBackupFailure.insecureKdf`
-  **before any derivation runs**. Without this, an attacker who can
+  `iterations < 2` or `parallelism < 1` is refused with
+  `VaultBackupFailure.insecureKdf` **before any derivation runs**
+  (`:397-400`). Without this, an attacker who can
   replace a user's backup file could hand them a cheap-to-crack
   envelope (for example to harvest a reused password via a phishing
   "restore").
@@ -66,8 +94,12 @@ is not wrapped by the master-password KEK either.
   ones.
 - **Import ceiling (resource-exhaustion defense):** `memory_kib` above
   1 GiB, `iterations` above 20, `parallelism` above 16, `dk_len != 32`,
-  or files over 32 MiB are refused as `malformed`, so a crafted file
+  `memory_kib < 8 * parallelism`, or files over 32 MiB are refused as
+  `malformed` (`:403-408`), so a crafted file
   cannot make the app allocate unbounded memory or spin for minutes.
+  The `dk_len != 32` clause follows from the 32-byte key above: an
+  envelope asking for any other output length describes a key this build
+  does not produce.
 
 ### 3. Format `.vaulta`, version 1
 
