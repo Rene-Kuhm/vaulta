@@ -2,10 +2,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
 import 'package:local_auth/local_auth.dart';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:gestor_contrasenas/core/security/biometric_auth_service.dart';
+import 'package:gestor_contrasenas/core/security/biometric_key_envelope_service.dart';
+import 'package:gestor_contrasenas/core/security/biometric_unlock_service.dart';
+import 'package:gestor_contrasenas/core/security/master_password_record.dart';
 import 'package:gestor_contrasenas/core/security/master_password_service.dart';
 import 'package:gestor_contrasenas/core/security/secure_storage_service.dart';
+import 'package:gestor_contrasenas/core/security/unlock_attempt_limiter.dart';
 import 'package:gestor_contrasenas/core/security/vault_security_controller.dart';
+import 'package:gestor_contrasenas/core/security/vault_session.dart';
 
 void main() {
   group('VaultSecurityController', () {
@@ -304,6 +310,162 @@ void main() {
       expect(controller.message, contains('actual no coincide'));
     });
   });
+
+  group('VaultSecurityController unlock throttling', () {
+    late _InMemorySecureStorageService storage;
+    late _CountingMasterPasswordService passwords;
+    late DateTime now;
+
+    VaultSecurityController buildController({
+      BiometricUnlockService? biometricUnlockService,
+    }) {
+      final controller = VaultSecurityController(
+        storage: storage,
+        masterPasswordService: passwords,
+        biometricAuthService: const _FakeBiometricAuthService(),
+        biometricUnlockService: biometricUnlockService,
+        unlockAttemptLimiter: UnlockAttemptLimiter(
+          storage: storage,
+          clock: () => now,
+        ),
+      );
+      addTearDown(controller.dispose);
+      return controller;
+    }
+
+    Future<VaultSecurityController> lockedVault({
+      BiometricUnlockService? biometricUnlockService,
+    }) async {
+      final controller = buildController(
+        biometricUnlockService: biometricUnlockService,
+      );
+      await controller.initialize();
+      await controller.createMasterPassword(
+        password: 'StrongPass!2026',
+        confirmation: 'StrongPass!2026',
+        enableBiometrics: false,
+      );
+      await controller.lock();
+      return controller;
+    }
+
+    setUp(() {
+      storage = _InMemorySecureStorageService();
+      passwords = _CountingMasterPasswordService();
+      now = DateTime.utc(2026, 10, 19, 12);
+    });
+
+    test('locks out after the fifth failure without running KDF', () async {
+      final controller = await lockedVault();
+
+      for (var i = 0; i < 5; i++) {
+        expect(await controller.unlockWithPassword('WrongPass!2026'), isFalse);
+      }
+      expect(passwords.verifyCalls, 5);
+      expect(controller.failedUnlockAttempts, 5);
+      expect(controller.unlockLockoutRemaining, const Duration(seconds: 30));
+
+      // Even the correct password is rejected during the lockout, and
+      // no Argon2id verification runs.
+      expect(await controller.unlockWithPassword('StrongPass!2026'), isFalse);
+      expect(passwords.verifyCalls, 5);
+      expect(controller.isUnlocked, isFalse);
+
+      now = now.add(const Duration(seconds: 30));
+      expect(await controller.unlockWithPassword('StrongPass!2026'), isTrue);
+      expect(controller.failedUnlockAttempts, 0);
+      expect(controller.isUnlockLockedOut, isFalse);
+    });
+
+    test('lockout survives a controller restart', () async {
+      final controller = await lockedVault();
+      for (var i = 0; i < 5; i++) {
+        await controller.unlockWithPassword('WrongPass!2026');
+      }
+
+      final restarted = buildController();
+      await restarted.initialize();
+
+      expect(restarted.stage, VaultSecurityStage.locked);
+      expect(restarted.isUnlockLockedOut, isTrue);
+      final callsBefore = passwords.verifyCalls;
+      expect(await restarted.unlockWithPassword('StrongPass!2026'), isFalse);
+      expect(passwords.verifyCalls, callsBefore);
+    });
+
+    test('biometric setup on the lock screen is throttled too', () async {
+      final controller = await lockedVault();
+      for (var i = 0; i < 5; i++) {
+        await controller.unlockWithPassword('WrongPass!2026');
+      }
+
+      expect(
+        await controller.setupBiometricFromPassword('StrongPass!2026'),
+        isFalse,
+      );
+      expect(passwords.verifyCalls, 5);
+    });
+
+    test('successful biometric unlock resets the counter', () async {
+      final unlocker = _SucceedingBiometricUnlockService(storage);
+      final controller = await lockedVault(biometricUnlockService: unlocker);
+      for (var i = 0; i < 6; i++) {
+        await controller.unlockWithPassword('WrongPass!2026');
+      }
+      expect(controller.isUnlockLockedOut, isTrue);
+
+      expect(await controller.unlockWithBiometrics(), isTrue);
+
+      expect(controller.failedUnlockAttempts, 0);
+      expect(controller.isUnlockLockedOut, isFalse);
+      expect(
+        await storage.read(UnlockAttemptLimiter.failedCountKey),
+        isNull,
+      );
+    });
+  });
+}
+
+class _CountingMasterPasswordService extends MasterPasswordService {
+  _CountingMasterPasswordService()
+    : super(
+        verifierIterations: 1,
+        encryptionIterations: 1,
+        argon2MemoryKiB: 1024,
+        useFastTestKdf: true,
+      );
+
+  int verifyCalls = 0;
+
+  @override
+  Future<bool> verify({
+    required MasterPasswordRecord record,
+    required String password,
+  }) {
+    verifyCalls++;
+    return super.verify(record: record, password: password);
+  }
+}
+
+class _SucceedingBiometricUnlockService extends BiometricUnlockService {
+  _SucceedingBiometricUnlockService(SecureStorageService storage)
+    : super(
+        storage: storage,
+        biometricAuthService: const _FakeBiometricAuthService(),
+        envelopeService: BiometricKeyEnvelopeService(storage: storage),
+      );
+
+  @override
+  Future<BiometricUnlockOutcome> unlock({
+    required MasterPasswordRecord record,
+  }) async {
+    return BiometricUnlockSuccess(
+      VaultSession(
+        keyId: record.keyId,
+        secretKey: SecretKey(List.filled(32, 7)),
+      ),
+    );
+  }
 }
 
 class _InMemorySecureStorageService implements SecureStorageService {

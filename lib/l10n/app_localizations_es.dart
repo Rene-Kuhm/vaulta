@@ -328,6 +328,11 @@ class AppLocalizationsEs extends AppLocalizations {
   String get securityUnlockPasswordHint => 'Escribí tu master password para desbloquear el vault.';
 
   @override
+  String securityUnlockLockedOut(String time) {
+    return 'Demasiados intentos fallidos. Podés reintentar en $time.';
+  }
+
+  @override
   String get securityProtectedAccess => 'Acceso protegido';
 
   @override

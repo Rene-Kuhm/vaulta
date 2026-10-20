@@ -5,6 +5,7 @@ import 'package:local_auth/local_auth.dart';
 import 'package:gestor_contrasenas/core/security/biometric_auth_service.dart';
 import 'package:gestor_contrasenas/core/security/master_password_service.dart';
 import 'package:gestor_contrasenas/core/security/secure_storage_service.dart';
+import 'package:gestor_contrasenas/core/security/unlock_attempt_limiter.dart';
 import 'package:gestor_contrasenas/core/security/vault_security_controller.dart';
 import 'package:gestor_contrasenas/core/sync/device_registration_repository.dart';
 import 'package:gestor_contrasenas/core/sync/device_registration_service.dart';
@@ -152,6 +153,110 @@ void main() {
 
     expect(find.text('Unlock vault'), findsOneWidget);
     expect(find.text('Unlocked vault'), findsNothing);
+  });
+
+  testWidgets('shows lockout countdown and disables unlock after failures', (
+    tester,
+  ) async {
+    final storage = _InMemorySecureStorageService();
+    var now = DateTime.utc(2026, 10, 19, 12);
+    final controller = VaultSecurityController(
+      storage: storage,
+      masterPasswordService: MasterPasswordService.test(),
+      biometricAuthService: const _FakeBiometricAuthService(),
+      unlockAttemptLimiter: UnlockAttemptLimiter(
+        storage: storage,
+        clock: () => now,
+      ),
+    );
+    addTearDown(() async {
+      controller.dispose();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
+    await controller.initialize();
+    await controller.createMasterPassword(
+      password: 'StrongPass!2026',
+      confirmation: 'StrongPass!2026',
+      enableBiometrics: false,
+    );
+    await controller.lock();
+    for (var i = 0; i < 5; i++) {
+      await controller.unlockWithPassword('WrongPass!2026');
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: SecurityGate(
+          controller: controller,
+          child: const Scaffold(body: Center(child: Text('Unlocked vault'))),
+        ),
+      ),
+    );
+    await _pumpUi(tester);
+
+    FilledButton unlockButton() => tester.widget<FilledButton>(
+      find.byKey(const ValueKey('unlock-with-password-button')),
+    );
+
+    expect(
+      find.text('Too many failed attempts. Try again in 0:30.'),
+      findsOneWidget,
+    );
+    expect(unlockButton().onPressed, isNull);
+
+    // Submitting from the keyboard is ignored too.
+    await tester.enterText(find.byType(TextField), 'StrongPass!2026');
+    await tester.testTextInput.receiveAction(TextInputAction.go);
+    await _pumpUi(tester);
+    expect(controller.isUnlocked, isFalse);
+
+    // The countdown ticks once per second.
+    now = now.add(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    expect(
+      find.text('Too many failed attempts. Try again in 0:29.'),
+      findsOneWidget,
+    );
+
+    // Once the lockout expires the banner goes away and unlock works.
+    now = now.add(const Duration(seconds: 29));
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byKey(const ValueKey('unlock-lockout-banner')), findsNothing);
+    expect(unlockButton().onPressed, isNotNull);
+
+    final unlockFinder = find.byKey(
+      const ValueKey('unlock-with-password-button'),
+    );
+    await tester.ensureVisible(unlockFinder);
+    await tester.pump();
+    await tester.tap(unlockFinder);
+    // The KDF runs on real async work, so let it finish outside the
+    // fake clock before checking the result.
+    for (var i = 0; i < 50 && !controller.isUnlocked; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(controller.isUnlocked, isTrue);
+    expect(controller.failedUnlockAttempts, 0);
+    // Drop the idle auto-lock timer so the test leaves no timers behind.
+    await controller.lock();
+    await _pumpUi(tester);
+  });
+
+  test('formats lockout remaining time as m:ss, rounding up', () {
+    expect(formatLockoutRemaining(const Duration(seconds: 30)), '0:30');
+    expect(
+      formatLockoutRemaining(const Duration(seconds: 29, milliseconds: 1)),
+      '0:30',
+    );
+    expect(formatLockoutRemaining(const Duration(minutes: 15)), '15:00');
+    expect(formatLockoutRemaining(const Duration(seconds: 61)), '1:01');
   });
 }
 

@@ -713,6 +713,12 @@ abstract class AppLocalizations {
   /// **'Type your master password to unlock the vault.'**
   String get securityUnlockPasswordHint;
 
+  /// Shown on the unlock screen while too many failed master-password attempts keep unlock disabled. The time placeholder is the remaining wait formatted as m:ss.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many failed attempts. Try again in {time}.'**
+  String securityUnlockLockedOut(String time);
+
   /// No description provided for @securityProtectedAccess.
   ///
   /// In en, this message translates to:

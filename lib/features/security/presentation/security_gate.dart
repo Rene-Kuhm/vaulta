@@ -793,15 +793,21 @@ class _UnlockScreenState extends State<_UnlockScreen> {
   bool _settingUpBiometric = false;
   bool _envelopeEnrolled = false;
 
+  /// Rebuilds the form once per second while a failed-attempt lockout
+  /// is active so the countdown and the disabled button stay current.
+  Timer? _lockoutTicker;
+
   @override
   void initState() {
     super.initState();
     widget.controller.addListener(_handleControllerChange);
     unawaited(_refreshBiometricUnlockAvailability());
+    _syncLockoutTicker();
   }
 
   @override
   void dispose() {
+    _lockoutTicker?.cancel();
     widget.controller.removeListener(_handleControllerChange);
     _passwordController.dispose();
     super.dispose();
@@ -809,6 +815,23 @@ class _UnlockScreenState extends State<_UnlockScreen> {
 
   void _handleControllerChange() {
     unawaited(_refreshBiometricUnlockAvailability());
+    _syncLockoutTicker();
+  }
+
+  void _syncLockoutTicker() {
+    if (!widget.controller.isUnlockLockedOut) {
+      _lockoutTicker?.cancel();
+      _lockoutTicker = null;
+      return;
+    }
+    _lockoutTicker ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {});
+      if (!widget.controller.isUnlockLockedOut) {
+        _lockoutTicker?.cancel();
+        _lockoutTicker = null;
+      }
+    });
   }
 
   Future<void> _refreshBiometricUnlockAvailability() async {
@@ -857,6 +880,19 @@ class _UnlockScreenState extends State<_UnlockScreen> {
 
   Future<void> _openBiometricSetupDialog() async {
     if (_settingUpBiometric) return;
+    final lockout = widget.controller.unlockLockoutRemaining;
+    if (lockout != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.l10n.securityUnlockLockedOut(
+              formatLockoutRemaining(lockout),
+            ),
+          ),
+        ),
+      );
+      return;
+    }
     final password = await showDialog<String>(
       context: context,
       builder: (dialogContext) => const _SetupBiometricDialog(),
@@ -868,12 +904,17 @@ class _UnlockScreenState extends State<_UnlockScreen> {
     try {
       final ok = await widget.controller.setupBiometricFromPassword(password);
       if (!mounted) return;
+      final lockoutAfter = widget.controller.unlockLockoutRemaining;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             ok
                 ? widget.controller.message ??
                       context.l10n.securitySetupBiometricSuccess
+                : lockoutAfter != null && widget.controller.message == null
+                ? context.l10n.securityUnlockLockedOut(
+                    formatLockoutRemaining(lockoutAfter),
+                  )
                 : widget.controller.message ??
                       context.l10n.securitySetupBiometricError,
           ),
@@ -943,6 +984,12 @@ class _UnlockScreenState extends State<_UnlockScreen> {
   }
 
   Future<void> _unlockWithPassword() async {
+    // The keyboard "go" action bypasses the disabled button, so guard
+    // here too. The controller rejects the attempt anyway; this just
+    // avoids a pointless round-trip.
+    if (widget.controller.busy || widget.controller.isUnlockLockedOut) {
+      return;
+    }
     await widget.controller.unlockWithPassword(_passwordController.text);
     if (mounted && widget.controller.isUnlocked) {
       FocusScope.of(context).unfocus();
@@ -959,6 +1006,16 @@ class _UnlockScreenState extends State<_UnlockScreen> {
       unawaited(_refreshBiometricUnlockAvailability());
     }
   }
+}
+
+/// Formats a lockout countdown as `m:ss`, rounding partial seconds
+/// up so the display never shows `0:00` while still locked.
+@visibleForTesting
+String formatLockoutRemaining(Duration remaining) {
+  final totalSeconds = (remaining.inMilliseconds + 999) ~/ 1000;
+  final minutes = totalSeconds ~/ 60;
+  final seconds = totalSeconds % 60;
+  return '$minutes:${seconds.toString().padLeft(2, '0')}';
 }
 
 class _UnlockHero extends StatelessWidget {
@@ -1095,6 +1152,8 @@ class _UnlockForm extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
+    final lockoutRemaining = controller.unlockLockoutRemaining;
+    final passwordUnlockDisabled = controller.busy || lockoutRemaining != null;
 
     return AppGlassSurface(
       tint: AppGlassTint.strong,
@@ -1144,7 +1203,10 @@ class _UnlockForm extends StatelessWidget {
             children: [
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: controller.busy ? null : onUnlockWithPassword,
+                  key: const ValueKey('unlock-with-password-button'),
+                  onPressed: passwordUnlockDisabled
+                      ? null
+                      : onUnlockWithPassword,
                   icon: controller.busy
                       ? const SizedBox(
                           width: 18,
@@ -1176,6 +1238,17 @@ class _UnlockForm extends StatelessWidget {
               ],
             ],
           ),
+          if (lockoutRemaining != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            AppBanner(
+              key: const ValueKey('unlock-lockout-banner'),
+              message: l10n.securityUnlockLockedOut(
+                formatLockoutRemaining(lockoutRemaining),
+              ),
+              tone: AppBannerTone.danger,
+              icon: Icons.timer_outlined,
+            ),
+          ],
           if (biometricStatusMessage != null) ...[
             const SizedBox(height: AppSpacing.md),
             AppBanner(

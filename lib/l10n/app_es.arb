@@ -132,6 +132,15 @@
   "securityUnlockPasswordSubtitle": "Usa tu master password para recuperar acceso.",
   "securityUnlockBiometricHint": "Escribí tu master password o tocá la huella para desbloquear.",
   "securityUnlockPasswordHint": "Escribí tu master password para desbloquear el vault.",
+  "securityUnlockLockedOut": "Demasiados intentos fallidos. Podés reintentar en {time}.",
+  "@securityUnlockLockedOut": {
+    "description": "Shown on the unlock screen while too many failed master-password attempts keep unlock disabled. The time placeholder is the remaining wait formatted as m:ss.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "securityProtectedAccess": "Acceso protegido",
   "securityUnlockVault": "Desbloquear vault",
   "securityBiometricButton": "Biometria",

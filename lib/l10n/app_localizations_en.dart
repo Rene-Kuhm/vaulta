@@ -328,6 +328,11 @@ class AppLocalizationsEn extends AppLocalizations {
   String get securityUnlockPasswordHint => 'Type your master password to unlock the vault.';
 
   @override
+  String securityUnlockLockedOut(String time) {
+    return 'Too many failed attempts. Try again in $time.';
+  }
+
+  @override
   String get securityProtectedAccess => 'Protected access';
 
   @override
