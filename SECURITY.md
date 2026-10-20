@@ -88,5 +88,11 @@ Out of scope:
 ## Verifying releases
 
 Every stable release publishes a `SHA256SUMS` file next to its assets.
-See [`docs/release-process.md`](docs/release-process.md) for how to
-verify a download.
+It proves the **integrity** of a download (the file is the one that
+was uploaded), **not its origin**, because it is hosted in the same
+release as the files. Authenticity comes from the APK signing
+certificate, which the Android app checks against the installed app
+before installing an update. The Windows zip has **no Authenticode
+signature yet**, so Windows downloads currently have an integrity
+check only. See [`docs/release-process.md`](docs/release-process.md)
+for how to verify a download.

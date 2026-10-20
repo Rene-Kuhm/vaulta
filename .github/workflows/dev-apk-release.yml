@@ -35,6 +35,10 @@ jobs:
   build-and-release:
     name: Build APK + publish to dev-latest
     runs-on: ubuntu-latest
+    # Lets the owner scope the signing secrets to an environment that
+    # only the master branch can deploy to (see docs/release-process.md).
+    # Until the secrets are moved there, repository secrets still apply.
+    environment: dev
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -59,24 +63,39 @@ jobs:
       - name: Analyze
         run: flutter analyze
 
+      # Secrets are passed through env and referenced as "$VAR" so they
+      # are never interpolated into the script text. The keystore lives
+      # in $RUNNER_TEMP (outside the checkout) and is always deleted.
       - name: Validate signing secrets
+        env:
+          VAULTA_UPLOAD_KEYSTORE_BASE64: ${{ secrets.VAULTA_UPLOAD_KEYSTORE_BASE64 }}
+          VAULTA_UPLOAD_STORE_PASSWORD: ${{ secrets.VAULTA_UPLOAD_STORE_PASSWORD }}
+          VAULTA_UPLOAD_KEY_ALIAS: ${{ secrets.VAULTA_UPLOAD_KEY_ALIAS }}
+          VAULTA_UPLOAD_KEY_PASSWORD: ${{ secrets.VAULTA_UPLOAD_KEY_PASSWORD }}
         run: |
-          test -n "${{ secrets.VAULTA_UPLOAD_KEYSTORE_BASE64 }}" || (echo "Missing VAULTA_UPLOAD_KEYSTORE_BASE64" && exit 1)
-          test -n "${{ secrets.VAULTA_UPLOAD_STORE_PASSWORD }}" || (echo "Missing VAULTA_UPLOAD_STORE_PASSWORD" && exit 1)
-          test -n "${{ secrets.VAULTA_UPLOAD_KEY_ALIAS }}" || (echo "Missing VAULTA_UPLOAD_KEY_ALIAS" && exit 1)
-          test -n "${{ secrets.VAULTA_UPLOAD_KEY_PASSWORD }}" || (echo "Missing VAULTA_UPLOAD_KEY_PASSWORD" && exit 1)
+          test -n "$VAULTA_UPLOAD_KEYSTORE_BASE64" || { echo "Missing VAULTA_UPLOAD_KEYSTORE_BASE64"; exit 1; }
+          test -n "$VAULTA_UPLOAD_STORE_PASSWORD" || { echo "Missing VAULTA_UPLOAD_STORE_PASSWORD"; exit 1; }
+          test -n "$VAULTA_UPLOAD_KEY_ALIAS" || { echo "Missing VAULTA_UPLOAD_KEY_ALIAS"; exit 1; }
+          test -n "$VAULTA_UPLOAD_KEY_PASSWORD" || { echo "Missing VAULTA_UPLOAD_KEY_PASSWORD"; exit 1; }
 
       - name: Restore signing keystore
+        env:
+          VAULTA_UPLOAD_KEYSTORE_BASE64: ${{ secrets.VAULTA_UPLOAD_KEYSTORE_BASE64 }}
         run: |
-          echo "${{ secrets.VAULTA_UPLOAD_KEYSTORE_BASE64 }}" | base64 --decode > android/upload-keystore.jks
+          umask 077
+          printf '%s' "$VAULTA_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload-keystore.jks"
 
       - name: Build signed APK
         env:
-          VAULTA_UPLOAD_STORE_FILE: upload-keystore.jks
+          VAULTA_UPLOAD_STORE_FILE: ${{ runner.temp }}/upload-keystore.jks
           VAULTA_UPLOAD_STORE_PASSWORD: ${{ secrets.VAULTA_UPLOAD_STORE_PASSWORD }}
           VAULTA_UPLOAD_KEY_ALIAS: ${{ secrets.VAULTA_UPLOAD_KEY_ALIAS }}
           VAULTA_UPLOAD_KEY_PASSWORD: ${{ secrets.VAULTA_UPLOAD_KEY_PASSWORD }}
         run: flutter build apk --release
+
+      - name: Remove signing keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload-keystore.jks"
 
       - name: Resolve APK path
         id: apk
