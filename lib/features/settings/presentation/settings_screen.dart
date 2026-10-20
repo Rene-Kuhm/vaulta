@@ -12,19 +12,23 @@ import '../../../app/theme/app_spacing.dart';
 import '../../../core/security/local_encrypted_vault_repository.dart';
 import '../../../core/security/native_biometric_auth_service.dart';
 import '../../../core/security/secure_storage_service.dart';
+import '../../../core/security/vault_repository.dart';
 import '../../../core/security/vault_security_controller.dart';
 import '../../../core/sync/device_registration_repository.dart';
 import '../../../core/sync/sync_conflict.dart';
 import '../../../core/sync/sync_conflict_resolver.dart';
 import '../../../core/sync/device_session_revocation_service.dart';
 import '../../../core/update/update_service.dart';
+import '../../backup/application/vault_backup_coordinator.dart';
+import '../../backup/presentation/backup_section.dart';
 import '../../security/presentation/unlock_throttle_text.dart';
 import 'update_section.dart';
 
 /// "Settings" tab: local unlock posture (biometric toggle, idle
 /// timeout, lock now, change master password), sync conflict list,
-/// connected device list with revocation, update section, language
-/// selector, and about/roadmap footer.
+/// connected device list with revocation, encrypted backup export and
+/// restore, update section, language selector, and about/roadmap
+/// footer.
 ///
 /// All optional services (conflict resolver, revocation service,
 /// secure storage) are only rendered when provided, so the screen
@@ -41,6 +45,7 @@ class SettingsScreen extends StatefulWidget {
     this.conflictResolver,
     this.revocationService,
     this.secureStorage,
+    this.repository,
   });
 
   /// Controller that owns the local unlock posture toggles
@@ -63,6 +68,10 @@ class SettingsScreen extends StatefulWidget {
   /// prompted.
   final SecureStorageService? secureStorage;
 
+  /// Optional vault repository. When provided, the encrypted backup
+  /// section (export / restore) is rendered.
+  final VaultRepository? repository;
+
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
@@ -75,6 +84,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   NativeBiometricCapability _biometricCapability =
       NativeBiometricCapability.empty;
   bool _enrollingBiometric = false;
+  late final VaultBackupCoordinator? _backupCoordinator =
+      widget.repository == null
+      ? null
+      : VaultBackupCoordinator(
+          securityController: widget.securityController,
+          repository: widget.repository!,
+        );
 
   @override
   void initState() {
@@ -572,6 +588,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
             ),
           ),
+          if (_backupCoordinator case final coordinator?) ...[
+            const SizedBox(height: AppSpacing.md),
+            BackupSection(
+              coordinator: coordinator,
+              securityController: securityController,
+            ),
+          ],
           if (widget.conflictResolver != null) ...[
             const SizedBox(height: AppSpacing.md),
             AppPanel(

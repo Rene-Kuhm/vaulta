@@ -5,12 +5,10 @@
   "navAccess": "Acceso",
   "navSettings": "Ajustes",
   "brandFooter": "Tecnodespegue.com",
-
   "languageSectionTitle": "Idioma",
   "languageSelectorLabel": "Idioma de la app",
   "languageEnglish": "Inglés",
   "languageSpanish": "Español",
-
   "settingsTitle": "Ajustes",
   "aboutTitle": "Acerca de",
   "aboutCreator": "Creada por René Kuhm, fundador de Tecnodespegue.",
@@ -98,7 +96,6 @@
   "apply": "Aplicar",
   "masterPasswordUpdatedSuccess": "Master password actualizada correctamente.",
   "changeMasterPasswordErrorFallback": "No pudimos cambiar la master password. Revisa los datos e intenta de nuevo.",
-
   "securityOnboardingEyebrow": "Onboarding seguro",
   "securityOnboardingTitle": "Creamos tu llave maestra sin atajos peligrosos.",
   "securityOnboardingSubtitle": "La master password valida acceso local y deriva la clave que cifra los items del vault.",
@@ -145,7 +142,6 @@
   "securityProtectedAccess": "Acceso protegido",
   "securityUnlockVault": "Desbloquear vault",
   "securityBiometricButton": "Biometria",
-
   "dashboardDecryptError": "Vaulta no pudo descifrar el vault local en este momento.",
   "dashboardDecryptErrorAdvice": "Bloquea y desbloquea de nuevo con tu master password, despues reintenta. Ocultamos el detalle para no filtrar estado sensible.",
   "entryDetailTitle": "Detalle de entrada",
@@ -234,7 +230,6 @@
       }
     }
   },
-
   "editorTitleEdit": "Editar entrada",
   "editorTitleNew": "Nueva entrada",
   "editorIdentityTitle": "Identidad",
@@ -271,7 +266,6 @@
   "editorCreateEntry": "Crear entrada",
   "editorGeneratorSetRequired": "Elegi al menos un set de caracteres para generar.",
   "editorGeneratedInserted": "Password generada e insertada.",
-
   "syncConflictsTitle": "Conflictos de sincronizacion",
   "syncConflictsSubtitle": "Un cambio remoto llego mientras tu edicion local estaba pendiente. Elegí qué version conservar.",
   "syncConflictsEmpty": "Sin conflictos pendientes. Todo sincronizado.",
@@ -292,7 +286,6 @@
   "syncConflictKeepRemote": "Usar la remota",
   "syncConflictKindUpsert": "Conflicto de edicion",
   "syncConflictKindDelete": "Conflicto de borrado",
-
   "biometricSlotExpired": "La clave biométrica del vault no está lista o fue invalidada. Ingresa tu master password y vuelve a activar biometría.",
   "biometricUnlockSuccess": "Verificación biométrica aceptada.",
   "biometricEnrollCta": "Configurar biometría en el dispositivo",
@@ -306,7 +299,6 @@
   "securitySetupBiometricDialogCancel": "Cancelar",
   "securitySetupBiometricSuccess": "Listo. La próxima vez podrás desbloquear Vaulta con tu huella.",
   "securitySetupBiometricError": "No pudimos activar la huella. Verifica tu master password e intenta de nuevo.",
-
   "updateTitle": "Actualizaciones",
   "updateInstalled": "Instalada",
   "updateRemote": "Remota",
@@ -348,7 +340,6 @@
       "error": {}
     }
   },
-
   "accessEyebrow": "Autofill y acceso",
   "accessTitle": "El autofill está en camino",
   "accessSubtitle": "Vaulta todavía no puede completar contraseñas en otras apps. Esta pantalla te va a guiar en la configuración apenas salga el servicio de autofill para Android.",
@@ -364,5 +355,54 @@
   "accessLocked": "Vault bloqueado",
   "accessLockNow": "Bloquear vault ahora",
   "accessRoadmapTitle": "Lo que viene",
-  "accessRoadmapBody": "Lo próximo: un servicio nativo de autofill para Android que reutiliza esta pantalla. El autofill de iOS y desktop viene después."
+  "accessRoadmapBody": "Lo próximo: un servicio nativo de autofill para Android que reutiliza esta pantalla. El autofill de iOS y desktop viene después.",
+  "accessPlatformBiometrics": "Desbloqueo biométrico",
+  "accessPlatformOffline": "Offline por defecto",
+  "accessSetupTitle": "Configuracion en tres pasos",
+  "accessSetupSubtitle": "En Android 11 y superiores el sistema expone un servicio de Autofill al que Vaulta se puede conectar.",
+  "accessSetupStep1Title": "Abrí Ajustes de Android",
+  "accessSetupStep1Body": "Andá a Sistema → Idiomas y entrada → Servicio de Autofill.",
+  "accessSetupStep2Title": "Elegí Vaulta",
+  "accessSetupStep2Body": "Seleccioná Vaulta como servicio activo. Android va a pedir confirmacion.",
+  "accessSetupStep3Title": "Desbloqueá y aprobá",
+  "accessSetupStep3Body": "La próxima vez que toques un campo de password, Vaulta pide biometria o master password y completa la entrada correcta.",
+  "backupSectionTitle": "Copia de seguridad cifrada",
+  "backupSectionSubtitle": "Exporta tu vault a un archivo .vaulta cifrado para restaurarlo en un dispositivo nuevo. Guarda el archivo fuera de este dispositivo.",
+  "backupExportAction": "Exportar copia",
+  "backupRestoreAction": "Restaurar copia",
+  "backupExportTitle": "Exportar copia cifrada",
+  "backupReauthBody": "Vuelve a ingresar tu master password para exportar el vault.",
+  "backupMasterPasswordLabel": "Master password",
+  "backupContinue": "Continuar",
+  "backupMasterPasswordMismatch": "La master password no coincide.",
+  "backupItemCount": "{count, plural, =1{La copia contendra 1 entrada.} other{La copia contendra {count} entradas.}}",
+  "backupPasswordLabel": "Password de la copia",
+  "backupPasswordConfirmLabel": "Confirmar password de la copia",
+  "backupPasswordHint": "Al menos 12 caracteres, combinando mayusculas, minusculas, numeros y simbolos.",
+  "backupPasswordWarning": "Vaulta no puede recuperar la password de la copia. Si la olvidas, nadie podra abrir esta copia, ni siquiera tu.",
+  "backupPasswordTooShort": "Usa al menos {min} caracteres.",
+  "backupPasswordWeak": "Combina mayusculas, minusculas, numeros y simbolos.",
+  "backupPasswordMismatch": "La confirmacion no coincide con la password de la copia.",
+  "backupCreateAction": "Crear copia",
+  "backupSaveAgain": "Guardar archivo",
+  "backupSaveCancelled": "Se cancelo el guardado. No se escribio ningun archivo.",
+  "backupExportSuccess": "Copia cifrada guardada.",
+  "backupExportFailed": "No se pudo crear la copia. Intenta de nuevo.",
+  "backupReauthExpired": "Tu confirmacion vencio. Vuelve a iniciar la exportacion.",
+  "backupRestoreTitle": "Restaurar copia",
+  "backupRestoreIntro": "Elige un archivo .vaulta e ingresa su password. No se escribe nada en tu vault hasta que confirmes.",
+  "backupPickFile": "Elegir archivo de copia",
+  "backupPickFailed": "No se pudo abrir el archivo.",
+  "backupUnlockAction": "Abrir copia",
+  "backupOpenFailed": "No se pudo abrir la copia. Revisa la password de la copia; el archivo tambien puede estar danado o modificado.",
+  "backupUnsupportedVersion": "Esta copia la creo una version mas nueva de Vaulta. Actualiza la app e intenta de nuevo.",
+  "backupPreviewTitle": "Contenido de la copia",
+  "backupPreviewCreatedAt": "Creada el {date}",
+  "backupPreviewSummary": "{total} entradas: {fresh} nuevas, {conflicts} conservadas junto a una similar, {duplicates} ya estan en tu vault.",
+  "backupConflictSuffix": " (restaurada)",
+  "backupRestoreConfirm": "{count, plural, =1{Restaurar 1 entrada} other{Restaurar {count} entradas}}",
+  "backupRestoreNothing": "Todas las entradas de esta copia ya estan en tu vault.",
+  "backupRestoreSuccess": "{count, plural, =1{Se restauro 1 entrada.} other{Se restauraron {count} entradas.}}",
+  "backupRestoreFailed": "La restauracion se interrumpio. Se conservaron las entradas escritas antes del error.",
+  "backupRestoreLocked": "Desbloquea Vaulta para restaurar una copia."
 }

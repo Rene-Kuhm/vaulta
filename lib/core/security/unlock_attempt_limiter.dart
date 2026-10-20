@@ -82,8 +82,8 @@ enum UnlockAttemptOutcome {
 ///   stored key anyway, so the Argon2id cost per guess remains the
 ///   primary defense there.
 ///
-/// The limiter never wipes the vault: users have no export path yet,
-/// so an auto-wipe would be silent data loss.
+/// The limiter never wipes the vault: an auto-wipe would be silent
+/// data loss for anyone without a recent encrypted backup (ADR-006).
 class UnlockAttemptLimiter {
   /// Builds a limiter backed by [storage]. [clock] defaults to
   /// [DateTime.now] and [monotonicClock] to a process-wide

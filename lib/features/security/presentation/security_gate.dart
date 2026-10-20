@@ -88,7 +88,14 @@ class _SecurityGateState extends State<SecurityGate>
     final movedToLocked =
         _lastStage != VaultSecurityStage.locked &&
         currentStage == VaultSecurityStage.locked;
+    final leftUnlocked =
+        _lastStage == VaultSecurityStage.unlocked &&
+        currentStage != VaultSecurityStage.unlocked;
     _lastStage = currentStage;
+
+    if (leftUnlocked) {
+      _dismissRoutesAboveGate();
+    }
 
     if (movedToLocked || movedToUnlocked) {
       unawaited(_refreshBiometricUnlockAvailability());
@@ -104,6 +111,20 @@ class _SecurityGateState extends State<SecurityGate>
     }
 
     _runLifecycleAction(lifecycle.onSessionStarted());
+  }
+
+  /// Fail closed on lock: pops every route pushed above the gate
+  /// (entry detail, editor, import / backup screens, dialogs, bottom
+  /// sheets). They are not part of the gate's subtree, so swapping the
+  /// stage alone would leave them, and the secrets they render, on top
+  /// of the lock screen. Popping disposes their state, which drops any
+  /// sensitive data they hold.
+  void _dismissRoutesAboveGate() {
+    if (!mounted) return;
+    final navigator = Navigator.maybeOf(context, rootNavigator: true);
+    if (navigator == null) return;
+    // pop (not maybePop) so a PopScope on a route cannot veto the lock.
+    navigator.popUntil((route) => route.isFirst);
   }
 
   @override

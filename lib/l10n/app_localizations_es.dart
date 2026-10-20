@@ -822,4 +822,181 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get accessRoadmapBody => 'Lo próximo: un servicio nativo de autofill para Android que reutiliza esta pantalla. El autofill de iOS y desktop viene después.';
+
+  @override
+  String get accessPlatformBiometrics => 'Desbloqueo biométrico';
+
+  @override
+  String get accessPlatformOffline => 'Offline por defecto';
+
+  @override
+  String get accessSetupTitle => 'Configuracion en tres pasos';
+
+  @override
+  String get accessSetupSubtitle => 'En Android 11 y superiores el sistema expone un servicio de Autofill al que Vaulta se puede conectar.';
+
+  @override
+  String get accessSetupStep1Title => 'Abrí Ajustes de Android';
+
+  @override
+  String get accessSetupStep1Body => 'Andá a Sistema → Idiomas y entrada → Servicio de Autofill.';
+
+  @override
+  String get accessSetupStep2Title => 'Elegí Vaulta';
+
+  @override
+  String get accessSetupStep2Body => 'Seleccioná Vaulta como servicio activo. Android va a pedir confirmacion.';
+
+  @override
+  String get accessSetupStep3Title => 'Desbloqueá y aprobá';
+
+  @override
+  String get accessSetupStep3Body => 'La próxima vez que toques un campo de password, Vaulta pide biometria o master password y completa la entrada correcta.';
+
+  @override
+  String get backupSectionTitle => 'Copia de seguridad cifrada';
+
+  @override
+  String get backupSectionSubtitle => 'Exporta tu vault a un archivo .vaulta cifrado para restaurarlo en un dispositivo nuevo. Guarda el archivo fuera de este dispositivo.';
+
+  @override
+  String get backupExportAction => 'Exportar copia';
+
+  @override
+  String get backupRestoreAction => 'Restaurar copia';
+
+  @override
+  String get backupExportTitle => 'Exportar copia cifrada';
+
+  @override
+  String get backupReauthBody => 'Vuelve a ingresar tu master password para exportar el vault.';
+
+  @override
+  String get backupMasterPasswordLabel => 'Master password';
+
+  @override
+  String get backupContinue => 'Continuar';
+
+  @override
+  String get backupMasterPasswordMismatch => 'La master password no coincide.';
+
+  @override
+  String backupItemCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'La copia contendra $count entradas.',
+      one: 'La copia contendra 1 entrada.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupPasswordLabel => 'Password de la copia';
+
+  @override
+  String get backupPasswordConfirmLabel => 'Confirmar password de la copia';
+
+  @override
+  String get backupPasswordHint => 'Al menos 12 caracteres, combinando mayusculas, minusculas, numeros y simbolos.';
+
+  @override
+  String get backupPasswordWarning => 'Vaulta no puede recuperar la password de la copia. Si la olvidas, nadie podra abrir esta copia, ni siquiera tu.';
+
+  @override
+  String backupPasswordTooShort(int min) {
+    return 'Usa al menos $min caracteres.';
+  }
+
+  @override
+  String get backupPasswordWeak => 'Combina mayusculas, minusculas, numeros y simbolos.';
+
+  @override
+  String get backupPasswordMismatch => 'La confirmacion no coincide con la password de la copia.';
+
+  @override
+  String get backupCreateAction => 'Crear copia';
+
+  @override
+  String get backupSaveAgain => 'Guardar archivo';
+
+  @override
+  String get backupSaveCancelled => 'Se cancelo el guardado. No se escribio ningun archivo.';
+
+  @override
+  String get backupExportSuccess => 'Copia cifrada guardada.';
+
+  @override
+  String get backupExportFailed => 'No se pudo crear la copia. Intenta de nuevo.';
+
+  @override
+  String get backupReauthExpired => 'Tu confirmacion vencio. Vuelve a iniciar la exportacion.';
+
+  @override
+  String get backupRestoreTitle => 'Restaurar copia';
+
+  @override
+  String get backupRestoreIntro => 'Elige un archivo .vaulta e ingresa su password. No se escribe nada en tu vault hasta que confirmes.';
+
+  @override
+  String get backupPickFile => 'Elegir archivo de copia';
+
+  @override
+  String get backupPickFailed => 'No se pudo abrir el archivo.';
+
+  @override
+  String get backupUnlockAction => 'Abrir copia';
+
+  @override
+  String get backupOpenFailed => 'No se pudo abrir la copia. Revisa la password de la copia; el archivo tambien puede estar danado o modificado.';
+
+  @override
+  String get backupUnsupportedVersion => 'Esta copia la creo una version mas nueva de Vaulta. Actualiza la app e intenta de nuevo.';
+
+  @override
+  String get backupPreviewTitle => 'Contenido de la copia';
+
+  @override
+  String backupPreviewCreatedAt(String date) {
+    return 'Creada el $date';
+  }
+
+  @override
+  String backupPreviewSummary(int total, int fresh, int conflicts, int duplicates) {
+    return '$total entradas: $fresh nuevas, $conflicts conservadas junto a una similar, $duplicates ya estan en tu vault.';
+  }
+
+  @override
+  String get backupConflictSuffix => ' (restaurada)';
+
+  @override
+  String backupRestoreConfirm(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Restaurar $count entradas',
+      one: 'Restaurar 1 entrada',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupRestoreNothing => 'Todas las entradas de esta copia ya estan en tu vault.';
+
+  @override
+  String backupRestoreSuccess(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Se restauraron $count entradas.',
+      one: 'Se restauro 1 entrada.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupRestoreFailed => 'La restauracion se interrumpio. Se conservaron las entradas escritas antes del error.';
+
+  @override
+  String get backupRestoreLocked => 'Desbloquea Vaulta para restaurar una copia.';
 }

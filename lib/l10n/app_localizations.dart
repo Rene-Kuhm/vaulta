@@ -1636,6 +1636,300 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Next up: a native Android autofill service that reuses this screen. iOS and desktop autofill come after it.'**
   String get accessRoadmapBody;
+
+  /// No description provided for @accessPlatformBiometrics.
+  ///
+  /// In en, this message translates to:
+  /// **'Biometric unlock'**
+  String get accessPlatformBiometrics;
+
+  /// No description provided for @accessPlatformOffline.
+  ///
+  /// In en, this message translates to:
+  /// **'Offline by default'**
+  String get accessPlatformOffline;
+
+  /// No description provided for @accessSetupTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Setup in three steps'**
+  String get accessSetupTitle;
+
+  /// No description provided for @accessSetupSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'On Android 11 and above the platform exposes an Autofill service that Vaulta can plug into.'**
+  String get accessSetupSubtitle;
+
+  /// No description provided for @accessSetupStep1Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Android settings'**
+  String get accessSetupStep1Title;
+
+  /// No description provided for @accessSetupStep1Body.
+  ///
+  /// In en, this message translates to:
+  /// **'Go to System → Languages & input → Autofill service.'**
+  String get accessSetupStep1Body;
+
+  /// No description provided for @accessSetupStep2Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick Vaulta'**
+  String get accessSetupStep2Title;
+
+  /// No description provided for @accessSetupStep2Body.
+  ///
+  /// In en, this message translates to:
+  /// **'Select Vaulta as the active service. Android will ask for confirmation.'**
+  String get accessSetupStep2Body;
+
+  /// No description provided for @accessSetupStep3Title.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock and approve'**
+  String get accessSetupStep3Title;
+
+  /// No description provided for @accessSetupStep3Body.
+  ///
+  /// In en, this message translates to:
+  /// **'Next time you tap a password field, Vaulta prompts for biometrics or master password and fills the right entry.'**
+  String get accessSetupStep3Body;
+
+  /// No description provided for @backupSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted backup'**
+  String get backupSectionTitle;
+
+  /// No description provided for @backupSectionSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Export your vault to an encrypted .vaulta file so you can restore it on a new device. Keep the file somewhere other than this device.'**
+  String get backupSectionSubtitle;
+
+  /// No description provided for @backupExportAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Export backup'**
+  String get backupExportAction;
+
+  /// No description provided for @backupRestoreAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore backup'**
+  String get backupRestoreAction;
+
+  /// No description provided for @backupExportTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Export encrypted backup'**
+  String get backupExportTitle;
+
+  /// No description provided for @backupReauthBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Re-enter your master password to export the vault.'**
+  String get backupReauthBody;
+
+  /// No description provided for @backupMasterPasswordLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Master password'**
+  String get backupMasterPasswordLabel;
+
+  /// No description provided for @backupContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get backupContinue;
+
+  /// No description provided for @backupMasterPasswordMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The master password does not match.'**
+  String get backupMasterPasswordMismatch;
+
+  /// No description provided for @backupItemCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{The backup will contain 1 entry.} other{The backup will contain {count} entries.}}'**
+  String backupItemCount(int count);
+
+  /// No description provided for @backupPasswordLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup password'**
+  String get backupPasswordLabel;
+
+  /// No description provided for @backupPasswordConfirmLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm backup password'**
+  String get backupPasswordConfirmLabel;
+
+  /// No description provided for @backupPasswordHint.
+  ///
+  /// In en, this message translates to:
+  /// **'At least 12 characters, mixing upper and lower case letters, numbers and symbols.'**
+  String get backupPasswordHint;
+
+  /// No description provided for @backupPasswordWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Vaulta cannot recover the backup password. If you forget it, nobody can open this backup, not even you.'**
+  String get backupPasswordWarning;
+
+  /// No description provided for @backupPasswordTooShort.
+  ///
+  /// In en, this message translates to:
+  /// **'Use at least {min} characters.'**
+  String backupPasswordTooShort(int min);
+
+  /// No description provided for @backupPasswordWeak.
+  ///
+  /// In en, this message translates to:
+  /// **'Combine upper and lower case letters, numbers and symbols.'**
+  String get backupPasswordWeak;
+
+  /// No description provided for @backupPasswordMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The confirmation does not match the backup password.'**
+  String get backupPasswordMismatch;
+
+  /// No description provided for @backupCreateAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Create backup'**
+  String get backupCreateAction;
+
+  /// No description provided for @backupSaveAgain.
+  ///
+  /// In en, this message translates to:
+  /// **'Save file'**
+  String get backupSaveAgain;
+
+  /// No description provided for @backupSaveCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Saving was cancelled. No file was written.'**
+  String get backupSaveCancelled;
+
+  /// No description provided for @backupExportSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted backup saved.'**
+  String get backupExportSuccess;
+
+  /// No description provided for @backupExportFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The backup could not be created. Try again.'**
+  String get backupExportFailed;
+
+  /// No description provided for @backupReauthExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'Your confirmation expired. Start the export again.'**
+  String get backupReauthExpired;
+
+  /// No description provided for @backupRestoreTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore backup'**
+  String get backupRestoreTitle;
+
+  /// No description provided for @backupRestoreIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a .vaulta file and enter its backup password. Nothing is written to your vault until you confirm.'**
+  String get backupRestoreIntro;
+
+  /// No description provided for @backupPickFile.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose backup file'**
+  String get backupPickFile;
+
+  /// No description provided for @backupPickFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The file could not be opened.'**
+  String get backupPickFailed;
+
+  /// No description provided for @backupUnlockAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Open backup'**
+  String get backupUnlockAction;
+
+  /// No description provided for @backupOpenFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The backup could not be opened. Check the backup password; the file may also be damaged or modified.'**
+  String get backupOpenFailed;
+
+  /// No description provided for @backupUnsupportedVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'This backup was made by a newer version of Vaulta. Update the app and try again.'**
+  String get backupUnsupportedVersion;
+
+  /// No description provided for @backupPreviewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup contents'**
+  String get backupPreviewTitle;
+
+  /// No description provided for @backupPreviewCreatedAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Created {date}'**
+  String backupPreviewCreatedAt(String date);
+
+  /// No description provided for @backupPreviewSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'{total} entries: {fresh} new, {conflicts} kept next to a similar entry, {duplicates} already in your vault.'**
+  String backupPreviewSummary(int total, int fresh, int conflicts, int duplicates);
+
+  /// No description provided for @backupConflictSuffix.
+  ///
+  /// In en, this message translates to:
+  /// **' (restored)'**
+  String get backupConflictSuffix;
+
+  /// No description provided for @backupRestoreConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Restore 1 entry} other{Restore {count} entries}}'**
+  String backupRestoreConfirm(int count);
+
+  /// No description provided for @backupRestoreNothing.
+  ///
+  /// In en, this message translates to:
+  /// **'Every entry in this backup is already in your vault.'**
+  String get backupRestoreNothing;
+
+  /// No description provided for @backupRestoreSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Restored 1 entry.} other{Restored {count} entries.}}'**
+  String backupRestoreSuccess(int count);
+
+  /// No description provided for @backupRestoreFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The restore was interrupted. Entries written before the error were kept.'**
+  String get backupRestoreFailed;
+
+  /// No description provided for @backupRestoreLocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock Vaulta to restore a backup.'**
+  String get backupRestoreLocked;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
