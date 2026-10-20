@@ -384,7 +384,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get copySecret => 'Copy secret';
 
   @override
-  String get secretCopiedLocally => 'Secret copied locally. Clipboard clears shortly if unchanged.';
+  String get secretCopiedLocally => 'Secret copied. The clipboard will be cleared in 30 seconds if unchanged.';
 
   @override
   String get clipboardCleared => 'Clipboard cleared.';

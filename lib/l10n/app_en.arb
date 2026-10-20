@@ -159,7 +159,7 @@
   "entryShowSecret": "Show",
   "entryHideSecret": "Hide",
   "copySecret": "Copy secret",
-  "secretCopiedLocally": "Secret copied locally. Clipboard clears shortly if unchanged.",
+  "secretCopiedLocally": "Secret copied. The clipboard will be cleared in 30 seconds if unchanged.",
   "clipboardCleared": "Clipboard cleared.",
   "entryNotesTitle": "Notes",
   "entryDeleteDialogTitle": "Delete entry?",

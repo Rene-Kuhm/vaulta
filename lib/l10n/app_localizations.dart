@@ -824,7 +824,7 @@ abstract class AppLocalizations {
   /// No description provided for @secretCopiedLocally.
   ///
   /// In en, this message translates to:
-  /// **'Secret copied locally. Clipboard clears shortly if unchanged.'**
+  /// **'Secret copied. The clipboard will be cleared in 30 seconds if unchanged.'**
   String get secretCopiedLocally;
 
   /// No description provided for @clipboardCleared.

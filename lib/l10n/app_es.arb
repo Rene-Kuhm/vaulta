@@ -159,7 +159,7 @@
   "entryShowSecret": "Mostrar",
   "entryHideSecret": "Ocultar",
   "copySecret": "Copiar secreto",
-  "secretCopiedLocally": "Secreto copiado localmente. El portapapeles se limpia pronto si no cambia.",
+  "secretCopiedLocally": "Secreto copiado. El portapapeles se limpiará en 30 segundos si no cambia.",
   "clipboardCleared": "Portapapeles limpiado.",
   "entryNotesTitle": "Notas",
   "entryDeleteDialogTitle": "Eliminar entrada?",

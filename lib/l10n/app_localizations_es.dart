@@ -384,7 +384,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get copySecret => 'Copiar secreto';
 
   @override
-  String get secretCopiedLocally => 'Secreto copiado localmente. El portapapeles se limpia pronto si no cambia.';
+  String get secretCopiedLocally => 'Secreto copiado. El portapapeles se limpiará en 30 segundos si no cambia.';
 
   @override
   String get clipboardCleared => 'Portapapeles limpiado.';
