@@ -87,6 +87,7 @@ class MainActivity : FlutterFragmentActivity() {
             this::openBiometricEnrollment,
         )
         UpdateChannel(flutterEngine, applicationContext)
+        ClipboardChannel(flutterEngine, applicationContext)
     }
 
     /**

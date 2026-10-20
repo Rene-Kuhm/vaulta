@@ -9,6 +9,7 @@ import '../../../app/design_system/vault_entry_tile.dart';
 import '../../../app/localization/l10n.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
+import '../../../core/security/sensitive_clipboard_service.dart';
 import '../domain/vault_item.dart';
 
 /// Read-only detail view for a single [VaultItem].
@@ -30,6 +31,7 @@ class VaultEntryDetailScreen extends StatefulWidget {
     required this.item,
     this.onEdit,
     this.onDelete,
+    this.clipboardService,
   });
 
   /// The entry being shown. The screen does not mutate it directly;
@@ -44,6 +46,11 @@ class VaultEntryDetailScreen extends StatefulWidget {
   /// Invoked when the user confirms the delete action.
   final Future<void> Function()? onDelete;
 
+  /// Writes copied secrets to the clipboard flagged as sensitive.
+  /// Defaults to a [SensitiveClipboardService] bound to the bundled
+  /// platform channel; tests can inject their own.
+  final SensitiveClipboardService? clipboardService;
+
   @override
   State<VaultEntryDetailScreen> createState() => _VaultEntryDetailScreenState();
 }
@@ -52,6 +59,8 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
   static const _clipboardClearDelay = Duration(seconds: 30);
 
   bool _obscureSecret = true;
+  late final SensitiveClipboardService _clipboard =
+      widget.clipboardService ?? SensitiveClipboardService();
 
   @override
   Widget build(BuildContext context) {
@@ -266,7 +275,7 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
   }
 
   Future<void> _copySecret(String secret) async {
-    await Clipboard.setData(ClipboardData(text: secret));
+    await _clipboard.copySensitive(secret);
     unawaited(_clearClipboardIfUnchanged(secret));
 
     if (!mounted) {
