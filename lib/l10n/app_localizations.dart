@@ -1820,7 +1820,7 @@ abstract class AppLocalizations {
   /// No description provided for @backupPasswordWeak.
   ///
   /// In en, this message translates to:
-  /// **'Combine upper and lower case letters, numbers and symbols.'**
+  /// **'That password appears on lists of leaked passwords. Choose another.'**
   String get backupPasswordWeak;
 
   /// No description provided for @backupPasswordMismatch.

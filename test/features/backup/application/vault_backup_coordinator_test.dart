@@ -156,7 +156,10 @@ void main() {
       final grant = await authorize();
       for (final (password, confirmation, issue) in [
         ('Sh0rt!', 'Sh0rt!', VaultBackupPasswordIssue.tooShort),
-        ('alllowercase123!', 'alllowercase123!', VaultBackupPasswordIssue.weak),
+        // NIST SP 800-63B dropped the composition rule, so a
+        // lowercase-only password is no longer weak on that basis. What
+        // remains is the breached-password blocklist.
+        ('password12345', 'password12345', VaultBackupPasswordIssue.weak),
         (
           testBackupPassword,
           'Other#Pass2026',

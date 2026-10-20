@@ -89,7 +89,6 @@ class CountingMasterPasswordService extends MasterPasswordService {
   /// Builds the counting service.
   CountingMasterPasswordService()
     : super(
-        verifierIterations: 1,
         encryptionIterations: 1,
         argon2MemoryKiB: 1024,
         useFastTestKdf: true,

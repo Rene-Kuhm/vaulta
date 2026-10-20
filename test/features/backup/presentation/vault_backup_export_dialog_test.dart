@@ -141,12 +141,15 @@ void main() {
     await tapPrimary(tester);
     expect(feedback(tester), 'Use at least 12 characters.');
 
-    await tester.enterText(password, 'alllowercase123!');
-    await tester.enterText(confirm, 'alllowercase123!');
+    // NIST SP 800-63B dropped the composition rule, so a lowercase-only
+    // password is no longer refused for missing character classes.
+    // What the dialog still refuses is a password on the leaked list.
+    await tester.enterText(password, 'password12345');
+    await tester.enterText(confirm, 'password12345');
     await tapPrimary(tester);
     expect(
       feedback(tester),
-      'Combine upper and lower case letters, numbers and symbols.',
+      'That password appears on lists of leaked passwords. Choose another.',
     );
 
     await tester.enterText(password, testBackupPassword);

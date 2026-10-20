@@ -918,7 +918,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get backupPasswordWeak => 'Combine upper and lower case letters, numbers and symbols.';
+  String get backupPasswordWeak => 'That password appears on lists of leaked passwords. Choose another.';
 
   @override
   String get backupPasswordMismatch => 'The confirmation does not match the backup password.';

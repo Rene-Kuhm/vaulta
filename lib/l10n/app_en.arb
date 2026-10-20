@@ -400,7 +400,7 @@
       }
     }
   },
-  "backupPasswordWeak": "Combine upper and lower case letters, numbers and symbols.",
+  "backupPasswordWeak": "That password appears on lists of leaked passwords. Choose another.",
   "backupPasswordMismatch": "The confirmation does not match the backup password.",
   "backupCreateAction": "Create backup",
   "backupSaveAgain": "Save file",

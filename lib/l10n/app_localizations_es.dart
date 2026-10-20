@@ -924,7 +924,7 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
-  String get backupPasswordWeak => 'Combina mayusculas, minusculas, numeros y simbolos.';
+  String get backupPasswordWeak => 'Esa contrasena aparece en listas de contrasenas filtradas. Elegi otra.';
 
   @override
   String get backupPasswordMismatch => 'La confirmacion no coincide con la password de la copia.';
