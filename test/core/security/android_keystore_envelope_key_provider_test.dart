@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -227,14 +228,8 @@ void main() {
                 return Uint8List.fromList(
                   List<int>.generate(pt.length, (i) => pt[i] ^ 0xAA),
                 );
-              case 'rsaDecryptAuthorized':
-                final ct = (call.arguments as Map)['ciphertext'] as Uint8List;
-                // Reverse the fake encryption so the seed round-trips.
-                final pt = Uint8List.fromList(
-                  List<int>.generate(ct.length, (i) => ct[i] ^ 0xAA),
-                );
-                recoveredSeeds.add(pt);
-                return pt;
+              case 'deleteKey':
+                return null;
               default:
                 return null;
             }
@@ -276,6 +271,69 @@ void main() {
       // that matters.
       expect(rsaCiphertexts, hasLength(1));
       expect(recoveredSeeds, hasLength(1));
+    });
+
+    test('the provider only calls authorized channel methods', () async {
+      if (!Platform.isAndroid) return;
+      final storage = _InMemoryStorage();
+      final keystoreCalls = <String>[];
+      final biometricCalls = <String>[];
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(keystoreChannel, (call) async {
+            keystoreCalls.add(call.method);
+            switch (call.method) {
+              case 'isAvailable':
+                return true;
+              case 'ensureKey':
+                return 'alias';
+              case 'rsaEncrypt':
+                return Uint8List.fromList(
+                  List<int>.generate(
+                    ((call.arguments as Map)['plaintext'] as Uint8List).length,
+                    (_) => 0xAB,
+                  ),
+                );
+              default:
+                return null;
+            }
+          });
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(biometricChannel, (call) async {
+            biometricCalls.add(call.method);
+            if (call.method == 'requestDecryptAuthorization') {
+              return Uint8List.fromList(List<int>.filled(32, 0x5A));
+            }
+            return null;
+          });
+
+      final provider = AndroidKeystoreEnvelopeKeyProvider(storage: storage);
+      final envelopeService = BiometricKeyEnvelopeService(storage: storage);
+      await envelopeService.enroll(
+        dekBytes: Uint8List.fromList(List<int>.generate(32, (i) => i + 1)),
+        envelopeKey: SecretKey(List<int>.filled(32, 0x11)),
+      );
+
+      await provider.acquireEnvelopeKey();
+      await provider.releaseEnvelopeKey();
+
+      // Guards against reintroducing an unauthenticated decrypt. Under
+      // setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG) only a
+      // BiometricPrompt.CryptoObject cipher can decrypt the seed, so the
+      // keystore channel must stay encrypt-only and the biometric channel
+      // must carry the single authorized unwrap.
+      expect(
+        keystoreCalls.toSet().difference({'isAvailable', 'ensureKey', 'rsaEncrypt'}),
+        isEmpty,
+        reason: 'keystore channel must stay encrypt-only',
+      );
+      expect(
+        biometricCalls.toSet().difference({'requestDecryptAuthorization'}),
+        isEmpty,
+        reason: 'seed unwrap must only travel through the biometric prompt',
+      );
+      expect(keystoreCalls, isNot(contains('rsaDecryptAuthorized')));
+      expect(biometricCalls, contains('requestDecryptAuthorization'));
     });
   });
 }

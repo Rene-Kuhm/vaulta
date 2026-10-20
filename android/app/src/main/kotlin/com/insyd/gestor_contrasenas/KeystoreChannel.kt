@@ -70,20 +70,16 @@ class KeystoreChannel(engine: FlutterEngine) : MethodChannel.MethodCallHandler {
                     val encrypted = rsaEncrypt(plaintext)
                     result.success(encrypted)
                 }
-                "rsaDecryptAuthorized" -> {
-                    val ciphertext = call.argument<ByteArray>("ciphertext")
-                        ?: return result.error("ARG", "ciphertext is required", null)
-                    val plaintext = rsaDecryptAuthorized(ciphertext)
-                    result.success(plaintext)
-                }
+                // There is deliberately no unauthenticated decrypt method on this
+                // channel. The private key is generated with
+                // setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG), so a
+                // Cipher.init(DECRYPT_MODE, privateKey) without a
+                // BiometricPrompt.CryptoObject can never be authorized by Android.
+                // Unwrapping the seed happens in MainActivity.authenticateAndDecrypt,
+                // which owns the prompt and runs cipher.doFinal() inside
+                // onAuthenticationSucceeded. See ADR-001.
                 else -> result.notImplemented()
             }
-        } catch (e: UserCancelledException) {
-            result.error(BiometricErrorCode.USER_CANCELLED, e.message ?: "user cancelled", null)
-        } catch (e: BiometricUnavailableException) {
-            result.error(BiometricErrorCode.UNAVAILABLE, e.message ?: "biometric unavailable", null)
-        } catch (e: KeyPermanentlyInvalidatedException) {
-            result.error(BiometricErrorCode.LOCKOUT_PERMANENT, e.message ?: "key invalidated", null)
         } catch (e: Throwable) {
             result.error("KEYSTORE", e.message ?: e.javaClass.simpleName, null)
         }
@@ -200,51 +196,14 @@ class KeystoreChannel(engine: FlutterEngine) : MethodChannel.MethodCallHandler {
         return out
     }
 
-    /**
-     * Decrypts the RSA-encrypted seed. Requires that the user has
-     * freshly authenticated via BiometricPrompt. The hosting activity
-     * must have called `BiometricPrompt.authenticate(...)` immediately
-     * before invoking this method, so the KeyStore grants the
-     * private-key operation a fresh authorization window.
-     */
-    private fun rsaDecryptAuthorized(ciphertext: ByteArray): ByteArray {
-        val ks = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        if (!ks.containsAlias(KEY_ALIAS)) {
-            throw BiometricUnavailableException("No biometric key enrolled.")
-        }
-        val entry = ks.getEntry(KEY_ALIAS, null) as KeyStore.PrivateKeyEntry
-        val cipher = Cipher.getInstance(TRANSFORMATION_RSA)
-        try {
-            cipher.init(Cipher.DECRYPT_MODE, entry.privateKey)
-        } catch (e: Throwable) {
-            val msg = e.message.orEmpty()
-            when {
-                msg.contains("Key permanently invalidated", ignoreCase = true) -> {
-                    Log.w(TAG, "rsaDecryptAuthorized: key permanently invalidated", e)
-                    throw KeyPermanentlyInvalidatedException(
-                        "La biometria fue revocada. Re-enrola desde Ajustes o usa la master password."
-                    )
-                }
-                msg.contains("User not authenticated", ignoreCase = true) -> {
-                    Log.w(TAG, "rsaDecryptAuthorized: not authenticated", e)
-                    throw BiometricUnavailableException(
-                        "La biometria no esta disponible o fue revocada."
-                    )
-                }
-                else -> {
-                    Log.w(TAG, "rsaDecryptAuthorized: init failed", e)
-                    throw e
-                }
-            }
-        }
-        val out = cipher.doFinal(ciphertext)
-        Log.d(TAG, "rsaDecryptAuthorized: ${ciphertext.size} bytes -> ${out.size} bytes")
-        return out
-    }
-
-    class UserCancelledException(message: String) : RuntimeException(message)
-    class BiometricUnavailableException(message: String) : RuntimeException(message)
-    class KeyPermanentlyInvalidatedException(message: String) : RuntimeException(message)
+    // Removed: rsaDecryptAuthorized() and the three KeystoreException classes it
+    // needed. The method was unreachable from Dart and, under
+    // setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG), Android can never
+    // authorize its Cipher.init(DECRYPT_MODE, privateKey) without a
+    // BiometricPrompt.CryptoObject. Keeping an unauthenticated decrypt on a
+    // crypto channel is an audit finding waiting to happen, so the path is gone
+    // rather than merely unused. Seed unwrapping lives in
+    // MainActivity.authenticateAndDecrypt, inside onAuthenticationSucceeded.
 
     companion object {
         const val CHANNEL_NAME = "com.insyd.vaulta/keystore"
