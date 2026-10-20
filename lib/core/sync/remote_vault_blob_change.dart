@@ -1,3 +1,5 @@
+import 'sync_item_payload_codec.dart';
+
 /// One row of the remote change feed. Combines the
 /// `vault_ops.id` cursor with the current `vault_blobs` row, so the
 /// pull path can advance its cursor and apply the change in a
@@ -16,6 +18,8 @@ class RemoteVaultBlobChange {
     this.ciphertext,
     this.nonce,
     this.gcmTag,
+    this.itemKeySalt,
+    this.itemKeyVersion,
     this.deletedAt,
   });
 
@@ -34,7 +38,9 @@ class RemoteVaultBlobChange {
   /// Item payload format version (backend `key_version` column).
   /// Version 3 marks a record-bound payload whose [ciphertext] uses
   /// the `SyncItemPayloadCodec` wire form; a vault migrated to v3
-  /// refuses anything lower.
+  /// refuses anything lower. Version 4 marks a payload sealed under its
+  /// own item key, which additionally needs [itemKeySalt] and
+  /// [itemKeyVersion].
   final int keyVersion;
 
   /// Base64 ciphertext. Null for tombstones.
@@ -45,6 +51,16 @@ class RemoteVaultBlobChange {
 
   /// Base64 GCM auth tag. Null for tombstones.
   final String? gcmTag;
+
+  /// Base64 salt of the per-item key, from the backend
+  /// `item_key_salt` column. Null unless [keyVersion] is at least
+  /// `SyncItemPayloadCodec.itemKeyPayloadVersion`: a payload sealed
+  /// under the DEK has no item key, and neither has a tombstone.
+  final String? itemKeySalt;
+
+  /// Item key version from the backend `item_key_version` column, under
+  /// the same gate as [itemKeySalt].
+  final int? itemKeyVersion;
 
   /// When the record was tombstoned. Non-null marks the change as
   /// a delete.
@@ -76,14 +92,25 @@ class RemoteVaultBlobChange {
         ? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true)
         : DateTime.parse(updatedRaw as String).toUtc();
 
+    final keyVersion = _readRequiredInt(blobRow, 'key_version');
+    final isItemKeyed =
+        keyVersion >= SyncItemPayloadCodec.itemKeyPayloadVersion &&
+        deletedAt == null;
+
     return RemoteVaultBlobChange(
       opCursor: opCursor,
       recordId: recordId,
       version: _readRequiredInt(blobRow, 'version'),
-      keyVersion: _readRequiredInt(blobRow, 'key_version'),
+      keyVersion: keyVersion,
       ciphertext: deletedAt == null ? blobRow['ciphertext'] as String? : null,
       nonce: deletedAt == null ? blobRow['nonce'] as String? : null,
       gcmTag: deletedAt == null ? _readNullableGcmTag(blobRow) : null,
+      // Read only for an item-keyed payload. A client older than this
+      // one cannot clear these columns when it rewrites the row down to
+      // an older payload, so a stale salt can survive there; it describes
+      // no key that row has and must not be reported as one.
+      itemKeySalt: isItemKeyed ? _readNullableSalt(blobRow) : null,
+      itemKeyVersion: isItemKeyed ? _readNullableItemKeyVersion(blobRow) : null,
       deletedAt: deletedAt,
       updatedAt: updatedAt,
     );
@@ -100,6 +127,8 @@ class RemoteVaultBlobChange {
       'ciphertext': ciphertext,
       'nonce': nonce,
       'gcmTag': gcmTag,
+      'itemKeySalt': itemKeySalt,
+      'itemKeyVersion': itemKeyVersion,
       'deletedAt': deletedAt?.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -115,6 +144,8 @@ class RemoteVaultBlobChange {
       ciphertext: json['ciphertext'] as String?,
       nonce: json['nonce'] as String?,
       gcmTag: _readNullableGcmTag(json),
+      itemKeySalt: json['itemKeySalt'] as String?,
+      itemKeyVersion: _readNullableItemKeyVersion(json),
       deletedAt: json['deletedAt'] == null
           ? null
           : DateTime.parse(json['deletedAt'] as String).toUtc(),
@@ -145,6 +176,22 @@ class RemoteVaultBlobChange {
     final value = row['gcmTag'] ?? row['gcm_tag'] ?? row['aad'];
     return value is String && value.isNotEmpty ? value : null;
   }
+
+  /// Reads the base64 item key salt under either the backend column
+  /// name (`item_key_salt`) or the persisted local name (`itemKeySalt`).
+  static String? _readNullableSalt(Map<String, dynamic> row) {
+    final value = row['itemKeySalt'] ?? row['item_key_salt'];
+    return value is String && value.isNotEmpty ? value : null;
+  }
+
+  /// Reads the item key version under either name. A value that is not
+  /// a positive integer reads as `null` so a malformed row fails closed
+  /// downstream instead of deriving a key under version 0.
+  static int? _readNullableItemKeyVersion(Map<String, dynamic> row) {
+    final value = row['itemKeyVersion'] ?? row['item_key_version'];
+    final parsed = value is num ? value.toInt() : null;
+    return parsed != null && parsed > 0 ? parsed : null;
+  }
 }
 
 /// Mutable-in-memory shape used by the pull path before applying the
@@ -163,6 +210,8 @@ class RemoteVaultBlobSnapshot {
     this.ciphertext,
     this.nonce,
     this.gcmTag,
+    this.itemKeySalt,
+    this.itemKeyVersion,
     this.deletedAt,
   });
 
@@ -184,6 +233,15 @@ class RemoteVaultBlobSnapshot {
   /// Base64 GCM auth tag. Null for tombstones.
   final String? gcmTag;
 
+  /// Base64 salt of the per-item key. Null unless [keyVersion] is an
+  /// item-keyed payload version (see
+  /// `SyncItemPayloadCodec.itemKeyPayloadVersion`). The vault refuses a
+  /// payload that claims that version without it.
+  final String? itemKeySalt;
+
+  /// Item key version, under the same gate as [itemKeySalt].
+  final int? itemKeyVersion;
+
   /// When the record was tombstoned.
   final DateTime? deletedAt;
 
@@ -203,6 +261,8 @@ class RemoteVaultBlobSnapshot {
       ciphertext: change.ciphertext,
       nonce: change.nonce,
       gcmTag: change.gcmTag,
+      itemKeySalt: change.itemKeySalt,
+      itemKeyVersion: change.itemKeyVersion,
       deletedAt: change.deletedAt,
       updatedAt: change.updatedAt,
     );
@@ -217,6 +277,8 @@ class RemoteVaultBlobSnapshot {
       'ciphertext': ciphertext,
       'nonce': nonce,
       'gcmTag': gcmTag,
+      'itemKeySalt': itemKeySalt,
+      'itemKeyVersion': itemKeyVersion,
       'deletedAt': deletedAt?.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -224,7 +286,8 @@ class RemoteVaultBlobSnapshot {
 
   /// Inverse of [toJson]. Accepts the legacy `aad` / `gcm_tag`
   /// field names for [gcmTag] to stay compatible with old persisted
-  /// data.
+  /// data. Snapshots persisted before item-keyed payloads existed carry
+  /// neither item key field and load with both null.
   factory RemoteVaultBlobSnapshot.fromJson(Map<String, dynamic> json) {
     return RemoteVaultBlobSnapshot(
       recordId: json['recordId'] as String,
@@ -233,6 +296,8 @@ class RemoteVaultBlobSnapshot {
       ciphertext: json['ciphertext'] as String?,
       nonce: json['nonce'] as String?,
       gcmTag: RemoteVaultBlobChange._readNullableGcmTag(json),
+      itemKeySalt: json['itemKeySalt'] as String?,
+      itemKeyVersion: RemoteVaultBlobChange._readNullableItemKeyVersion(json),
       deletedAt: json['deletedAt'] == null
           ? null
           : DateTime.parse(json['deletedAt'] as String).toUtc(),

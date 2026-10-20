@@ -26,6 +26,21 @@ abstract final class SyncItemPayloadCodec {
   /// First `key_version` value whose `ciphertext` uses this codec.
   static const boundPayloadVersion = 3;
 
+  /// First `key_version` whose payload is sealed under a per-item key
+  /// (`HKDF-SHA256(DEK, salt, "vaulta:item:v4|<rid>|<kid>|<iv>")`) and
+  /// therefore needs the salt and the item key version on the wire
+  /// before another device can open it.
+  ///
+  /// Those two travel in their own columns (`vault_blobs.item_key_salt`
+  /// and `vault_blobs.item_key_version`), not inside this codec's output:
+  /// a row below this version carries neither and a receiver must never
+  /// look for them. Gating on the payload version is also what keeps the
+  /// two client generations compatible: a client that predates these
+  /// columns never mentions them, so an upsert from it cannot clear a
+  /// salt it knows nothing about, and a client that does read them only
+  /// does so for a row that declares this version or above.
+  static const itemKeyPayloadVersion = 4;
+
   /// Packs [recordId] and the base64 [ciphertextB64] into the wire
   /// `ciphertext` value.
   static String encode({

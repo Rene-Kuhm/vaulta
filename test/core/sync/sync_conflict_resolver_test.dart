@@ -132,6 +132,73 @@ void main() {
       expect(queue, isEmpty);
       expect(conflicts, isEmpty);
     });
+
+    test('keep_local keeps the item key salt of a v4 mutation', () async {
+      final storage = _InMemorySecureStorageService();
+      final store = LocalRemoteVaultStore(storage: storage);
+      final resolver = SyncConflictResolver(
+        repository: _FakeRemoteVaultSyncRepository(),
+        localStore: store,
+        now: () => DateTime.utc(2026, 3, 23, 15, 0),
+      );
+
+      const opId = 'op-v4';
+      await store.savePushQueue(
+        userId: 'user-1',
+        items: [
+          PushQueueItem(
+            opId: opId,
+            localRecordId: 'entry-1',
+            remoteRecordId: 'entry-1',
+            kind: PushQueueOperationKind.upsert,
+            status: PushQueueStatus.conflict,
+            expectedVersion: 2,
+            ciphertext: 'ZW50cnkuMQ.Y2lwaGVy',
+            nonce: 'bm9uY2U=',
+            gcmTag: 'dGFn',
+            keyVersion: 4,
+            itemKeySalt: 'c2FsdC1ieC1ieQ==',
+            itemKeyVersion: 1,
+            idempotencyKey: 'idem-1',
+            attemptCount: 1,
+            createdAt: DateTime.utc(2026, 3, 23, 14, 0),
+            updatedAt: DateTime.utc(2026, 3, 23, 14, 1),
+          ),
+        ],
+      );
+      await store.savePendingConflicts(
+        userId: 'user-1',
+        conflicts: [
+          SyncConflictRecord(
+            id: 'conflict-v4',
+            opId: opId,
+            localRecordId: 'entry-1',
+            remoteRecordId: 'entry-1',
+            kind: SyncConflictOperationKind.upsert,
+            createdAt: DateTime.utc(2026, 3, 23, 14, 1),
+            updatedAt: DateTime.utc(2026, 3, 23, 14, 1),
+            expectedVersion: 2,
+            currentVersion: 5,
+          ),
+        ],
+      );
+
+      final result = await resolver.resolve(
+        conflictId: 'conflict-v4',
+        resolution: SyncConflictResolution.keepLocal,
+      );
+
+      final queue = await store.readPushQueue(userId: 'user-1');
+      expect(result.ok, isTrue);
+      expect(queue, hasLength(1));
+      expect(
+        queue.first.itemKeySalt,
+        'c2FsdC1ieC1ieQ==',
+        reason: 'a v4 retry without its salt is a payload nobody can open',
+      );
+      expect(queue.first.itemKeyVersion, 1);
+      expect(queue.first.expectedVersion, 5);
+    });
   });
 }
 
@@ -181,6 +248,8 @@ class _FakeRemoteVaultSyncRepository implements RemoteVaultSyncRepository {
     required String nonce,
     required String? gcmTag,
     required int keyVersion,
+    String? itemKeySalt,
+    int? itemKeyVersion,
   }) async {
     throw UnimplementedError();
   }

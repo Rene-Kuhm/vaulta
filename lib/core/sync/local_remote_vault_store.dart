@@ -419,6 +419,8 @@ class PushQueueItem {
     this.nonce,
     this.gcmTag,
     this.keyVersion,
+    this.itemKeySalt,
+    this.itemKeyVersion,
     this.idempotencyKey,
     this.attemptCount = 0,
     this.retryCount = 0,
@@ -460,6 +462,19 @@ class PushQueueItem {
   /// DEK version. Used by the backend to know whether a rekey is
   /// in flight.
   final int? keyVersion;
+
+  /// Base64 salt of the per-item key, from the backend
+  /// `item_key_salt` column. Null unless [keyVersion] is an item-keyed
+  /// payload version (see `SyncItemPayloadCodec.itemKeyPayloadVersion`).
+  ///
+  /// Persisted with the queue because a retry after a process restart
+  /// must ship the same salt: the receiver derives the item key from it,
+  /// and a v4 payload without it is a payload nobody can open.
+  final String? itemKeySalt;
+
+  /// Item key version bound into the v4 associated data. Null unless
+  /// [keyVersion] is an item-keyed payload version.
+  final int? itemKeyVersion;
 
   /// Stable per-mutation dedup key. Re-generated after a
   /// `keepLocal` resolution so the re-attempt is treated as a new
@@ -516,6 +531,8 @@ class PushQueueItem {
       nonce: nonce,
       gcmTag: gcmTag,
       keyVersion: keyVersion,
+      itemKeySalt: itemKeySalt,
+      itemKeyVersion: itemKeyVersion,
       idempotencyKey: idempotencyKey ?? this.idempotencyKey,
       attemptCount: attemptCount ?? this.attemptCount,
       retryCount: retryCount ?? this.retryCount,
@@ -547,6 +564,8 @@ class PushQueueItem {
       nonce: mutation.nonce,
       gcmTag: mutation.gcmTag,
       keyVersion: mutation.keyVersion,
+      itemKeySalt: mutation.itemKeySalt,
+      itemKeyVersion: mutation.itemKeyVersion,
       createdAt: mutation.occurredAt,
       updatedAt: mutation.occurredAt,
     );
@@ -554,6 +573,8 @@ class PushQueueItem {
 
   /// Inverse of [toJson]. Accepts the legacy `aad` field name as
   /// a fallback for [gcmTag] so old persisted items keep loading.
+  /// Queue entries written before item-keyed payloads existed carry
+  /// neither item key field and load with both null.
   factory PushQueueItem.fromJson(Map<String, dynamic> json) {
     return PushQueueItem(
       opId: json['opId'] as String,
@@ -566,6 +587,8 @@ class PushQueueItem {
       nonce: json['nonce'] as String?,
       gcmTag: (json['gcmTag'] ?? json['aad']) as String?,
       keyVersion: json['keyVersion'] as int?,
+      itemKeySalt: json['itemKeySalt'] as String?,
+      itemKeyVersion: json['itemKeyVersion'] as int?,
       idempotencyKey: json['idempotencyKey'] as String?,
       attemptCount: json['attemptCount'] as int? ?? 0,
       retryCount: json['retryCount'] as int? ?? 0,
@@ -592,6 +615,8 @@ class PushQueueItem {
       'nonce': nonce,
       'gcmTag': gcmTag,
       'keyVersion': keyVersion,
+      'itemKeySalt': itemKeySalt,
+      'itemKeyVersion': itemKeyVersion,
       'idempotencyKey': idempotencyKey,
       'attemptCount': attemptCount,
       'retryCount': retryCount,

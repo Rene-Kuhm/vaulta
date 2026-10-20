@@ -24,12 +24,13 @@ typedef VaultSessionReader = VaultSession? Function();
 /// Production [VaultRepository] backed by an on-device encrypted
 /// store. The DEK is held only in memory (in the active
 /// [VaultSession]); on disk the items are stored as a JSON list of
-/// per-item AES-256-GCM envelopes keyed by that DEK. Every envelope
-/// written by this class is payload v3, bound to its record id and key
-/// id through GCM associated data.
+/// per-item AES-256-GCM envelopes. Every envelope written by this class
+/// is payload v4: sealed under a per-item key derived from the DEK and
+/// bound to its record id, key id and item key version through GCM
+/// associated data.
 ///
 /// The repository also coordinates rekeying when the master password
-/// changes and the one-time v1/v2 -> v3 migration: both stage the new
+/// changes and the one-time v1/v2/v3 -> v4 migration: both stage the new
 /// encrypted blob in a separate key and only swap the live key when
 /// the rewrite completes, so an interrupted rewrite never leaves the
 /// vault half-encrypted.
@@ -204,6 +205,8 @@ class LocalEncryptedVaultRepository implements VaultRepository {
                 nonce: syncPayload.nonce,
                 gcmTag: syncPayload.gcmTag,
                 keyVersion: syncPayload.keyVersion,
+                itemKeySalt: syncPayload.itemKeySalt,
+                itemKeyVersion: syncPayload.itemKeyVersion,
                 occurredAt: now.toUtc(),
               ),
             )
@@ -268,31 +271,39 @@ class LocalEncryptedVaultRepository implements VaultRepository {
     await _markMigratedToCurrentVersion();
   }
 
-  /// Rewrites every v1/v2 item as v3 under the active session in one
-  /// atomic swap (same staging + in-progress marker as [rekeyEntries]),
-  /// then persists the v3 minimum-version marker. Returns the number of
-  /// items that were rewritten (0 when the vault was already v3).
+  /// Rewrites every stored item that is not yet sealed under its own key
+  /// (payload v4) as such, in one atomic swap (same staging +
+  /// in-progress marker as [rekeyEntries]), then persists the minimum
+  /// payload version marker. Returns the number of items rewritten (0
+  /// when every item already has its own key).
   ///
-  /// Called after every successful unlock. Idempotent, and safe to
+  /// A v3 item is sealed directly under the DEK, so "every item has its
+  /// own key" is false of it until it is rewritten here (ADR-001, G2b).
+  /// Legacy v1/v2 items are covered by the same pass: [encrypt] only
+  /// ever writes the current version, so a vault at v1/v2 goes straight
+  /// to v4.
+  ///
+  /// Called by [migrateItemsToCurrentVersion] after every successful
+  /// unlock, so no user action is needed. Idempotent, and safe to
   /// interrupt: until the live blob is swapped the old items are left
   /// untouched and stay decryptable, and the marker is written only
-  /// after the swap committed, so a crash at any point leaves either
-  /// the intact legacy vault (the next unlock retries) or a complete v3
-  /// vault whose marker the next call writes.
-  Future<int> migrateItemsToCurrentVersion() async {
+  /// after the swap committed, so a crash at any point leaves either the
+  /// intact pre-migration vault (the next unlock retries) or a complete
+  /// v4 vault.
+  Future<int> migrateItemsToItemKeyed() async {
     await _recoverFromInterruptedRekey();
     final session = _requireSession();
     final minimumVersion = await _readMinimumVersion();
     final encryptedItems = await _readEncryptedItems();
 
-    final legacyCount = encryptedItems
+    final staleCount = encryptedItems
         .where(
           (encrypted) =>
               _cryptoService.inspect(encrypted).version <
-              currentItemPayloadVersion,
+              AesGcmVaultCryptoService.payloadVersionV4,
         )
         .length;
-    if (legacyCount == 0) {
+    if (staleCount == 0) {
       await _markMigratedToCurrentVersion();
       return 0;
     }
@@ -304,7 +315,7 @@ class LocalEncryptedVaultRepository implements VaultRepository {
         session: session,
         minimumVersion: minimumVersion,
       );
-      if (decrypted.version >= currentItemPayloadVersion) {
+      if (decrypted.version >= AesGcmVaultCryptoService.payloadVersionV4) {
         migrated.add(encrypted);
         continue;
       }
@@ -320,8 +331,20 @@ class LocalEncryptedVaultRepository implements VaultRepository {
 
     await _commitStaged(jsonEncode(migrated));
     await _markMigratedToCurrentVersion();
-    return legacyCount;
+    return staleCount;
   }
+
+  /// Upgrades every stored item to the payload version this build writes
+  /// and persists the minimum-version marker. Returns the number of
+  /// items rewritten (0 when the vault was already current).
+  ///
+  /// Called after every successful unlock. Idempotent, and safe to
+  /// interrupt: until the live blob is swapped the old items are left
+  /// untouched and stay decryptable, and the marker is written only
+  /// after the swap committed, so a crash at any point leaves either
+  /// the intact legacy vault (the next unlock retries) or a complete v4
+  /// vault whose marker the next call writes.
+  Future<int> migrateItemsToCurrentVersion() => migrateItemsToItemKeyed();
 
   /// Stages [payload] behind the rekey-in-progress marker, then swaps
   /// it into the live key. When the swap fails and did not commit, the
@@ -397,12 +420,21 @@ class LocalEncryptedVaultRepository implements VaultRepository {
 
     final version = (payload['v'] ?? payload['version'] ?? 1) as int;
 
-    // v4 items carry a per-item key whose derivation salt is not part of
-    // the sync wire (ADR-002). Emitting a snapshot without it would make
-    // the receiving device derive a different item key and fail to open
-    // the payload, so the mutation is not queued at all rather than
-    // queued broken. Sync stays coherent until the wire carries the salt.
-    if (version >= AesGcmVaultCryptoService.payloadVersionV4) {
+    // A v4 item is sealed under a per-item key derived from the DEK with
+    // this envelope's salt and item key version, so both travel to the
+    // wire on their own fields (`item_key_salt` / `item_key_version`,
+    // see `SyncItemPayloadCodec.itemKeyPayloadVersion`). An envelope
+    // that claims v4 without them describes a key nobody can derive, so
+    // it is not queued at all rather than queued broken.
+    final isItemKeyed = version >= SyncItemPayloadCodec.itemKeyPayloadVersion;
+    final itemKeySalt = isItemKeyed
+        ? _readNonEmptyString(payload, 'salt')
+        : null;
+    final itemKeyVersion = isItemKeyed ? _readPositiveInt(payload, 'iv') : null;
+    if (isItemKeyed &&
+        (itemKeySalt == null ||
+            !_isBase64(itemKeySalt) ||
+            itemKeyVersion == null)) {
       return null;
     }
 
@@ -419,6 +451,8 @@ class LocalEncryptedVaultRepository implements VaultRepository {
         nonce: nonce,
         gcmTag: gcmTag,
         keyVersion: version,
+        itemKeySalt: itemKeySalt,
+        itemKeyVersion: itemKeyVersion,
       );
     }
 
@@ -428,6 +462,33 @@ class LocalEncryptedVaultRepository implements VaultRepository {
       gcmTag: gcmTag,
       keyVersion: version,
     );
+  }
+
+  /// Reads a non-empty string field, treating any other shape as absent
+  /// so a malformed envelope fails closed instead of shipping a value the
+  /// receiver would derive a wrong key from.
+  static String? _readNonEmptyString(Map<String, dynamic> payload, String key) {
+    final value = payload[key];
+    return value is String && value.isNotEmpty ? value : null;
+  }
+
+  /// Reads a positive integer field, treating any other shape as absent.
+  static int? _readPositiveInt(Map<String, dynamic> payload, String key) {
+    final value = payload[key];
+    return value is int && value > 0 ? value : null;
+  }
+
+  /// True when [value] decodes as base64. An item key salt that does not
+  /// would make the receiving device throw while it derives the item key,
+  /// aborting a whole pull batch instead of refusing one payload, so the
+  /// value is checked before it is queued and before it is used.
+  static bool _isBase64(String value) {
+    try {
+      base64Decode(value);
+      return true;
+    } on FormatException {
+      return false;
+    }
   }
 
   /// Applies a batch of remote snapshots to the local vault, fed by
@@ -440,9 +501,10 @@ class LocalEncryptedVaultRepository implements VaultRepository {
   /// Snapshots that fail validation are skipped, never applied, and
   /// their record ids are returned so the sync layer can surface them:
   /// a v1/v2 payload once the vault is migrated (downgrade), a v3
-  /// payload bound to another record id or key, a decrypted item whose
-  /// `id` differs from the bound record id, or a GCM authentication
-  /// failure.
+  /// payload bound to another record id or key, an item-keyed (v4)
+  /// payload that did not bring its item key salt and version, a
+  /// decrypted item whose `id` differs from the bound record id, or a
+  /// GCM authentication failure.
   Future<List<String>> applyRemoteSnapshots({
     required Iterable<RemoteVaultBlobSnapshot> snapshots,
   }) async {
@@ -502,6 +564,32 @@ class LocalEncryptedVaultRepository implements VaultRepository {
       final bound = SyncItemPayloadCodec.decode(ciphertext);
       if (bound == null) {
         return null;
+      }
+      if (snapshot.keyVersion >= SyncItemPayloadCodec.itemKeyPayloadVersion) {
+        // Same rule as the write path: an item-keyed payload that did not
+        // bring its salt and item key version cannot be reopened here,
+        // so it is refused instead of decrypted into a wrong key.
+        final salt = snapshot.itemKeySalt;
+        final itemKeyVersion = snapshot.itemKeyVersion;
+        if (salt == null || salt.isEmpty || itemKeyVersion == null) {
+          return null;
+        }
+        if (!_isBase64(salt)) {
+          return null;
+        }
+        return jsonEncode({
+          'v': snapshot.keyVersion,
+          'keyId': session.keyId,
+          'rid': bound.recordId,
+          'iv': itemKeyVersion,
+          'salt': salt,
+          'payload': {
+            'alg': 'AES-256-GCM',
+            'nonce_b64': nonce,
+            'ciphertext_b64': bound.ciphertextB64,
+            'tag_b64': snapshot.gcmTag ?? '',
+          },
+        });
       }
       return jsonEncode({
         'v': snapshot.keyVersion,
@@ -689,10 +777,18 @@ class _SyncBlobPayload {
     required this.nonce,
     required this.gcmTag,
     required this.keyVersion,
+    this.itemKeySalt,
+    this.itemKeyVersion,
   });
 
   final String ciphertext;
   final String nonce;
   final String? gcmTag;
   final int keyVersion;
+
+  /// Base64 salt of the per-item key, for an item-keyed (v4) payload.
+  final String? itemKeySalt;
+
+  /// Item key version bound into the v4 associated data.
+  final int? itemKeyVersion;
 }

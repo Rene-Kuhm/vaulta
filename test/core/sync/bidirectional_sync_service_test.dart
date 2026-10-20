@@ -23,6 +23,11 @@ class _InMemorySecureStorageService implements SecureStorageService {
   Future<void> save(String key, String value) async => _values[key] = value;
 }
 
+/// A local record id that is already a UUID, so the remote row it maps to
+/// is the same string and a pulled payload's bound record id can be
+/// verified against the row it arrived under.
+const _v4RecordId = '11111111-1111-4111-8111-111111111111';
+
 class _FakeRemoteVaultSyncRepository implements RemoteVaultSyncRepository {
   _FakeRemoteVaultSyncRepository({
     Map<int, List<RemoteVaultBlobChange>>? pullBatches,
@@ -69,6 +74,8 @@ class _FakeRemoteVaultSyncRepository implements RemoteVaultSyncRepository {
     required String nonce,
     String? gcmTag,
     required int keyVersion,
+    String? itemKeySalt,
+    int? itemKeyVersion,
   }) async {
     upsertCalls.add(
       _UpsertCall(
@@ -80,6 +87,8 @@ class _FakeRemoteVaultSyncRepository implements RemoteVaultSyncRepository {
         nonce: nonce,
         gcmTag: gcmTag,
         keyVersion: keyVersion,
+        itemKeySalt: itemKeySalt,
+        itemKeyVersion: itemKeyVersion,
       ),
     );
     return _nextPushResponse();
@@ -122,6 +131,8 @@ class _UpsertCall {
     required this.nonce,
     required this.gcmTag,
     required this.keyVersion,
+    this.itemKeySalt,
+    this.itemKeyVersion,
   });
 
   final String deviceId;
@@ -132,6 +143,8 @@ class _UpsertCall {
   final String nonce;
   final String? gcmTag;
   final int keyVersion;
+  final String? itemKeySalt;
+  final int? itemKeyVersion;
 }
 
 class _DeleteCall {
@@ -475,6 +488,167 @@ void main() {
           ),
           'entry-1',
         );
+      },
+    );
+
+    test(
+      'REQ-BS-ITEMKEY: a v4 upsert ships its item key salt and the applied '
+      'snapshot keeps it',
+      () async {
+        final storage = _InMemorySecureStorageService();
+        final localStore = LocalRemoteVaultStore(storage: storage);
+        final repository = _FakeRemoteVaultSyncRepository(
+          pushResponses: const [
+            RemoteVaultPushResult(
+              code: RemoteVaultPushResultCode.applied,
+              applied: true,
+              idempotentReplay: false,
+              conflict: false,
+              appliedVersion: 2,
+            ),
+          ],
+        );
+        final service = BidirectionalSyncService(
+          repository: repository,
+          localStore: localStore,
+          readDeviceId: () async => 'device-1',
+          now: () => DateTime.utc(2026, 6, 11, 12, 0),
+        );
+
+        await service.onLocalMutation(
+          LocalVaultMutation.upsert(
+            localRecordId: 'entry-1',
+            ciphertext: SyncItemPayloadCodec.encode(
+              recordId: 'entry-1',
+              ciphertextB64: 'Y2lwaGVy',
+            ),
+            nonce: 'bm9uY2U=',
+            gcmTag: 'dGFn',
+            keyVersion: SyncItemPayloadCodec.itemKeyPayloadVersion,
+            itemKeySalt: 'c2FsdC1ieC1ieQ==',
+            itemKeyVersion: 1,
+            occurredAt: DateTime.utc(2026, 6, 11, 12, 0),
+          ),
+        );
+
+        final pushed = repository.upsertCalls.single;
+        expect(pushed.keyVersion, 4);
+        expect(pushed.itemKeySalt, 'c2FsdC1ieC1ieQ==');
+        expect(pushed.itemKeyVersion, 1);
+
+        final snapshot = (await localStore.readSnapshots(userId: 'user-1'))
+            .values
+            .single;
+        expect(snapshot.keyVersion, 4);
+        expect(snapshot.itemKeySalt, 'c2FsdC1ieC1ieQ==');
+        expect(snapshot.itemKeyVersion, 1);
+      },
+    );
+
+    test(
+      'REQ-BS-ITEMKEY: a pulled v4 change reaches the vault with its salt',
+      () async {
+        final storage = _InMemorySecureStorageService();
+        final localStore = LocalRemoteVaultStore(storage: storage);
+        final wire = SyncItemPayloadCodec.encode(
+          recordId: _v4RecordId,
+          ciphertextB64: 'Y2lwaGVy',
+        );
+        const row = _v4RecordId;
+        final repository = _FakeRemoteVaultSyncRepository(
+          pullBatches: {
+            0: [
+              RemoteVaultBlobChange(
+                opCursor: 1,
+                recordId: row,
+                version: 2,
+                keyVersion: SyncItemPayloadCodec.itemKeyPayloadVersion,
+                ciphertext: wire,
+                nonce: 'bm9uY2U=',
+                gcmTag: 'dGFn',
+                itemKeySalt: 'c2FsdC1ieC1ieQ==',
+                itemKeyVersion: 1,
+                updatedAt: DateTime.utc(2026, 6, 11, 12, 0),
+              ),
+            ],
+          },
+        );
+        final applied = <RemoteVaultBlobSnapshot>[];
+        final service = BidirectionalSyncService(
+          repository: repository,
+          localStore: localStore,
+          readDeviceId: () async => 'device-1',
+          pullThrottleInterval: Duration.zero,
+          now: () => DateTime.utc(2026, 6, 11, 12, 0),
+          applyLocalSnapshots: (snapshots) async {
+            applied.addAll(snapshots);
+            return const <String>[];
+          },
+        );
+
+        await service.pullNow(force: true);
+
+        expect(applied, hasLength(1));
+        expect(applied.single.recordId, _v4RecordId);
+        expect(applied.single.ciphertext, wire);
+        expect(applied.single.itemKeySalt, 'c2FsdC1ieC1ieQ==');
+        expect(applied.single.itemKeyVersion, 1);
+        final snapshot = (await localStore.readSnapshots(userId: 'user-1'))
+            .values
+            .single;
+        expect(snapshot.itemKeySalt, 'c2FsdC1ieC1ieQ==');
+        expect(snapshot.itemKeyVersion, 1);
+      },
+    );
+
+    test(
+      'REQ-BS-ITEMKEY: a conflict record keeps the salt of the payload it '
+      'queued',
+      () async {
+        final storage = _InMemorySecureStorageService();
+        final localStore = LocalRemoteVaultStore(storage: storage);
+        final repository = _FakeRemoteVaultSyncRepository(
+          pushResponses: const [
+            RemoteVaultPushResult(
+              code: RemoteVaultPushResultCode.casConflict,
+              applied: false,
+              idempotentReplay: false,
+              conflict: true,
+              currentVersion: 7,
+              message: 'expected_version mismatch',
+            ),
+          ],
+        );
+        final service = BidirectionalSyncService(
+          repository: repository,
+          localStore: localStore,
+          readDeviceId: () async => 'device-1',
+          now: () => DateTime.utc(2026, 6, 11, 12, 0),
+        );
+
+        await service.onLocalMutation(
+          LocalVaultMutation.upsert(
+            localRecordId: _v4RecordId,
+            ciphertext: SyncItemPayloadCodec.encode(
+              recordId: _v4RecordId,
+              ciphertextB64: 'Y2lwaGVy',
+            ),
+            nonce: 'bm9uY2U=',
+            gcmTag: 'dGFn',
+            keyVersion: SyncItemPayloadCodec.itemKeyPayloadVersion,
+            itemKeySalt: 'c2FsdC1ieC1ieQ==',
+            itemKeyVersion: 1,
+            occurredAt: DateTime.utc(2026, 6, 11, 12, 0),
+          ),
+        );
+
+        final pending = await localStore.readPendingConflicts(userId: 'user-1');
+        expect(pending, hasLength(1));
+        expect(pending.single.localSnapshot!.itemKeySalt, 'c2FsdC1ieC1ieQ==');
+        expect(pending.single.localSnapshot!.itemKeyVersion, 1);
+        final queued = (await localStore.readPushQueue(userId: 'user-1')).single;
+        expect(queued.itemKeySalt, 'c2FsdC1ieC1ieQ==');
+        expect(queued.itemKeyVersion, 1);
       },
     );
   });
