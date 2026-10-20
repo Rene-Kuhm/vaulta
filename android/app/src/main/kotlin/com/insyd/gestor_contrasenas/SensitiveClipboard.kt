@@ -10,6 +10,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.PersistableBundle
 import android.os.SystemClock
+import android.util.Log
 import java.security.SecureRandom
 
 /**
@@ -58,6 +59,7 @@ object SensitiveClipboard {
     private const val PREFS_NAME = "vaulta_sensitive_clipboard"
     private const val PREF_TOKEN = "owned_clip_token"
     private const val ALARM_REQUEST_CODE = 0x5EC
+    private const val TAG = "Vaulta/Clipboard"
 
     private val random = SecureRandom()
 
@@ -80,7 +82,16 @@ object SensitiveClipboard {
         // between can only leave a token without a clip (harmless).
         prefs(app).edit().putString(PREF_TOKEN, token).commit()
         clipboard(app).setPrimaryClip(clip)
-        scheduleAlarm(app, clearAfterMs)
+        // The flagged clip is already in place. If the backup alarm
+        // cannot be armed (e.g. an OEM per-app alarm limit throws
+        // SecurityException) the copy still succeeds: failing here would
+        // make Dart fall back to an unflagged Clipboard.setData. The Dart
+        // timer remains the clear path in that case.
+        try {
+            scheduleAlarm(app, clearAfterMs)
+        } catch (e: Exception) {
+            Log.w(TAG, "backup clear alarm not armed: ${e.javaClass.simpleName}")
+        }
     }
 
     /**
