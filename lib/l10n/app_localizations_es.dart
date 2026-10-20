@@ -714,7 +714,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get updateRemote => 'Remota';
 
   @override
-  String get updateDescription => 'Las nuevas versiones se publican automaticamente cuando hay un push a master. Tocá el botón para comprobar si hay una version más reciente sin desinstalar la app.';
+  String get updateDescription => 'Las versiones estables se publican desde releases etiquetadas. Antes de instalar, cada descarga se verifica contra los checksums SHA-256 de la release y el certificado de firma de la app.';
 
   @override
   String get updateCheck => 'Buscar actualizaciones';
@@ -738,7 +738,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get updateUpToDateTitle => 'Al día';
 
   @override
-  String get updateUpToDateBody => 'La version instalada coincide con la ultima publicada en master.';
+  String get updateUpToDateBody => 'La version instalada coincide con la ultima publicada en este canal.';
 
   @override
   String get updateErrorTitle => 'No pudimos comprobar actualizaciones';
@@ -763,6 +763,21 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get updateActionUpdate => 'Actualizar';
+
+  @override
+  String get updateDevChannelTitle => 'Canal dev';
+
+  @override
+  String get updateDevChannelSubtitle => 'Recibe la build continua que se publica con cada cambio en master. Menos probada que las versiones estables; las descargas se verifican igual.';
+
+  @override
+  String get updateChecksumMissing => 'Actualizacion rechazada: la release no publica un checksum SHA-256 para esta APK, asi que no se puede verificar.';
+
+  @override
+  String get updateChecksumMismatch => 'Actualizacion rechazada: la APK descargada no coincide con el checksum SHA-256 publicado. Se elimino.';
+
+  @override
+  String get updateSignatureMismatch => 'Actualizacion rechazada: la APK descargada no esta firmada con el mismo certificado que la app instalada. Se elimino.';
 
   @override
   String get updateInstallPrompt => 'Confirma la instalacion en la pantalla del sistema.';

@@ -1436,7 +1436,7 @@ abstract class AppLocalizations {
   /// No description provided for @updateDescription.
   ///
   /// In en, this message translates to:
-  /// **'New versions are published automatically when there is a push to master. Tap below to check for a newer build without uninstalling the app.'**
+  /// **'Stable versions are published from tagged releases. Before installing, every download is checked against the release SHA-256 checksums and the app signing certificate.'**
   String get updateDescription;
 
   /// No description provided for @updateCheck.
@@ -1484,7 +1484,7 @@ abstract class AppLocalizations {
   /// No description provided for @updateUpToDateBody.
   ///
   /// In en, this message translates to:
-  /// **'The installed build matches the latest release on master.'**
+  /// **'The installed build matches the latest release on this channel.'**
   String get updateUpToDateBody;
 
   /// No description provided for @updateErrorTitle.
@@ -1522,6 +1522,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Update'**
   String get updateActionUpdate;
+
+  /// No description provided for @updateDevChannelTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Dev channel'**
+  String get updateDevChannelTitle;
+
+  /// No description provided for @updateDevChannelSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Receive the rolling build published on every change to master. Less tested than stable releases; downloads are still verified.'**
+  String get updateDevChannelSubtitle;
+
+  /// No description provided for @updateChecksumMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'Update refused: the release does not publish a SHA-256 checksum for this APK, so it cannot be verified.'**
+  String get updateChecksumMissing;
+
+  /// No description provided for @updateChecksumMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Update refused: the downloaded APK does not match the published SHA-256 checksum. It was deleted.'**
+  String get updateChecksumMismatch;
+
+  /// No description provided for @updateSignatureMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Update refused: the downloaded APK is not signed with the same certificate as the installed app. It was deleted.'**
+  String get updateSignatureMismatch;
 
   /// No description provided for @updateInstallPrompt.
   ///

@@ -139,6 +139,76 @@ void main() {
       );
     },
   );
+
+  for (final (failure, expected) in [
+    (
+      UpdateVerificationFailure.checksumMissing,
+      'does not publish a SHA-256 checksum',
+    ),
+    (
+      UpdateVerificationFailure.checksumMismatch,
+      'does not match the published SHA-256 checksum',
+    ),
+    (
+      UpdateVerificationFailure.signatureMismatch,
+      'not signed with the same certificate',
+    ),
+  ]) {
+    testWidgets('verification failure ${failure.name} shows a localized '
+        'refusal and never opens the installer', (tester) async {
+      final service = _StubUpdateService(
+        checkResult: Future.value(
+          const UpdateInfo(
+            available: true,
+            tagName: 'v1.1.0',
+            apkUrl: 'https://example.com/vaulta.apk',
+            changelog: 'notes',
+            publishedAt: '2026-10-19T00:00:00Z',
+            releaseId: 7,
+            currentVersion: '1.0.4+5',
+          ),
+        ),
+        downloadError: UpdateVerificationException(failure),
+      );
+
+      await tester.pumpWidget(
+        _testApp(SingleChildScrollView(child: UpdateSection(service: service))),
+      );
+      await tester.tap(find.text('Check for updates'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Download and install'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining(expected), findsOneWidget);
+      expect(service.openInstallPromptCallCount, 0);
+      expect(service.markBuildPromptedCallCount, 0);
+    });
+  }
+
+  testWidgets('dev channel switch defaults to off and persists the choice', (
+    tester,
+  ) async {
+    final service = _StubUpdateService(
+      checkResult: Future.value(
+        UpdateInfo.notAvailable(currentVersion: '1.0.4+5'),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _testApp(SingleChildScrollView(child: UpdateSection(service: service))),
+    );
+    await tester.pumpAndSettle();
+
+    final tile = find.widgetWithText(SwitchListTile, 'Dev channel');
+    expect(tile, findsOneWidget);
+    expect(tester.widget<SwitchListTile>(tile).value, isFalse);
+
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+
+    expect(service.channel, UpdateReleaseChannel.dev);
+    expect(tester.widget<SwitchListTile>(tile).value, isTrue);
+  });
 }
 
 Widget _testApp(Widget body) {
@@ -154,10 +224,13 @@ class _StubUpdateService implements UpdateService {
   _StubUpdateService({
     required this.checkResult,
     this.installPromptResult = true,
+    this.downloadError,
   });
 
   final Future<UpdateInfo> checkResult;
   final bool installPromptResult;
+  final Object? downloadError;
+  UpdateReleaseChannel channel = UpdateReleaseChannel.stable;
   int checkForUpdateCallCount = 0;
   int downloadCallCount = 0;
   int openInstallPromptCallCount = 0;
@@ -181,7 +254,17 @@ class _StubUpdateService implements UpdateService {
   @override
   Future<String> downloadApk(UpdateInfo info) async {
     downloadCallCount++;
+    final error = downloadError;
+    if (error != null) throw error;
     return '/tmp/app-release.apk';
+  }
+
+  @override
+  Future<UpdateReleaseChannel> releaseChannel() async => channel;
+
+  @override
+  Future<void> setReleaseChannel(UpdateReleaseChannel value) async {
+    channel = value;
   }
 
   @override
@@ -226,6 +309,13 @@ class _ThrowingUpdateService implements UpdateService {
 
   @override
   Future<String> downloadApk(UpdateInfo info) async => '/tmp/app-release.apk';
+
+  @override
+  Future<UpdateReleaseChannel> releaseChannel() async =>
+      UpdateReleaseChannel.stable;
+
+  @override
+  Future<void> setReleaseChannel(UpdateReleaseChannel channel) async {}
 
   @override
   Future<String> lastSeenBuildFingerprint() async => '';

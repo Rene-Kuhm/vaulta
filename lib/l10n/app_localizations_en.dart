@@ -708,7 +708,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get updateRemote => 'Remote';
 
   @override
-  String get updateDescription => 'New versions are published automatically when there is a push to master. Tap below to check for a newer build without uninstalling the app.';
+  String get updateDescription => 'Stable versions are published from tagged releases. Before installing, every download is checked against the release SHA-256 checksums and the app signing certificate.';
 
   @override
   String get updateCheck => 'Check for updates';
@@ -732,7 +732,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get updateUpToDateTitle => 'Up to date';
 
   @override
-  String get updateUpToDateBody => 'The installed build matches the latest release on master.';
+  String get updateUpToDateBody => 'The installed build matches the latest release on this channel.';
 
   @override
   String get updateErrorTitle => 'We could not check for updates';
@@ -757,6 +757,21 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get updateActionUpdate => 'Update';
+
+  @override
+  String get updateDevChannelTitle => 'Dev channel';
+
+  @override
+  String get updateDevChannelSubtitle => 'Receive the rolling build published on every change to master. Less tested than stable releases; downloads are still verified.';
+
+  @override
+  String get updateChecksumMissing => 'Update refused: the release does not publish a SHA-256 checksum for this APK, so it cannot be verified.';
+
+  @override
+  String get updateChecksumMismatch => 'Update refused: the downloaded APK does not match the published SHA-256 checksum. It was deleted.';
+
+  @override
+  String get updateSignatureMismatch => 'Update refused: the downloaded APK is not signed with the same certificate as the installed app. It was deleted.';
 
   @override
   String get updateInstallPrompt => 'Confirm the installation on the system screen.';
