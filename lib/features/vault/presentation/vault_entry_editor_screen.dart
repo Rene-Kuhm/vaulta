@@ -188,6 +188,11 @@ class _VaultEntryEditorScreenState extends State<VaultEntryEditorScreen> {
                         child: TextFormField(
                           controller: _secretController,
                           obscureText: _obscureSecret,
+                          // Keep the keyboard from learning or suggesting
+                          // the secret once it is revealed.
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          keyboardType: TextInputType.visiblePassword,
                           // No Copy/Cut/Share/Translate on the secret; see
                           // secret_field_guard.dart.
                           contextMenuBuilder: secretFieldContextMenuBuilder,

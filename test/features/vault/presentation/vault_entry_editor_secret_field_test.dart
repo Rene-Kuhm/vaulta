@@ -82,6 +82,46 @@ void main() {
     expect(find.text('Translate'), findsOneWidget);
   });
 
+  testWidgets('secret field disables keyboard learning when obscured and '
+      'when revealed', (tester) async {
+    mockPlatform(tester);
+    tester.view.physicalSize = const Size(1080, 4000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      const MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: VaultEntryEditorScreen(),
+      ),
+    );
+    await tester.pump();
+    final field = find.widgetWithText(TextFormField, 'Password or secret');
+
+    void expectNoKeyboardLearning({required bool obscured}) {
+      final editable = tester.widget<EditableText>(
+        find.descendant(of: field, matching: find.byType(EditableText)),
+      );
+      expect(editable.obscureText, obscured);
+      expect(editable.autocorrect, isFalse);
+      expect(editable.enableSuggestions, isFalse);
+      expect(editable.keyboardType, TextInputType.visiblePassword);
+    }
+
+    expectNoKeyboardLearning(obscured: true);
+
+    await tester.tap(
+      find.descendant(
+        of: field,
+        matching: find.byIcon(Icons.visibility_rounded),
+      ),
+    );
+    await tester.pump();
+
+    expectNoKeyboardLearning(obscured: false);
+  });
+
   testWidgets(
     'revealed secret field toolbar offers no Copy/Cut/Share/Translate',
     (tester) async {
