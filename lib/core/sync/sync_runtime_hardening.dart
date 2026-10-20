@@ -97,6 +97,11 @@ final class SyncStatusCodes {
   /// Generic transport-level failure (timeout, socket reset, etc.).
   static const transportError = 'transport_error';
 
+  /// A pulled payload was refused before reaching the vault: its
+  /// record binding did not match the row, it was a v1/v2 payload for
+  /// a vault already migrated to v3, or it failed authentication.
+  static const payloadRejected = 'payload_rejected';
+
   /// Catch-all for unclassified failures.
   static const unknown = 'unknown';
 }
@@ -114,6 +119,8 @@ String syncMessageForCode(String code, {String? fallback}) {
       'La sesion o dispositivo fue revocado remotamente.',
     SyncStatusCodes.offlineNetworkError =>
       'No hay conectividad con el servidor de sync.',
+    SyncStatusCodes.payloadRejected =>
+      'Se descarto un cambio remoto con cifrado invalido o de una version anterior no permitida.',
     SyncStatusCodes.transportError =>
       fallback ?? 'Fallo de transporte durante sync.',
     _ => fallback ?? 'Fallo de sincronizacion no clasificado.',

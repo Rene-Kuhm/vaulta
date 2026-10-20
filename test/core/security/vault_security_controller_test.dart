@@ -47,6 +47,66 @@ void main() {
       expect(controller.isUnlocked, isTrue);
     });
 
+    test('runs the item payload migration after each unlock', () async {
+      final sessionsSeen = <VaultSession?>[];
+      late final VaultSecurityController controller;
+      controller = VaultSecurityController(
+        storage: _InMemorySecureStorageService(),
+        masterPasswordService: MasterPasswordService.test(),
+        biometricAuthService: const _FakeBiometricAuthService(),
+        migrateEntries: () async => sessionsSeen.add(controller.vaultSession),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.initialize();
+      await controller.createMasterPassword(
+        password: 'StrongPass!2026',
+        confirmation: 'StrongPass!2026',
+        enableBiometrics: false,
+      );
+      await controller.lock();
+      final unlocked = await controller.unlockWithPassword('StrongPass!2026');
+
+      expect(unlocked, isTrue);
+      expect(sessionsSeen, hasLength(2));
+      // The hook runs against the freshly activated session.
+      expect(sessionsSeen, everyElement(isNotNull));
+    });
+
+    test('stays locked when the item payload migration fails', () async {
+      var failMigration = false;
+      final controller = VaultSecurityController(
+        storage: _InMemorySecureStorageService(),
+        masterPasswordService: MasterPasswordService.test(),
+        biometricAuthService: const _FakeBiometricAuthService(),
+        migrateEntries: () async {
+          if (failMigration) {
+            throw StateError('storage unavailable');
+          }
+        },
+      );
+      addTearDown(controller.dispose);
+
+      await controller.initialize();
+      await controller.createMasterPassword(
+        password: 'StrongPass!2026',
+        confirmation: 'StrongPass!2026',
+        enableBiometrics: false,
+      );
+      await controller.lock();
+      failMigration = true;
+
+      final unlocked = await controller.unlockWithPassword('StrongPass!2026');
+
+      expect(unlocked, isFalse);
+      expect(controller.stage, VaultSecurityStage.locked);
+      expect(controller.vaultSession, isNull);
+      expect(controller.message, contains('cifrado'));
+
+      failMigration = false;
+      expect(await controller.unlockWithPassword('StrongPass!2026'), isTrue);
+    });
+
     test(
       'biometric unlock reports unavailable when no envelope is enrolled',
       () async {

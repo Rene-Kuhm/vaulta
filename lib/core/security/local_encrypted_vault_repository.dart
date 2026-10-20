@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'dart:async';
 
+import 'package:cryptography/cryptography.dart';
+
 import '../../features/vault/domain/vault_item.dart';
 import '../../features/vault/domain/vault_summary.dart';
 import '../sync/local_vault_mutation.dart';
 import '../sync/remote_vault_blob_change.dart';
+import '../sync/sync_item_payload_codec.dart';
 import 'platform_security_plan.dart';
 import 'secure_storage_service.dart';
 import 'vault_crypto_service.dart';
@@ -18,13 +21,16 @@ typedef VaultSessionReader = VaultSession? Function();
 
 /// Production [VaultRepository] backed by an on-device encrypted
 /// store. The DEK is held only in memory (in the active
-/// [VaultSession]); on disk the items are stored as a single AES-256-GCM
-/// blob keyed by that DEK.
+/// [VaultSession]); on disk the items are stored as a JSON list of
+/// per-item AES-256-GCM envelopes keyed by that DEK. Every envelope
+/// written by this class is payload v3, bound to its record id and key
+/// id through GCM associated data.
 ///
 /// The repository also coordinates rekeying when the master password
-/// changes: it stages a new encrypted blob in a separate key and only
-/// swaps the live key when the rekey completes, so an interrupted
-/// rekey never leaves the vault half-encrypted.
+/// changes and the one-time v1/v2 -> v3 migration: both stage the new
+/// encrypted blob in a separate key and only swap the live key when
+/// the rewrite completes, so an interrupted rewrite never leaves the
+/// vault half-encrypted.
 class LocalEncryptedVaultRepository implements VaultRepository {
   /// Builds a [LocalEncryptedVaultRepository]. The [readSession] is
   /// called on every read/write to get the current DEK; the optional
@@ -52,6 +58,17 @@ class LocalEncryptedVaultRepository implements VaultRepository {
   /// Secure storage key for the "rekey in progress" flag.
   static const rekeyInProgressKey = 'vault_rekey_in_progress_v1';
 
+  /// Secure storage key for the vault's minimum accepted item payload
+  /// version. Written as `'3'` once every locally stored item is v3;
+  /// from then on v1/v2 payloads (local or pulled from sync) are
+  /// refused instead of decrypted. Lives in secure storage so killing
+  /// the app cannot reset the downgrade defense.
+  static const itemPayloadMinVersionKey = 'vault_item_payload_min_version';
+
+  /// Payload version every item is written with, and the minimum the
+  /// vault accepts after migration.
+  static const currentItemPayloadVersion = 3;
+
   /// Capability snapshot for the security screen. Marks vault
   /// encryption as ready and explicitly notes that biometrics are
   /// UX-only (not crypto-binding) on Android.
@@ -73,23 +90,17 @@ class LocalEncryptedVaultRepository implements VaultRepository {
   Future<List<VaultItem>> fetchItems() async {
     await _recoverFromInterruptedRekey();
     final session = _requireSession();
-    final raw = await _storage.read(encryptedVaultItemsKey);
-    if (raw == null || raw.isEmpty) {
-      return const [];
-    }
-
-    final encryptedItems = (jsonDecode(raw) as List<dynamic>).cast<String>();
+    final minimumVersion = await _readMinimumVersion();
+    final encryptedItems = await _readEncryptedItems();
     final items = <VaultItem>[];
 
     for (final encrypted in encryptedItems) {
-      final plaintext = await _cryptoService.decrypt(
-        ciphertext: encrypted,
-        secretKey: session,
-        expectedKeyId: session.keyId,
+      final decrypted = await _decryptStoredItem(
+        encrypted: encrypted,
+        session: session,
+        minimumVersion: minimumVersion,
       );
-      items.add(
-        VaultItem.fromJson(jsonDecode(plaintext) as Map<String, dynamic>),
-      );
+      items.add(decrypted.item);
     }
 
     items.sort((left, right) {
@@ -198,45 +209,109 @@ class LocalEncryptedVaultRepository implements VaultRepository {
 
   /// Re-encrypts every item from [sourceSession] (old key) under
   /// [targetSession] (new key), atomically swapping the live blob.
-  /// Safe to call only when both sessions are valid v2 sessions.
+  /// The output is always v3; legacy v1/v2 input is accepted only
+  /// while the vault has not been migrated yet.
   Future<void> rekeyEntries({
     required VaultSession sourceSession,
     required VaultSession targetSession,
   }) async {
     await _recoverFromInterruptedRekey();
 
-    final raw = await _storage.read(encryptedVaultItemsKey);
-    if (raw == null || raw.isEmpty) {
+    final encryptedItems = await _readEncryptedItems();
+    if (encryptedItems.isEmpty) {
       await _clearRekeyArtifacts(swallowErrors: true);
       return;
     }
 
-    final encryptedItems = (jsonDecode(raw) as List<dynamic>).cast<String>();
+    final minimumVersion = await _readMinimumVersion();
     final reencryptedItems = <String>[];
 
     for (final encrypted in encryptedItems) {
-      final plaintext = await _cryptoService.decrypt(
-        ciphertext: encrypted,
-        secretKey: sourceSession,
-        expectedKeyId: sourceSession.keyId,
+      final decrypted = await _decryptStoredItem(
+        encrypted: encrypted,
+        session: sourceSession,
+        minimumVersion: minimumVersion,
       );
       final reencrypted = await _cryptoService.encrypt(
-        plaintext: plaintext,
+        plaintext: decrypted.plaintext,
         secretKey: targetSession,
         keyId: targetSession.keyId,
+        recordId: decrypted.item.id,
       );
       reencryptedItems.add(reencrypted);
     }
 
-    final stagedPayload = jsonEncode(reencryptedItems);
+    await _commitStaged(jsonEncode(reencryptedItems));
+    await _markMigratedToCurrentVersion();
+  }
 
+  /// Rewrites every v1/v2 item as v3 under the active session in one
+  /// atomic swap (same staging + in-progress marker as [rekeyEntries]),
+  /// then persists the v3 minimum-version marker. Returns the number of
+  /// items that were rewritten (0 when the vault was already v3).
+  ///
+  /// Called after every successful unlock. Idempotent, and safe to
+  /// interrupt: until the live blob is swapped the old items are left
+  /// untouched and stay decryptable, and the marker is written only
+  /// after the swap committed, so a crash at any point leaves either
+  /// the intact legacy vault (the next unlock retries) or a complete v3
+  /// vault whose marker the next call writes.
+  Future<int> migrateItemsToCurrentVersion() async {
+    await _recoverFromInterruptedRekey();
+    final session = _requireSession();
+    final minimumVersion = await _readMinimumVersion();
+    final encryptedItems = await _readEncryptedItems();
+
+    final legacyCount = encryptedItems
+        .where(
+          (encrypted) =>
+              _cryptoService.inspect(encrypted).version <
+              currentItemPayloadVersion,
+        )
+        .length;
+    if (legacyCount == 0) {
+      await _markMigratedToCurrentVersion();
+      return 0;
+    }
+
+    final migrated = <String>[];
+    for (final encrypted in encryptedItems) {
+      final decrypted = await _decryptStoredItem(
+        encrypted: encrypted,
+        session: session,
+        minimumVersion: minimumVersion,
+      );
+      if (decrypted.version >= currentItemPayloadVersion) {
+        migrated.add(encrypted);
+        continue;
+      }
+      migrated.add(
+        await _cryptoService.encrypt(
+          plaintext: decrypted.plaintext,
+          secretKey: session,
+          keyId: session.keyId,
+          recordId: decrypted.item.id,
+        ),
+      );
+    }
+
+    await _commitStaged(jsonEncode(migrated));
+    await _markMigratedToCurrentVersion();
+    return legacyCount;
+  }
+
+  /// Stages [payload] behind the rekey-in-progress marker, then swaps
+  /// it into the live key. When the swap fails and did not commit, the
+  /// artifacts are cleared and the error is rethrown with the previous
+  /// live blob intact.
+  Future<void> _commitStaged(String payload) async {
     await _storage.save(rekeyInProgressKey, 'true');
-    await _storage.save(encryptedVaultItemsStagingKey, stagedPayload);
+    await _storage.save(encryptedVaultItemsStagingKey, payload);
 
     try {
-      await _storage.save(encryptedVaultItemsKey, stagedPayload);
+      await _storage.save(encryptedVaultItemsKey, payload);
     } catch (_) {
-      final committed = await _didSwapCommit(stagedPayload);
+      final committed = await _didSwapCommit(payload);
       if (!committed) {
         await _clearRekeyArtifacts(swallowErrors: true);
         rethrow;
@@ -256,12 +331,16 @@ class LocalEncryptedVaultRepository implements VaultRepository {
         plaintext: jsonEncode(item.toJson()),
         secretKey: session,
         keyId: session.keyId,
+        recordId: item.id,
       );
       encryptedItems.add(encrypted);
       encryptedById[item.id] = encrypted;
     }
 
     await _storage.save(encryptedVaultItemsKey, jsonEncode(encryptedItems));
+    // Every item was just written as v3, so the vault now qualifies for
+    // the downgrade defense even if it never ran the explicit migration.
+    await _markMigratedToCurrentVersion();
     return encryptedById;
   }
 
@@ -293,27 +372,53 @@ class LocalEncryptedVaultRepository implements VaultRepository {
       return null;
     }
 
+    final version = (payload['v'] ?? payload['version'] ?? 1) as int;
+    if (version >= SyncItemPayloadCodec.boundPayloadVersion) {
+      final recordId = payload['rid'];
+      if (recordId is! String || recordId.isEmpty) {
+        return null;
+      }
+      return _SyncBlobPayload(
+        ciphertext: SyncItemPayloadCodec.encode(
+          recordId: recordId,
+          ciphertextB64: ciphertext,
+        ),
+        nonce: nonce,
+        gcmTag: gcmTag,
+        keyVersion: version,
+      );
+    }
+
     return _SyncBlobPayload(
       ciphertext: ciphertext,
       nonce: nonce,
       gcmTag: gcmTag,
-      keyVersion: (payload['v'] ?? payload['version'] ?? 1) as int,
+      keyVersion: version,
     );
   }
 
   /// Applies a batch of remote snapshots to the local vault, fed by
   /// the pull sync path. Each snapshot is decrypted with the active
-  /// session, re-encrypted if its key version is stale, and the
-  /// resulting vault is written back. Idempotent: applying the same
-  /// snapshots twice yields the same vault.
-  Future<void> applyRemoteSnapshots({
+  /// session and the resulting vault is written back (always as v3).
+  /// Idempotent: applying the same snapshots twice yields the same
+  /// vault.
+  ///
+  /// Snapshots that fail validation are skipped, never applied, and
+  /// their record ids are returned so the sync layer can surface them:
+  /// a v1/v2 payload once the vault is migrated (downgrade), a v3
+  /// payload bound to another record id or key, a decrypted item whose
+  /// `id` differs from the bound record id, or a GCM authentication
+  /// failure.
+  Future<List<String>> applyRemoteSnapshots({
     required Iterable<RemoteVaultBlobSnapshot> snapshots,
   }) async {
     await _recoverFromInterruptedRekey();
     final session = _requireSession();
+    final minimumVersion = await _readMinimumVersion();
     final currentItems = <String, VaultItem>{
       for (final item in await fetchItems()) item.id: item,
     };
+    final rejected = <String>[];
 
     for (final snapshot in snapshots) {
       final localId = snapshot.recordId;
@@ -321,22 +426,32 @@ class LocalEncryptedVaultRepository implements VaultRepository {
         currentItems.remove(localId);
         continue;
       }
+      final isBound =
+          snapshot.keyVersion >= SyncItemPayloadCodec.boundPayloadVersion;
       final encrypted = _encryptedPayloadFromSnapshot(snapshot);
       if (encrypted == null) {
+        if (isBound) {
+          rejected.add(localId);
+        }
         continue;
       }
-      final plaintext = await _cryptoService.decrypt(
-        ciphertext: encrypted,
-        secretKey: session,
-        expectedKeyId: session.keyId,
-      );
-      final item = VaultItem.fromJson(
-        jsonDecode(plaintext) as Map<String, dynamic>,
-      );
-      currentItems[item.id] = item;
+      try {
+        final decrypted = await _decryptStoredItem(
+          encrypted: encrypted,
+          session: session,
+          minimumVersion: minimumVersion,
+          expectedRecordId: isBound ? localId : null,
+        );
+        currentItems[decrypted.item.id] = decrypted.item;
+      } on VaultPayloadRejectedError {
+        rejected.add(localId);
+      } on SecretBoxAuthenticationError {
+        rejected.add(localId);
+      }
     }
 
     await _saveEncryptedItems(currentItems.values.toList(growable: false));
+    return rejected;
   }
 
   String? _encryptedPayloadFromSnapshot(RemoteVaultBlobSnapshot snapshot) {
@@ -349,6 +464,23 @@ class LocalEncryptedVaultRepository implements VaultRepository {
       return null;
     }
     final session = _requireSession();
+    if (snapshot.keyVersion >= SyncItemPayloadCodec.boundPayloadVersion) {
+      final bound = SyncItemPayloadCodec.decode(ciphertext);
+      if (bound == null) {
+        return null;
+      }
+      return jsonEncode({
+        'v': snapshot.keyVersion,
+        'keyId': session.keyId,
+        'rid': bound.recordId,
+        'payload': {
+          'alg': 'AES-256-GCM',
+          'nonce_b64': nonce,
+          'ciphertext_b64': bound.ciphertextB64,
+          'tag_b64': snapshot.gcmTag ?? '',
+        },
+      });
+    }
     if (snapshot.keyVersion == 2 && session.isV2) {
       return jsonEncode({
         'v': 2,
@@ -371,6 +503,83 @@ class LocalEncryptedVaultRepository implements VaultRepository {
       'ciphertext': ciphertext,
       'mac': snapshot.gcmTag ?? '',
     });
+  }
+
+  Future<List<String>> _readEncryptedItems() async {
+    final raw = await _storage.read(encryptedVaultItemsKey);
+    if (raw == null || raw.isEmpty) {
+      return const [];
+    }
+    return (jsonDecode(raw) as List<dynamic>).cast<String>();
+  }
+
+  /// Decrypts one stored envelope and enforces the record binding.
+  ///
+  /// For v3 the record id comes from the envelope (and must equal
+  /// [expectedRecordId] when the caller knows it); GCM authenticates
+  /// it, and the decrypted item's `id` must equal it. Legacy payloads
+  /// carry no binding, so the id check only runs when the caller
+  /// passes [expectedRecordId].
+  Future<_DecryptedItem> _decryptStoredItem({
+    required String encrypted,
+    required VaultSession session,
+    required int minimumVersion,
+    String? expectedRecordId,
+  }) async {
+    final header = _cryptoService.inspect(encrypted);
+    final isBound = header.version >= currentItemPayloadVersion;
+    final recordId = isBound ? header.recordId : null;
+    if (isBound &&
+        (recordId == null ||
+            (expectedRecordId != null && recordId != expectedRecordId))) {
+      throw VaultPayloadRejectedError(
+        VaultPayloadRejection.recordMismatch,
+        'Vault payload is bound to a different record.',
+      );
+    }
+    final plaintext = await _cryptoService.decrypt(
+      ciphertext: encrypted,
+      secretKey: session,
+      expectedKeyId: session.keyId,
+      recordId: recordId,
+      minimumVersion: minimumVersion,
+    );
+    final item = VaultItem.fromJson(
+      jsonDecode(plaintext) as Map<String, dynamic>,
+    );
+    final requiredId = recordId ?? expectedRecordId;
+    if (requiredId != null && item.id != requiredId) {
+      throw VaultPayloadRejectedError(
+        VaultPayloadRejection.recordMismatch,
+        'Decrypted item id does not match its bound record id.',
+      );
+    }
+    return _DecryptedItem(
+      item: item,
+      plaintext: plaintext,
+      version: header.version,
+    );
+  }
+
+  Future<int> _readMinimumVersion() async {
+    final raw = await _storage.read(itemPayloadMinVersionKey);
+    if (raw == null || raw.isEmpty) {
+      return 1;
+    }
+    // A marker that exists but cannot be parsed is treated as the
+    // strictest known value: fail closed rather than re-open v1/v2.
+    return int.tryParse(raw) ?? currentItemPayloadVersion;
+  }
+
+  Future<void> _markMigratedToCurrentVersion() async {
+    final current = await _readMinimumVersion();
+    if (current >= currentItemPayloadVersion) {
+      return;
+    }
+    await _storage.save(
+      itemPayloadMinVersionKey,
+      '$currentItemPayloadVersion',
+    );
   }
 
   Future<void> _recoverFromInterruptedRekey() async {
@@ -426,6 +635,18 @@ class LocalEncryptedVaultRepository implements VaultRepository {
         .where((count) => count > 1)
         .fold<int>(0, (sum, count) => sum + count);
   }
+}
+
+class _DecryptedItem {
+  const _DecryptedItem({
+    required this.item,
+    required this.plaintext,
+    required this.version,
+  });
+
+  final VaultItem item;
+  final String plaintext;
+  final int version;
 }
 
 class _SyncBlobPayload {
