@@ -10,6 +10,7 @@ import '../sync/local_vault_mutation.dart';
 import '../sync/remote_vault_blob_change.dart';
 import '../sync/sync_item_payload_codec.dart';
 import 'platform_security_plan.dart';
+import 'aes_gcm_vault_crypto_service.dart';
 import 'secure_storage_service.dart';
 import 'vault_crypto_service.dart';
 import 'vault_repository.dart';
@@ -395,6 +396,16 @@ class LocalEncryptedVaultRepository implements VaultRepository {
     }
 
     final version = (payload['v'] ?? payload['version'] ?? 1) as int;
+
+    // v4 items carry a per-item key whose derivation salt is not part of
+    // the sync wire (ADR-002). Emitting a snapshot without it would make
+    // the receiving device derive a different item key and fail to open
+    // the payload, so the mutation is not queued at all rather than
+    // queued broken. Sync stays coherent until the wire carries the salt.
+    if (version >= AesGcmVaultCryptoService.payloadVersionV4) {
+      return null;
+    }
+
     if (version >= SyncItemPayloadCodec.boundPayloadVersion) {
       final recordId = payload['rid'];
       if (recordId is! String || recordId.isEmpty) {

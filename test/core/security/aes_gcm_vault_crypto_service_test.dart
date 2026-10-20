@@ -40,7 +40,7 @@ void main() {
       );
       final decoded = jsonDecode(ciphertext) as Map<String, dynamic>;
 
-      expect(decoded['v'], 3);
+      expect(decoded['v'], AesGcmVaultCryptoService.payloadVersionV4);
       expect(decoded['keyId'], keyId);
       expect(decoded['rid'], 'rec-a');
       expect(decoded['payload'], isA<Map<String, dynamic>>());
@@ -75,7 +75,7 @@ void main() {
       );
       final decoded = jsonDecode(ciphertext) as Map<String, dynamic>;
 
-      expect(decoded['v'], 3);
+      expect(decoded['v'], AesGcmVaultCryptoService.payloadVersionV4);
       expect(decoded['kdf'], isA<Map<String, dynamic>>());
       expect(decoded['dek_wrap'], isA<Map<String, dynamic>>());
 

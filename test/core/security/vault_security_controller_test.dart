@@ -541,7 +541,6 @@ void main() {
 class _CountingMasterPasswordService extends MasterPasswordService {
   _CountingMasterPasswordService()
     : super(
-        verifierIterations: 1,
         encryptionIterations: 1,
         argon2MemoryKiB: 1024,
         useFastTestKdf: true,

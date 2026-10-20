@@ -55,16 +55,23 @@ class VaultItemPayloadHeader {
     required this.version,
     required this.keyId,
     this.recordId,
+    this.itemKeyVersion,
   });
 
-  /// Payload format version (1, 2 or 3).
+  /// Payload format version (1, 2, 3 or 4).
   final int version;
 
   /// Key identifier the payload claims to be encrypted under.
   final String? keyId;
 
-  /// Record id bound into the GCM associated data (v3 only).
+  /// Record id bound into the GCM associated data (v3 and v4 only).
   final String? recordId;
+
+  /// Item key version bound into the GCM associated data (v4 only).
+  ///
+  /// `null` on older payloads. Its presence is what distinguishes "this
+  /// item has its own key" from "this item is sealed under the DEK".
+  final int? itemKeyVersion;
 }
 
 /// Why an item payload was refused before or after decryption.

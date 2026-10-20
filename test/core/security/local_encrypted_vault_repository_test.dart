@@ -62,7 +62,10 @@ void main() {
           .cast<String>();
       final firstPayload =
           jsonDecode(encodedItems.first) as Map<String, dynamic>;
-      expect(firstPayload['v'], 3);
+      expect(
+        firstPayload['v'],
+        AesGcmVaultCryptoService.payloadVersionV4,
+      );
       expect(firstPayload['rid'], 'github');
       expect(firstPayload['kdf']['name'], 'argon2id');
       expect(firstPayload['dek_wrap']['alg'], 'AES-256-GCM');

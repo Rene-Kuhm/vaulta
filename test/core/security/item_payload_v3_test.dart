@@ -90,20 +90,46 @@ class _Harness {
     await storage.save(_itemsKey, jsonEncode([...list, envelope]));
   }
 
-  /// Builds the sync snapshot another device would pull for [item],
-  /// using the exact mutation this repository emits on save.
-  Future<RemoteVaultBlobSnapshot> snapshotFromSave(VaultItem item) async {
+  /// Saves [item] and returns the mutation the repository queued for sync,
+  /// or `null` when it deliberately queued none.
+  ///
+  /// This is the fail-closed probe for v4: the item key salt is not on
+  /// the sync wire, so a v4 payload must not be queued at all.
+  Future<LocalVaultMutation?> mutationFromSave(VaultItem item) async {
     mutations.clear();
     await repository.saveItem(item);
     await Future<void>.delayed(Duration.zero);
-    final mutation = mutations.single;
+    return mutations.isEmpty ? null : mutations.single;
+  }
+
+  /// A v3 sync snapshot of [item]: sealed under the DEK with
+  /// record-bound AAD, and still representable on the sync wire.
+  ///
+  /// v4 is the current at-rest format but sync refuses it until the wire
+  /// carries the item key salt, so the sync contract is exercised with
+  /// v3 — the newest payload the wire can actually express.
+  Future<RemoteVaultBlobSnapshot> v3Snapshot(VaultItem item) async {
+    final envelope =
+        jsonDecode(
+              await crypto.encryptV3ForTesting(
+                plaintext: jsonEncode(item.toJson()),
+                secretKey: session,
+                keyId: session.keyId,
+                recordId: item.id,
+              ),
+            )
+            as Map<String, dynamic>;
+    final payload = envelope['payload'] as Map<String, dynamic>;
     return RemoteVaultBlobSnapshot(
-      recordId: mutation.localRecordId,
+      recordId: item.id,
       version: 1,
-      keyVersion: mutation.keyVersion!,
-      ciphertext: mutation.ciphertext,
-      nonce: mutation.nonce,
-      gcmTag: mutation.gcmTag,
+      keyVersion: AesGcmVaultCryptoService.payloadVersionV3,
+      ciphertext: SyncItemPayloadCodec.encode(
+        recordId: envelope['rid'] as String,
+        ciphertextB64: payload['ciphertext_b64'] as String,
+      ),
+      nonce: payload['nonce_b64'] as String,
+      gcmTag: payload['tag_b64'] as String,
       updatedAt: DateTime.utc(2026, 1, 2),
     );
   }
@@ -144,7 +170,7 @@ void main() {
       await h.repository.saveItem(_item('github'));
 
       final envelopes = await h.storedEnvelopes();
-      expect(envelopes.single['v'], 3);
+      expect(envelopes.single['v'], AesGcmVaultCryptoService.payloadVersionV4);
       expect(envelopes.single['rid'], 'github');
       expect(envelopes.single['keyId'], h.session.keyId);
       expect(await h.storage.read(_markerKey), '3');
@@ -204,7 +230,7 @@ void main() {
 
       expect(migrated, 3);
       final envelopes = await h.storedEnvelopes();
-      expect(envelopes.map((e) => e['v']), everyElement(3));
+      expect(envelopes.map((e) => e['v']), everyElement(AesGcmVaultCryptoService.payloadVersionV4));
       expect(envelopes.map((e) => e['rid']), ['a', 'b', 'c']);
       expect(await h.storage.read(_markerKey), '3');
       final items = await h.repository.fetchItems();
@@ -251,7 +277,7 @@ void main() {
       );
 
       expect(await h.repository.migrateItemsToCurrentVersion(), 2);
-      expect((await h.storedEnvelopes()).map((e) => e['v']), everyElement(3));
+      expect((await h.storedEnvelopes()).map((e) => e['v']), everyElement(AesGcmVaultCryptoService.payloadVersionV4));
     });
 
     test('a process killed after staging recovers without data loss',
@@ -289,7 +315,7 @@ void main() {
       h.storage.failNextSaveOf(_itemsKey, afterWriting: true);
 
       expect(await h.repository.migrateItemsToCurrentVersion(), 1);
-      expect((await h.storedEnvelopes()).single['v'], 3);
+      expect((await h.storedEnvelopes()).single['v'], AesGcmVaultCryptoService.payloadVersionV4);
       expect(await h.storage.read(_markerKey), '3');
     });
 
@@ -322,7 +348,7 @@ void main() {
       );
 
       final envelope = (await h.storedEnvelopes()).single;
-      expect(envelope['v'], 3);
+      expect(envelope['v'], AesGcmVaultCryptoService.payloadVersionV4);
       expect(envelope['keyId'], 'key-generation-2');
       expect(await h.storage.read(_markerKey), '3');
     });
@@ -331,8 +357,11 @@ void main() {
   group('sync apply path', () {
     test('a v3 payload round-trips to another device', () async {
       final sender = _Harness();
-      final snapshot = await sender.snapshotFromSave(_item('github'));
-      expect(snapshot.keyVersion, 3);
+      final snapshot = await sender.v3Snapshot(_item('github'));
+      expect(
+        snapshot.keyVersion,
+        AesGcmVaultCryptoService.payloadVersionV3,
+      );
       expect(SyncItemPayloadCodec.decode(snapshot.ciphertext)?.recordId,
           'github');
 
@@ -348,7 +377,7 @@ void main() {
     test('a v3 payload delivered under another record id is rejected',
         () async {
       final sender = _Harness();
-      final snapshot = await sender.snapshotFromSave(_item('github'));
+      final snapshot = await sender.v3Snapshot(_item('github'));
       final receiver = _Harness(session: sender.session);
       await receiver.repository.saveItem(_item('bank'));
 
@@ -387,7 +416,7 @@ void main() {
 
     test('a v3 payload under another key generation is rejected', () async {
       final sender = _Harness();
-      final snapshot = await sender.snapshotFromSave(_item('github'));
+      final snapshot = await sender.v3Snapshot(_item('github'));
       final receiver = _Harness(
         session: VaultSession.v2(
           keyId: 'key-generation-2',
@@ -480,7 +509,7 @@ void main() {
       expect(rejected, ['a', 'c']);
       final items = await h.repository.fetchItems();
       expect(items.single.secret, 'Str0ng!Secret#2026');
-      expect((await h.storedEnvelopes()).map((e) => e['v']), everyElement(3));
+      expect((await h.storedEnvelopes()).map((e) => e['v']), everyElement(AesGcmVaultCryptoService.payloadVersionV4));
     });
 
     test('a v3-tagged payload without a valid binding is rejected', () async {
