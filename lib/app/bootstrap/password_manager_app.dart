@@ -45,18 +45,20 @@ Future<void> runPasswordManagerApp() async {
     mutationSink: mutationSink,
   );
   final envelopeService = BiometricKeyEnvelopeService(storage: storage);
-  final envelopeKeyProvider = _buildEnvelopeKeyProvider(storage: storage);
-  // The biometric auth service is platform-aware: on Android we use
-  // the native MethodChannel (the same one the KeyStore provider uses
-  // to open the BiometricPrompt) so the gate and the prompt can never
-  // disagree. On every other target we fall back to local_auth which
-  // does not have a hardware-backed variant yet.
-  final biometricAuthService = _buildBiometricAuthService();
+  // The biometric stack is resolved in ONE place. It used to be two
+  // independent `defaultTargetPlatform` branches — one for the envelope
+  // key provider, one for the auth service — and nothing tied the two
+  // together, so pairing the KeyStore provider with the self-prompting
+  // `local_auth` gate was a one-line mistake away and would have shown
+  // the user two biometric prompts per unlock. [BiometricStack] makes
+  // each platform's pairing a type instead.
+  final biometricStack = resolveBiometricStack(storage: storage);
+  final biometricAuthService = biometricStack.authService;
   final biometricUnlockService = BiometricUnlockService(
     storage: storage,
     biometricAuthService: biometricAuthService,
     envelopeService: envelopeService,
-    envelopeKeyProvider: envelopeKeyProvider,
+    envelopeKeyProvider: biometricStack.envelopeKeyProvider,
   );
   securityController = VaultSecurityController(
     storage: storage,
@@ -100,43 +102,90 @@ Future<void> runPasswordManagerApp() async {
   unawaited(loadBreachCorpus());
 }
 
-/// On Android we use the hardware-backed KeyStore provider. On every
-/// other target we fall back to a no-op provider that always reports
-/// "no envelope key", which surfaces a clean "biometrics not
-/// available" message instead of crashing.
+/// Everything the biometric unlock path needs for one platform, as a
+/// single value.
 ///
-/// Tests that don't want to involve the platform channel can override
-/// the provider in their own bootstrap.
-BiometricEnvelopeKeyProvider _buildEnvelopeKeyProvider({
-  required dynamic storage,
-}) {
-  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-    return AndroidKeystoreEnvelopeKeyProvider(
-      storage: storage as FlutterSecureStorageService,
-    );
-  }
-  // The unlock service replaces this with its own no-op default if
-  // we pass null, so this branch is only here to make the intent
-  // explicit in the source.
-  return const _NullEnvelopeKeyProvider();
+/// The property this type exists to protect is "exactly one
+/// `BiometricPrompt` per unlock". Two halves of the unlock path can each
+/// open a prompt — the gate ([BiometricAuthService.authenticateForUnlock])
+/// and the envelope key provider
+/// ([BiometricEnvelopeKeyProvider.releaseEnvelopeKey]) — and only one of
+/// them may. Which half owns it is a per-platform fact, so it belongs in
+/// the composition rather than in a comment next to an `if`:
+///
+///   * Android — [AndroidKeystoreBiometricStack]. The prompt has to be
+///     bound to the KeyStore private key through a `CryptoObject`, so
+///     the provider owns it and the gate stays a probe
+///     ([NonPromptingBiometricAuthService]).
+///   * Every other target — [LocalAuthBiometricStack]. There is no
+///     platform-protected envelope key, so the gate owns the prompt
+///     ([PromptingBiometricAuthService]) and the provider is inert.
+///
+/// [BiometricStack] is sealed and both subclasses are `final`, so adding
+/// a platform means adding a case here, where the pairing is visible,
+/// instead of adding a branch next to an unrelated one.
+sealed class BiometricStack {
+  const BiometricStack();
+
+  /// The gate the controller and the unlock service talk to.
+  BiometricAuthService get authService;
+
+  /// The provider that mints (enrollment) and releases (unlock) the
+  /// platform-protected envelope key.
+  BiometricEnvelopeKeyProvider get envelopeKeyProvider;
 }
 
-/// Picks the right [BiometricAuthService] for the current platform.
+/// Android: the hardware-backed KeyStore pair. Exactly one prompt, and it
+/// is the one the KeyStore crypto object requires.
+final class AndroidKeystoreBiometricStack extends BiometricStack {
+  /// Wires the native gate to the native provider. [storage] backs the
+  /// RSA-encrypted seed, so both halves have to be built together.
+  AndroidKeystoreBiometricStack({required FlutterSecureStorageService storage})
+    : authService = NativeBiometricAuthService(),
+      envelopeKeyProvider = AndroidKeystoreEnvelopeKeyProvider(
+        storage: storage,
+      );
+
+  @override
+  final NativeBiometricAuthService authService;
+
+  @override
+  final AndroidKeystoreEnvelopeKeyProvider envelopeKeyProvider;
+}
+
+/// Every non-Android target: `local_auth` owns the prompt and the
+/// provider reports "not supported" instead of touching a channel that
+/// was never registered.
+final class LocalAuthBiometricStack extends BiometricStack {
+  /// Builds the desktop / web stack, where there is no platform key.
+  LocalAuthBiometricStack()
+    : authService = LocalBiometricAuthService(),
+      envelopeKeyProvider = const _NullEnvelopeKeyProvider();
+
+  @override
+  final LocalBiometricAuthService authService;
+
+  @override
+  final BiometricEnvelopeKeyProvider envelopeKeyProvider;
+}
+
+/// Resolves the biometric stack for the current platform. This is the
+/// only place that branch lives.
 ///
-/// On Android we deliberately bypass `local_auth` and talk to the
-/// native `MethodChannel` directly so the gate (canAuthenticate) and
-/// the prompt (`BiometricPrompt.authenticate`) are guaranteed to be
-/// looking at the same `BiometricManager` state. Mixing the two was
-/// the root cause of the "the unlock button disappeared" bug on
-/// devices that only have weak biometrics enrolled.
-///
-/// On every other target we keep the `local_auth` path since the
-/// KeyStore-backed provider is Android-only.
-BiometricAuthService _buildBiometricAuthService() {
+/// On Android we deliberately bypass `local_auth` and talk to the native
+/// `MethodChannel`s directly, so the gate (`BiometricManager`) and the
+/// prompt are guaranteed to be looking at the same state. Mixing the two
+/// was the root cause of the "the unlock button disappeared" bug on
+/// devices that only have weak biometrics enrolled. On every other target
+/// we keep the `local_auth` path, since the KeyStore-backed provider is
+/// Android-only.
+BiometricStack resolveBiometricStack({
+  required FlutterSecureStorageService storage,
+}) {
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-    return NativeBiometricAuthService();
+    return AndroidKeystoreBiometricStack(storage: storage);
   }
-  return LocalBiometricAuthService();
+  return LocalAuthBiometricStack();
 }
 
 class _NullEnvelopeKeyProvider implements BiometricEnvelopeKeyProvider {

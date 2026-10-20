@@ -11,11 +11,16 @@
 import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:gestor_contrasenas/app/bootstrap/password_manager_app.dart';
 import 'package:gestor_contrasenas/core/security/android_keystore_envelope_key_provider.dart';
+import 'package:gestor_contrasenas/core/security/biometric_auth_service.dart';
 import 'package:gestor_contrasenas/core/security/biometric_key_envelope_service.dart';
+import 'package:gestor_contrasenas/core/security/flutter_secure_storage_service.dart';
+import 'package:gestor_contrasenas/core/security/native_biometric_auth_service.dart';
 import 'package:gestor_contrasenas/core/security/secure_storage_service.dart';
 
 /// Storage key the provider persists the RSA-encrypted seed under.
@@ -608,6 +613,169 @@ void main() {
       expect(platform.keystoreCalls, ['ensureKey']);
     });
   });
+
+  // The native gate has to agree with the KeyStore key it fronts. The key
+  // is declared BIOMETRIC_STRONG-only, so a device whose answer is "yes,
+  // but only because a PIN exists" is not a device that can open the
+  // envelope. On API < 30 the platform cannot even declare that, and
+  // `KeystoreChannel.isAvailable` reports false there; this group pins
+  // the Dart half of the same contract.
+  group('NativeBiometricAuthService — the biometric gate', () {
+    NativeBiometricAuthService gate({bool isAndroid = true}) =>
+        NativeBiometricAuthService(isAndroid: isAndroid);
+
+    test('a strong biometric opens the gate', () async {
+      platform.capability = _capability(strong: true, weak: true);
+
+      expect(await gate().authenticateForUnlock(), isTrue);
+    });
+
+    test('a credential-only device does not open the biometric gate',
+        () async {
+      // `canUseStrongOrCredential` is true purely because a PIN/pattern/
+      // password is set. The envelope key declares BIOMETRIC_STRONG, so
+      // answering true here is exactly the "biometric that is really a
+      // PIN" the KeyStore spec forbids.
+      platform.capability = _capability(
+        strong: false,
+        weak: false,
+        deviceCredential: true,
+      );
+
+      expect(await gate().authenticateForUnlock(), isFalse);
+    });
+
+    test('a weak-only biometric with a PIN set does not open the gate',
+        () async {
+      platform.capability = _capability(
+        strong: false,
+        weak: true,
+        deviceCredential: true,
+      );
+
+      expect(await gate().authenticateForUnlock(), isFalse);
+    });
+
+    test('the gate probes the platform and never opens a prompt', () async {
+      // The single-BiometricPrompt guarantee is only true if the gate
+      // stays a probe: the prompt belongs to the envelope key provider,
+      // bound to the KeyStore private key through a CryptoObject.
+      platform.capability = _capability(strong: true, weak: true);
+
+      expect(await gate().authenticateForUnlock(), isTrue);
+
+      expect(platform.biometricCalls, ['probeAvailability']);
+      expect(
+        platform.biometricCalls,
+        isNot(contains('requestDecryptAuthorization')),
+        reason: 'the gate must never ask the platform to open a prompt',
+      );
+    });
+
+    test('a platform probe failure closes the gate', () async {
+      platform.probeError = PlatformException(code: 'UNAVAILABLE');
+
+      expect(await gate().authenticateForUnlock(), isFalse);
+      expect(platform.biometricCalls, ['probeAvailability']);
+    });
+
+    test('off Android the gate is inert and touches no channel', () async {
+      final result = await gate(isAndroid: false).authenticateForUnlock();
+
+      expect(result, isFalse);
+      expect(platform.biometricCalls, isEmpty);
+    });
+  });
+
+  // The "exactly one BiometricPrompt" property used to be a runtime
+  // branch in the bootstrap: two independent `defaultTargetPlatform`
+  // checks picked the gate and the envelope provider separately, so a
+  // self-prompting gate could be paired with the prompting provider. These
+  // tests pin the pairings that make it unrepresentable.
+  group('BiometricStack — one prompt, decided by the type', () {
+    tearDown(() => debugDefaultTargetPlatformOverride = null);
+
+    BiometricStack stackFor(TargetPlatform platform) {
+      debugDefaultTargetPlatformOverride = platform;
+      return resolveBiometricStack(storage: FlutterSecureStorageService());
+    }
+
+    test('android pairs the KeyStore provider with the non-prompting gate',
+        () {
+      final stack = stackFor(TargetPlatform.android);
+
+      expect(stack, isA<AndroidKeystoreBiometricStack>());
+      expect(stack.authService, isA<NativeBiometricAuthService>());
+      expect(stack.authService, isA<NonPromptingBiometricAuthService>());
+      expect(stack.authService, isNot(isA<PromptingBiometricAuthService>()));
+      expect(
+        stack.envelopeKeyProvider,
+        isA<AndroidKeystoreEnvelopeKeyProvider>(),
+      );
+    });
+
+    test('every other target pairs local_auth with a no-op provider',
+        () async {
+      final stack = stackFor(TargetPlatform.windows);
+
+      expect(stack, isA<LocalAuthBiometricStack>());
+      expect(stack.authService, isA<LocalBiometricAuthService>());
+      expect(stack.authService, isA<PromptingBiometricAuthService>());
+      expect(stack.authService, isNot(isA<NonPromptingBiometricAuthService>()));
+      expect(
+        stack.envelopeKeyProvider,
+        isNot(isA<AndroidKeystoreEnvelopeKeyProvider>()),
+      );
+
+      final acquired = await stack.envelopeKeyProvider.acquireEnvelopeKey();
+      expect(acquired.isSuccess, isFalse);
+      expect(acquired.failureReason, 'platform_not_android');
+    });
+
+    test('exactly one half of each stack owns the prompt', () {
+      for (final platform in TargetPlatform.values) {
+        final stack = stackFor(platform);
+        final gateOwnsPrompt = stack.authService is PromptingBiometricAuthService;
+        final providerOwnsPrompt =
+            stack.envelopeKeyProvider is AndroidKeystoreEnvelopeKeyProvider;
+
+        expect(
+          gateOwnsPrompt ^ providerOwnsPrompt,
+          isTrue,
+          reason: 'both or neither half would prompt on $platform: '
+              'gate=$gateOwnsPrompt provider=$providerOwnsPrompt',
+        );
+      }
+    });
+  });}
+
+/// A `probeAvailability` answer as `MainActivity.probeAvailability()`
+/// returns it. Only the flags the gate reads are set; the codes are kept
+/// consistent with the flags so the payload is a shape the platform could
+/// actually produce.
+///
+/// `canUseStrongOrCredential` is *derived*, not a knob: the platform
+/// answers that probe with `BIOMETRIC_STRONG or DEVICE_CREDENTIAL`, which
+/// succeeds iff a strong biometric is enrolled or a credential is set. A
+/// fixture could otherwise describe a platform that does not exist.
+Map<String, dynamic> _capability({
+  required bool strong,
+  required bool weak,
+  bool deviceCredential = false,
+}) {
+  const success = 0;
+  const noneEnrolled = 11;
+  final strongOrCredential = strong || deviceCredential;
+  return <String, dynamic>{
+    'canUseStrong': strong,
+    'canUseWeak': weak,
+    'canUseStrongOrCredential': strongOrCredential,
+    'canUseDeviceCredential': deviceCredential,
+    'strongCode': strong ? success : noneEnrolled,
+    'weakCode': weak ? success : noneEnrolled,
+    'strongOrCredentialCode': strongOrCredential ? success : noneEnrolled,
+    'deviceCredentialCode': deviceCredential ? success : noneEnrolled,
+  };
 }
 
 /// Builds a provider whose platform gate is open, i.e. one that behaves
@@ -643,6 +811,13 @@ class _FakeAndroidPlatform {
 
   /// Thrown by `ensureKey`, when set.
   PlatformException? ensureKeyError;
+
+  /// The `probeAvailability` payload the biometric channel answers with,
+  /// or null when the platform probe is unavailable.
+  Map<String, dynamic>? capability = _capability(strong: true, weak: true);
+
+  /// Thrown by `probeAvailability`, when set.
+  PlatformException? probeError;
 
   /// Thrown by `deleteKey`, when set.
   PlatformException? deleteKeyError;
@@ -711,15 +886,24 @@ class _FakeAndroidPlatform {
 
   Future<Object?> _handleBiometric(MethodCall call) async {
     biometricCalls.add(call.method);
-    if (call.method != 'requestDecryptAuthorization') {
-      throw MissingPluginException('no handler for ${call.method}');
+    switch (call.method) {
+      case 'probeAvailability':
+        final error = probeError;
+        if (error != null) throw error;
+        return capability;
+      case 'requestDecryptAuthorization':
+        if (userCancels) {
+          throw PlatformException(
+            code: 'USER_CANCELLED',
+            message: 'cancelled',
+          );
+        }
+        final error = decryptError;
+        if (error != null) throw error;
+        return _decrypt(_ciphertextArgument(call));
+      default:
+        throw MissingPluginException('no handler for ${call.method}');
     }
-    if (userCancels) {
-      throw PlatformException(code: 'USER_CANCELLED', message: 'cancelled');
-    }
-    final error = decryptError;
-    if (error != null) throw error;
-    return _decrypt(_ciphertextArgument(call));
   }
 
   Uint8List _plaintextArgument(MethodCall call) {

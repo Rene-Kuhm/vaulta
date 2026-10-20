@@ -21,10 +21,19 @@ import io.flutter.plugin.common.MethodChannel
  * `SecretKey` on the Dart side by `BiometricKeyEnvelopeService`.
  *
  * This is the only path that unwraps the biometric envelope. `KeystoreChannel`
- * deliberately exposes no decrypt method: under
- * `setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG)` an
- * unauthorized `Cipher.init(DECRYPT_MODE, privateKey)` can never succeed, so
- * a second decrypt path would be dead code that reads like a vulnerability.
+ * deliberately exposes no decrypt method: the envelope key is minted with
+ * `setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG)`, so an
+ * unauthorized `Cipher.init(DECRYPT_MODE, privateKey)` can never succeed and a
+ * second decrypt path would be dead code that reads like a vulnerability.
+ *
+ * That guarantee is a property of the *key*, and it only exists where the
+ * platform can declare the authenticator type: `KeystoreChannel` refuses to
+ * mint the key below API 30, because there a `setUserAuthenticationRequired`
+ * key is authorized by the device PIN as well. On those devices `isAvailable`
+ * answers false and Dart never enrolls an envelope, so the code path below
+ * has no key to unwrap. Do not relax either half: the prompt's
+ * `setAllowedAuthenticators(BIOMETRIC_STRONG)` keeps the UI honest, and the
+ * key spec keeps the *process* honest.
  *
  * Beyond the auth round-trip, this channel also exposes:
  *   * `probeAvailability` — structured platform capabilities so Dart
