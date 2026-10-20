@@ -306,6 +306,19 @@ void main() {
     }, timeout: Timeout(_promptBudget * 2));
   });
 
+  // These cannot run unattended. Each one needs a person to interact with
+  // the system biometric prompt while the test is blocked on it, so they
+  // are excluded from CI by construction rather than by a skip marker
+  // that could silently rot.
+  //
+  // Verified on a POCO 2312DRA50G (API 36, AUTH_BIOMETRIC_STRONG) on
+  // 2026-10-20: the six automated tests in this file pass, and this group
+  // behaves exactly as designed when no one touches the prompt — the
+  // device authenticates, the unlock succeeds, and the assertion that a
+  // cancelled prompt must not yield a seed fails. That failure is correct:
+  // the premise was not met. It is recorded here because "this test is red"
+  // and "this test was never run" mean very different things to whoever
+  // reads this next.
   group('human-driven negative paths', () {
     testWidgets('cancelling the prompt leaves the envelope intact', (
       tester,
