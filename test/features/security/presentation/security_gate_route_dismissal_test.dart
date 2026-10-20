@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -146,9 +148,14 @@ void main() {
 
     await tester.tap(find.text('open sticky'));
     await tester.pumpAndSettle();
-    await showModalBottomSheet<void>(
-      context: tester.element(find.text('sticky screen')),
-      builder: (_) => const Text('sheet secret'),
+    // Deliberately not awaited: the sheet must stay open until the lock
+    // below pops it. Awaiting here would block on a dismissal that only
+    // the lock can cause.
+    unawaited(
+      showModalBottomSheet<void>(
+        context: tester.element(find.text('sticky screen')),
+        builder: (_) => const Text('sheet secret'),
+      ),
     );
     await tester.pumpAndSettle();
     expect(find.text('sheet secret'), findsOneWidget);
