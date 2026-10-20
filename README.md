@@ -18,7 +18,7 @@
   <a href="https://www.tecnodespegue.com/">TecnoDespegue</a>
 </p>
 
-Vaulta es una aplicacion desarrollada por [TecnoDespegue](https://www.tecnodespegue.com/) para proteger credenciales sensibles con una experiencia moderna, rapida y consistente entre Android y Windows. El proyecto combina Flutter, Material 3, cifrado local real, desbloqueo biometrico en Android, desbloqueo con Windows Hello en desktop y un canal de actualizaciones firmado desde GitHub Releases.
+Vaulta es una aplicacion desarrollada por [TecnoDespegue](https://www.tecnodespegue.com/) para proteger credenciales sensibles con una experiencia moderna, rapida y consistente entre Android y Windows. El proyecto combina Flutter, Material 3, cifrado local real, desbloqueo biometrico en Android y un canal de actualizaciones para Android que distribuye una APK firmada desde GitHub Releases.
 
 ## Vision
 
@@ -33,17 +33,16 @@ El objetivo es ofrecer un vault local para guardar, buscar y gestionar credencia
 - Derivacion de claves con Argon2id.
 - DEK aleatoria por vault y envelope protegido.
 - Desbloqueo con master password en todas las plataformas.
-- Desbloqueo biometrico real en Android mediante Android KeyStore y `BiometricPrompt`.
-- Soporte para `local_auth` en Windows (Windows Hello) como factor secundario opcional.
+- Desbloqueo biometrico real en Android: una clave RSA-2048 del Android KeyStore, atada a biometria fuerte, protege el envelope de la DEK y solo se libera tras un `BiometricPrompt` con `CryptoObject`.
 - CRUD de credenciales con busqueda interna.
 - Importacion local desde CSV y JSON con vista previa antes de guardar.
 - Dashboard con metricas de seguridad del vault.
 - Estados de carga, error, vacio y resultados.
-- Bloqueo automatico por inactividad o cambio de estado de la app.
-- Soporte inicial para autofill en Android.
-- Canal de actualizaciones Android desde GitHub Releases.
+- Bloqueo automatico al salir de primer plano y por inactividad (15 minutos por defecto, configurable).
+- Borrado automatico del portapapeles 30 segundos despues de copiar un secreto, si el contenido no cambio.
+- Canal de actualizaciones Android dentro de la app, que consulta el release `dev-latest` de GitHub.
 - Build de Windows con tema oscuro forzado para garantizar contraste correcto sobre el fondo del escritorio.
-- Publicacion automatica de binarios firmados: `vaulta.apk` (Android) y `vaulta.exe` (Windows).
+- Publicacion automatica en CI de la APK firmada `vaulta.apk` en el release `dev-latest`. El bundle de Windows (`vaulta-windows-bundle.zip`) se publica a mano en los releases estables y no tiene firma de codigo.
 
 ## Capturas
 
@@ -76,16 +75,29 @@ El objetivo es ofrecer un vault local para guardar, buscar y gestionar credencia
 
 ## Estado del producto
 
-Vaulta esta en etapa MVP release-ready para Android y Windows desktop. La app ya cuenta con cifrado local, biometria Android, `local_auth` integrado en Windows, actualizaciones firmadas, iconos Android personalizados y auditoria funcional reciente del buscador interno y las pantallas principales.
+Vaulta esta en etapa MVP release-ready para Android y Windows desktop. La app ya cuenta con cifrado local, biometria Android, APK firmada con canal de actualizaciones, iconos Android personalizados y auditoria funcional reciente del buscador interno y las pantallas principales.
 
 Plataformas soportadas:
 
-- **Android**: experiencia completa, incluye biometria, autofill y canal de actualizaciones automaticas.
-- **Windows desktop**: build nativo x64 (`vaulta.exe`) que reutiliza el mismo vault cifrado, persistencia local segura (Windows Credential Manager) y todas las funciones de gestion de credenciales. El desbloqueo biometric se ofrece como opcion mediante `local_auth` (Windows Hello) cuando esta disponible; el camino de master password sigue siendo el factor principal.
+- **Android**: experiencia completa, incluye desbloqueo biometrico y canal de actualizaciones dentro de la app. La pestana "Acceso" explica como configurar el autofill del sistema, pero el servicio de autofill todavia no esta implementado (ver [Hoja de ruta](#hoja-de-ruta--roadmap)).
+- **Windows desktop**: build nativo x64 (`vaulta.exe`) que reutiliza el mismo vault cifrado, persistencia local segura (Windows Credential Manager) y todas las funciones de gestion de credenciales. El desbloqueo es solo con master password: `local_auth` puede detectar Windows Hello, pero el desbloqueo biometrico del vault no esta conectado fuera de Android.
 
-El desbloqueo biometrico completo esta implementado para Android. En iOS, macOS, Linux y web se conserva el camino de master password hasta implementar bindings equivalentes por plataforma.
+El desbloqueo biometrico esta implementado solo para Android. En Windows, iOS, macOS, Linux y web se usa la master password hasta implementar bindings equivalentes por plataforma.
 
 > Nota de seguridad: Vaulta cifra datos locales, pero todavia no cuenta con auditoria criptografica externa. No se debe presentar como producto de seguridad certificado hasta completar una revision independiente.
+
+## Hoja de ruta / Roadmap
+
+Lo siguiente **todavia no esta disponible** en ninguna version publicada:
+
+- Autofill nativo de Android (no hay `AutofillService` declarado en la app).
+- Exportacion y backup cifrado del vault.
+- Sincronizacion con cuenta entre dispositivos (la base tecnica existe, ver [Seguridad](#seguridad)).
+- TOTP integrado (codigos de doble factor).
+- Firma de codigo para el binario de Windows.
+- Auditoria criptografica externa.
+
+El estado detallado de cada control de seguridad, con evidencia en el codigo, esta en [docs/security/hardening-status.md](docs/security/hardening-status.md) (en ingles).
 
 ## Stack tecnico
 
@@ -93,7 +105,7 @@ El desbloqueo biometrico completo esta implementado para Android. En iOS, macOS,
 - Dart `^3.11.3`
 - Material 3
 - `flutter_secure_storage` (Android Keystore + Windows Credential Manager)
-- `local_auth` (Android `BiometricPrompt` + Windows Hello)
+- `BiometricPrompt` nativo via MethodChannel en Android; `local_auth` solo para detectar capacidades biometricas en el resto de plataformas
 - `cryptography`
 - `supabase_flutter`
 - Android KeyStore
@@ -118,7 +130,7 @@ lib/
     security/        Gate de bloqueo y desbloqueo
     vault/           Dashboard, busqueda, detalle y editor de credenciales
     settings/        Configuracion, biometria, sync y actualizaciones
-    access/          Integracion de autofill Android
+    access/          Pantalla informativa de acceso y autofill (sin servicio de autofill todavia)
 ```
 
 ## Seguridad
@@ -131,9 +143,10 @@ Vaulta implementa una postura de seguridad local basada en:
 - Clave DEK independiente del password del usuario.
 - Envelope protegido para desbloqueo biometrico en Android.
 - Bloqueo automatico al salir de primer plano o por inactividad.
+- Borrado automatico del portapapeles tras copiar un secreto.
 - Manejo explicito de estados de error y sesiones revocadas.
 
-La sincronizacion remota con Supabase existe como base tecnica opcional/experimental y no esta habilitada como promesa publica por defecto.
+La sincronizacion remota con Supabase existe como base tecnica experimental y esta apagada en los builds publicados: solo se activa si el build define `SUPABASE_URL` y `SUPABASE_ANON_KEY` con `--dart-define`, y el pipeline de CI no los define.
 
 ## Instalacion Android
 
@@ -162,7 +175,7 @@ Descargar el bundle completo desde el release actual:
 Una vez descargado:
 
 1. Extraer todo el contenido del ZIP en una carpeta, por ejemplo `C:\Program Files\Vaulta\`. El paquete incluye `vaulta.exe`, todas las DLLs de runtime de Flutter, los plugins de Windows y la carpeta `data/` con assets.
-2. Ejecutar `vaulta.exe`. La primera vez que se abra, Windows SmartScreen puede pedir confirmacion ("Mas informacion" -> "Ejecutar de todas formas") porque el binario todavia no tiene firma EV de code signing empresarial; la app funciona normalmente despues de aprobarlo.
+2. Ejecutar `vaulta.exe`. La primera vez que se abra, Windows SmartScreen puede pedir confirmacion ("Mas informacion" -> "Ejecutar de todas formas") porque el binario no tiene firma de codigo (Authenticode); la app funciona normalmente despues de aprobarlo.
 
 > Importante: el ejecutable no se distribuye suelto porque necesita todas las DLLs y la carpeta `data/` en el mismo directorio. Si movés solo `vaulta.exe` a otra carpeta, la aplicacion no va a arrancar.
 
@@ -198,7 +211,7 @@ Build Windows release:
 flutter build windows --release
 ```
 
-El artefacto queda en `build/windows/x64/runner/Release/gestor_contrasenas.exe` y todas las DLLs de plugins en el mismo directorio.
+El artefacto queda en `build/windows/x64/runner/Release/gestor_contrasenas.exe` y todas las DLLs de plugins en el mismo directorio. El nombre `vaulta.exe` del bundle publicado se asigna a mano al empaquetar; el build genera `gestor_contrasenas.exe` (`BINARY_NAME` en `windows/CMakeLists.txt`).
 
 La firma Android release requiere secretos fuera del repositorio. Ver [docs/android-release-signing.md](docs/android-release-signing.md).
 
@@ -214,10 +227,18 @@ flutter build apk --release
 flutter build windows --release
 ```
 
-El pipeline de GitHub Actions compila, analiza, firma y publica automaticamente los binarios en `dev-latest` con los nombres profesionales `vaulta.apk` (Android) y `vaulta.exe` (Windows).
+GitHub Actions tiene dos workflows:
+
+- `flutter-ci.yml`: en cada push y pull request ejecuta `flutter analyze`, `flutter test` y un umbral de cobertura del 50% sobre `lib/core/security`.
+- `dev-apk-release.yml`: en cada push a `master` analiza, compila la APK release firmada con la clave de upload y la publica como `vaulta.apk` en el release `dev-latest`, que es el que consulta el actualizador de la app.
+
+Ningun workflow compila ni firma el build de Windows. El bundle de Windows se sube a mano a los releases estables (por ejemplo `v1.0.22`).
 
 ## Documentacion relacionada
 
+- [Estado del hardening de seguridad](docs/security/hardening-status.md)
+- [Modelo de amenaza](docs/architecture/THREAT_MODEL.md)
+- [Contrato criptografico](docs/architecture/CRYPTO.md)
 - [Firma y release Android](docs/android-release-signing.md)
 - [Checklist de publicacion en stores](docs/store-release-checklist.md)
 - [Plantilla de politica de privacidad](docs/privacy-policy-template.md)
