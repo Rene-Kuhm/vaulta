@@ -83,7 +83,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        KeystoreChannel(flutterEngine)
+        KeystoreChannel(flutterEngine, this)
         BiometricChannel(
             flutterEngine,
             this::authenticateAndDecrypt,

@@ -1,8 +1,11 @@
 package com.insyd.gestor_contrasenas
 
+import android.content.Context
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricManager.Authenticators
 import android.util.Log
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -48,7 +51,12 @@ import javax.crypto.spec.PSource
  *     (API < 30) we fall back to `setUserAuthenticationValidityDuration(0)`
  *     which has the same semantics under the hood.
  */
-class KeystoreChannel(engine: FlutterEngine) : MethodChannel.MethodCallHandler {
+class KeystoreChannel(
+    engine: FlutterEngine,
+    context: Context,
+) : MethodChannel.MethodCallHandler {
+
+    private val appContext: Context = context.applicationContext
 
     private val channel: MethodChannel =
         MethodChannel(engine.dartExecutor.binaryMessenger, CHANNEL_NAME).also {
@@ -85,27 +93,48 @@ class KeystoreChannel(engine: FlutterEngine) : MethodChannel.MethodCallHandler {
         }
     }
 
+    /**
+     * Reports whether this device can actually back the biometric
+     * envelope right now.
+     *
+     * Two things have to hold: the platform must accept a
+     * biometric-strong RSA spec, and the user must actually have a
+     * strong biometric enrolled. Checking only the first is how a device
+     * with no enrolled fingerprint could report `true`, let enrollment
+     * persist an encrypted seed, and then fail every unlock.
+     *
+     * Deliberately cheap. The previous implementation generated and
+     * deleted a throwaway RSA-2048 keypair to prove the KeyStore would
+     * accept the spec, and this method runs on every acquire and every
+     * release, so an RSA keygen sat on the critical path of the unlock
+     * button. A spec that the KeyStore provider rejects fails loudly at
+     * `ensureKey` time, which is where a genuine incompatibility
+     * belongs.
+     */
     private fun isAvailable(): Boolean {
-        val ks = try {
-            KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        val strongEnrolled = try {
+            BiometricManager.from(appContext)
+                .canAuthenticate(Authenticators.BIOMETRIC_STRONG) ==
+                BiometricManager.BIOMETRIC_SUCCESS
         } catch (e: Throwable) {
-            Log.w(TAG, "isAvailable: KeyStore init failed", e)
+            Log.w(TAG, "isAvailable: BiometricManager probe failed", e)
             return false
         }
+        if (!strongEnrolled) {
+            Log.i(TAG, "isAvailable: no strong biometric enrolled")
+            return false
+        }
+
+        // A spec the provider cannot even build is an incompatibility we
+        // can detect without paying for a keypair. buildKeySpec throws on
+        // an unsupported authenticator set, which is the whole probe.
         return try {
-            val generator = KeyPairGenerator.getInstance(
-                KeyProperties.KEY_ALGORITHM_RSA,
-                ANDROID_KEYSTORE
-            )
-            generator.initialize(buildKeySpec("vaulta-biometric-probe"))
-            generator.generateKeyPair()
-            if (ks.containsAlias("vaulta-biometric-probe")) {
-                ks.deleteEntry("vaulta-biometric-probe")
-            }
-            Log.d(TAG, "isAvailable: KeyStore can build a biometric-bound RSA spec")
+            KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            buildKeySpec(PROBE_ALIAS)
+            Log.i(TAG, "isAvailable: strong biometric enrolled and spec supported")
             true
         } catch (e: Throwable) {
-            Log.w(TAG, "isAvailable: building biometric RSA spec failed", e)
+            Log.w(TAG, "isAvailable: biometric RSA spec unsupported", e)
             false
         }
     }
@@ -172,9 +201,6 @@ class KeystoreChannel(engine: FlutterEngine) : MethodChannel.MethodCallHandler {
             ks.deleteEntry(KEY_ALIAS)
             Log.i(TAG, "deleteKey: removed alias $KEY_ALIAS")
         }
-        if (ks.containsAlias("vaulta-biometric-probe")) {
-            ks.deleteEntry("vaulta-biometric-probe")
-        }
     }
 
     private fun rsaEncrypt(plaintext: ByteArray): ByteArray {
@@ -209,6 +235,7 @@ class KeystoreChannel(engine: FlutterEngine) : MethodChannel.MethodCallHandler {
         const val CHANNEL_NAME = "com.insyd.vaulta/keystore"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "vaulta_biometric_envelope_v1"
+        private const val PROBE_ALIAS = "vaulta-biometric-probe"
         private const val TRANSFORMATION_RSA = "RSA/ECB/OAEPWithSHA-256AndMGF1Padding"
         private const val TAG = "Vaulta/KeyStore"
         private val OAEP_SHA256_MGF1_SHA1 = OAEPParameterSpec(

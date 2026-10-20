@@ -529,9 +529,48 @@ necessarily of every item already in a vault. A pre-existing v3 item
 stays sealed directly under the DEK until the user edits it or changes
 the master password, and nothing schedules that work.
 
-#### G3. The blocklist is curated, not the Pwned corpus
+#### G3. The blocklist is a real corpus, still not the Pwned corpus
 
-The shipped list is a **hand-curated subset** of passwords that appear at
+**Superseded 2026-10-20.** The hand-curated list is still shipped and is
+still what screens a password until the corpus loads, but it is no longer
+the whole control.
+
+The corpus is the UK NCSC top-100k most-used passwords (835 538 B,
+sha256 `c2e5696…c576e0`), filtered to **99 838** entries and shipped as
+**161 426** truncated SHA-256 digests (first 8 bytes, 16 lowercase hex
+chars) in `assets/security/breached_password_sha256.txt`, 2 744 242 B.
+Each entry is indexed in four pre-folded forms — `lower`,
+`fold(lower)`, `stripDigits(lower)`, `stripDigits(fold(lower))` — computed
+at build time with the *same* `foldForBlocklist` / `stripTrailingDigits`
+the runtime uses, because folding a digest set in Dart is impossible.
+Loading is 22 ms; `isCommon` with the corpus loaded is 2.06 us.
+
+**Digests, never plaintext.** Shipping 100k passwords in clear inside the
+APK would hand anyone who unpacks it a ready-made wordlist. A truncated
+SHA-256 is no more invertible than a full one, so the 4.8 MB saved buys an
+attacker nothing. A 64-bit prefix collision can only make an innocent
+password share a prefix with a listed one — a **false rejection, never a
+false acceptance** — and the expected number of colliding pairs across
+161 426 digests is ~7e-10.
+
+The corpus is loaded once at startup (`loadBreachCorpus()`, called
+fire-and-forget after `runApp`). Before it lands, screening falls back to
+the curated list: **degraded but correct, never a wrong rejection.** A
+password typed in the first moments after launch is screened against the
+short list. That trade is deliberate and is the reason `validate()` stays
+synchronous.
+
+**What still holds from the original finding:** this is the NCSC top-100k,
+not the full Pwned Passwords corpus (~800 MB even truncated), which remains
+unshippable. A password outside these 100k that appears in some other
+breach corpus will still be accepted. The count is pinned by a test, so a
+regeneration must update the constant or fail loudly.
+
+The original finding is preserved below.
+
+#### G3 (superseded). The blocklist was curated, not the Pwned corpus
+
+The shipped list was a **hand-curated subset** of passwords that appear at
 the top of public breach corpora. It is **not** the full Pwned Passwords
 list, which is roughly 800 MB even as truncated SHA-1 hashes and is not
 shippable inside an APK. As of `b6e6236` the literal holds 339
@@ -595,7 +634,9 @@ machine at 64 MiB x 3, p=1; they are not a claim about any user's device.
   (`aes_gcm_vault_crypto_service.dart:235-262`), which is the intended
   behavior, but the *new* label cannot be applied retroactively to an
   existing ciphertext.
-- Password quality now depends on a list this project maintains by hand
-  (G3). That is a maintenance obligation, not a solved problem.
+- Password quality now depends on a corpus this project downloads,
+  filters and hashes (G3). That is a maintenance obligation with a
+  generator step, not a solved problem, and it is still not the full
+  Pwned corpus.
 - Sync remains unusable for this format (G1). It was usable for v3.
 ADR-002 states this.

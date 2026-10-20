@@ -31,17 +31,25 @@ class AndroidKeystoreEnvelopeKeyProvider
   /// Uses [storage] for the encrypted seed persistence, plus optional
   /// [keystoreChannel] and [biometricChannel] (defaults to the bundled
   /// `MethodChannel`s) and an optional [random] for tests.
+  ///
+  /// [isAndroid] is the platform gate. It defaults to
+  /// [Platform.isAndroid], so production behaviour is unchanged; tests
+  /// pass `true` to run the real logic against a fake MethodChannel on a
+  /// non-Android host, which is the only way this file gets any coverage
+  /// at all in CI.
   AndroidKeystoreEnvelopeKeyProvider({
     required SecureStorageService storage,
     MethodChannel? keystoreChannel,
     MethodChannel? biometricChannel,
     Random? random,
+    @visibleForTesting bool? isAndroid,
   }) : _storage = storage,
        _keystoreChannel =
            keystoreChannel ?? const MethodChannel(keystoreChannelName),
        _biometricChannel =
            biometricChannel ?? const MethodChannel(biometricChannelName),
-       _random = random ?? Random.secure();
+       _random = random ?? Random.secure(),
+       _isAndroid = isAndroid ?? Platform.isAndroid;
 
   /// MethodChannel name for the Android KeyStore native side.
   static const keystoreChannelName = 'com.insyd.vaulta/keystore';
@@ -55,9 +63,13 @@ class AndroidKeystoreEnvelopeKeyProvider
   final MethodChannel _biometricChannel;
   final Random _random;
 
+  /// The platform gate. Every native call in this class is behind it;
+  /// nothing else in the class reads [Platform] directly.
+  final bool _isAndroid;
+
   @override
   Future<BiometricEnvelopeKeyResult> acquireEnvelopeKey() async {
-    if (!Platform.isAndroid) {
+    if (!_isAndroid) {
       debugPrint('[Vaulta/KeyStore] acquire skipped: not Android');
       return const BiometricEnvelopeKeyResult.unavailable(
         'platform_not_android',
@@ -79,6 +91,14 @@ class AndroidKeystoreEnvelopeKeyProvider
       // different biometric contract, and reusing it makes the next
       // unlock fail with BIOMETRIC_UNAVAILABLE even though the UI can
       // show the fingerprint button.
+      //
+      // A failure in this wipe is reported, not swallowed. The platform
+      // delete can succeed while the storage delete fails, which leaves
+      // the alias gone and the ciphertext still on disk. Swallowing that
+      // would enroll a fresh seed against a possibly stale alias, which
+      // is exactly what the wipe exists to prevent, and it would hide the
+      // half-deleted state from the user. Surfacing it is correct even
+      // though it means re-enrollment has to start over.
       await deleteKey();
       await ensureKey();
     } on PlatformException catch (error) {
@@ -131,7 +151,7 @@ class AndroidKeystoreEnvelopeKeyProvider
 
   @override
   Future<BiometricEnvelopeKeyResult> releaseEnvelopeKey() async {
-    if (!Platform.isAndroid) {
+    if (!_isAndroid) {
       return const BiometricEnvelopeKeyResult.unavailable(
         'platform_not_android',
       );
@@ -186,7 +206,7 @@ class AndroidKeystoreEnvelopeKeyProvider
         '[Vaulta/KeyStore] release: rsaDecrypt threw '
         '${error.code} ${error.message}',
       );
-      if (_looksLikeInvalidRsaCiphertext(error)) {
+      if (_corruptsStoredEnvelope(error)) {
         await deleteKey();
         return BiometricEnvelopeKeyResult.unavailable(
           _platformFailure('rsa_decrypt_invalid_ciphertext', error),
@@ -208,7 +228,7 @@ class AndroidKeystoreEnvelopeKeyProvider
   /// `ensureKey` here, because we do not want to create the key
   /// until the user explicitly enrolls.
   Future<bool> isHardwareBackedBiometricAvailable() async {
-    if (!Platform.isAndroid) return false;
+    if (!_isAndroid) return false;
     try {
       final result = await _keystoreChannel.invokeMethod<bool>('isAvailable');
       return result ?? false;
@@ -228,7 +248,7 @@ class AndroidKeystoreEnvelopeKeyProvider
   /// user re-enrolls.
   @override
   Future<void> deleteKey() async {
-    if (!Platform.isAndroid) return;
+    if (!_isAndroid) return;
     try {
       await _keystoreChannel.invokeMethod<void>('deleteKey');
     } on PlatformException {
@@ -241,7 +261,7 @@ class AndroidKeystoreEnvelopeKeyProvider
   /// hardware-backed public key. Returns the ciphertext or `null` on
   /// any platform failure (or when not running on Android).
   Future<Uint8List?> rsaEncryptSeed(Uint8List plaintext) async {
-    if (!Platform.isAndroid) return null;
+    if (!_isAndroid) return null;
     try {
       final result = await _keystoreChannel.invokeMethod<Uint8List>(
         'rsaEncrypt',
@@ -263,7 +283,7 @@ class AndroidKeystoreEnvelopeKeyProvider
   ///      `Cipher` via `BiometricPrompt.CryptoObject`.
   ///   3. On success, native code returns the unwrapped seed bytes.
   Future<Uint8List?> rsaDecryptSeedAuthorized(Uint8List ciphertext) async {
-    if (!Platform.isAndroid) return null;
+    if (!_isAndroid) return null;
     try {
       final plaintext = await _biometricChannel.invokeMethod<Uint8List>(
         'requestDecryptAuthorization',
@@ -292,10 +312,33 @@ class AndroidKeystoreEnvelopeKeyProvider
     return '$prefix:${error.code}:$message';
   }
 
-  bool _looksLikeInvalidRsaCiphertext(PlatformException error) {
-    final message = error.message ?? '';
-    return error.code == 'BIOMETRIC_DECRYPT_FAILED' &&
-        message.contains('IllegalBlockSizeException');
+  /// True when this failure means the stored envelope can never open again
+  /// and must be wiped rather than retried.
+  ///
+  /// The reasoning is structural, not a string match on one exception
+  /// class. Reaching here means `BiometricPrompt` already succeeded, so
+  /// the private key authorized correctly: if `cipher.doFinal` then
+  /// throws, the input is what is wrong. That holds for every decrypt
+  /// failure, and it holds regardless of which exception the provider
+  /// chose to raise.
+  ///
+  /// The previous check matched only `IllegalBlockSizeException` in the
+  /// message. Under `RSA/ECB/OAEPWithSHA-256AndMGF1Padding` the common
+  /// case for a corrupted or tampered ciphertext is `BadPaddingException`,
+  /// which that check missed: the corrupt seed stayed on disk with a live
+  /// alias and every later unlock attempt failed the same way, with no
+  /// recovery path short of the user clearing app data.
+  ///
+  /// `BIOMETRIC_KEY_MISSING` and `BIOMETRIC_KEY_INVALIDATED` also wipe,
+  /// because the stored ciphertext is encrypted to a key that no longer
+  /// exists and re-enrolling cannot reuse it.
+  bool _corruptsStoredEnvelope(PlatformException error) {
+    return switch (error.code) {
+      'BIOMETRIC_DECRYPT_FAILED' => true,
+      'BIOMETRIC_KEY_MISSING' => true,
+      'BIOMETRIC_KEY_INVALIDATED' => true,
+      _ => false,
+    };
   }
 
   /// Base64-encodes [encryptedSeed] for persistence. Test-only.

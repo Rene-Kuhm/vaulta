@@ -15,8 +15,10 @@ enum PasswordPolicyVerdict {
   /// against the device's own user.
   tooLong,
 
-  /// Present in the shipped blocklist, or a trivial character-class
-  /// mutation of a blocklist entry.
+  /// Breached-password screening, checked offline.
+  ///
+  /// Catches the curated list plus, once [loadBreachCorpus] has run, the
+  /// NCSC 100k corpus indexed by digest. Never reaches the network.
   breached,
 }
 
@@ -64,26 +66,51 @@ class PasswordPolicy {
 
   /// True when [password] is on the blocklist or folds onto an entry.
   ///
-  /// Checks the raw lowercase form first, then the folded form against
-  /// the *folded* list, so that both `password1234` and `p@ssw0rd1234`
-  /// are caught: each folds to the same value, and the raw list entry
-  /// `password1234` is what puts that value in the folded list.
+  /// Checks four forms of the candidate: the lowercased password, its folded
+  /// form, and both with trailing digits stripped, so that `password1234`
+  /// and `p@ssw0rd1234` are both caught. Every form is checked against the
+  /// in-source curated list *and* against the loaded corpus, and both sides
+  /// are indexed with the same fold (`foldForBlocklist`,
+  /// `stripTrailingDigits` — see `common_password_blocklist.dart`).
+  ///
+  /// The curated list is consulted first and needs no I/O. If the corpus is
+  /// not loaded yet, this returns exactly what it always returned: a screen
+  /// that is weaker, never one that is wrong. Read
+  /// [isBreachCorpusLoaded] to tell the two states apart.
   static bool isCommon(String password) {
     final lower = password.toLowerCase();
-    if (isListedPassword(lower)) {
-      return true;
-    }
-
     final folded = foldForBlocklist(lower);
-    if (isListedFoldedPassword(folded)) {
+    final withoutDigits = stripTrailingDigits(lower);
+    final foldedWithoutDigits = stripTrailingDigits(folded);
+
+    if (isListedPassword(lower) ||
+        isListedFoldedPassword(folded) ||
+        isListedPassword(withoutDigits) ||
+        isListedFoldedPassword(foldedWithoutDigits)) {
       return true;
     }
 
-    // "letmein12345" is the shape people reach for when they know the
-    // base word is weak. The fold alone does not catch it.
-    return isListedPassword(stripTrailingDigits(lower)) ||
-        isListedFoldedPassword(stripTrailingDigits(folded));
+    if (!isBreachCorpusLoaded) {
+      return false;
+    }
+    return breachCorpus.containsAny([
+      lower,
+      folded,
+      withoutDigits,
+      foldedWithoutDigits,
+    ]);
   }
+
+  /// True once the breach corpus asset has been loaded into memory.
+  ///
+  /// `false` means "not loaded yet", which is a gap in coverage, not a
+  /// verdict: the screen is the curated in-source list until it flips. The
+  /// UI uses this to decide whether to say anything about screening depth.
+  static bool get isBreachCorpusLoaded => breachCorpus.isLoaded;
+
+  /// Number of corpus digests in memory, or 0 while [isBreachCorpusLoaded]
+  /// is false.
+  static int get breachDigestCount => breachCorpus.digestCount;
 
   /// Classifies [password]. Does not throw and does not mutate.
   PasswordPolicyVerdict evaluate(String password) {

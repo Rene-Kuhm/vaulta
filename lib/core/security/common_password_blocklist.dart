@@ -4,26 +4,145 @@
 /// commonly used, expected or compromised passwords, and explicitly
 /// recommends *against* composition rules.
 ///
-/// ## Scope of this list, honestly stated
+/// ## What is actually shipped
 ///
-/// This is a **curated subset** of the passwords that appear at the top of
-/// every public breach corpus (the entries that dominate rockyou-style
-/// lists and credential-stuffing dictionaries). It is **not** the full
-/// Pwned Passwords corpus, which is roughly 800 MB even as truncated
-/// SHA-1 hashes and is not shippable inside an APK.
+/// Two layers, in this order:
 ///
-/// [PasswordBreachChecker] folds character-class mutations before looking
-/// the password up, which is what gives this short list most of its reach:
-/// `P@ssw0rd`, `p4ssword` and `Passw0rd!` all collapse onto `password`
-/// and are rejected.
+/// 1. **The corpus asset** (`assets/security/breached_password_sha256.txt`),
+///    generated from the UK NCSC top-100k most-used/breached passwords:
+///    99 838 passwords, held as **SHA-256 digests, never as plaintext**.
+///    Loaded once into [BreachCorpus] and consulted on every lookup.
+/// 2. **The curated in-source list** ([_rawEntries]) below, which is always
+///    available, needs no I/O, and is what the screen uses before the
+///    corpus finishes loading.
 ///
-/// ## Replacing it
+/// The two are complementary and the fallback is not a stub: the curated
+/// list is the only thing protecting the first few frames after launch, and
+/// it also covers the mutation cases (`P@ssw0rd`, `p4ssword`, `Passw0rd!`)
+/// that fold onto `password`.
 ///
-/// To move to a full corpus, generate a sorted list of SHA-1 prefixes of
-/// the corpus, ship it as a compressed asset, and replace [_entries] with
-/// a prefix lookup. The call sites do not change: they only call
-/// [PasswordBreachChecker.isCommon].
+/// ## Why digests and not the plaintext list
+///
+/// Shipping the corpus in plaintext would hand anyone who unpacks the APK a
+/// ready-made credential-stuffing wordlist, with a list-specific format and
+/// already ranked. Shipping digests means the APK does not itself become a
+/// cracking aid: unpacking it yields a set of one-way hashes, and an
+/// attacker who wants the plaintext needs the public corpus (or a guess),
+/// not this artifact. The corpus *is* public — the point is not secrecy
+/// about which passwords are breached, it is not handing over a tool.
+///
+/// ## Digest encoding: 16 lowercase hex characters of SHA-256
+///
+/// Every line of the asset is the **first 8 bytes (16 hex characters, 64
+/// bits) of the lowercase hex SHA-256 of one string**, one line per entry,
+/// LF-terminated, sorted, duplicates removed.
+///
+/// *Full 64-character digests were rejected on size*: 99 838 full digests are
+/// 6 489 470 bytes against 1 697 246 bytes for the same corpus truncated.
+/// Keeping the whole digest would not make the plaintext any harder to get —
+/// a truncated SHA-256 is no more invertible than a full one — so the extra
+/// 4.8 MB buys an attacker nothing they cannot already do with the public
+/// corpus.
+///
+/// *Truncating is safe here because this is a reject test.* A 64-bit prefix
+/// collision makes an innocent password share a prefix with a listed one,
+/// which costs a false rejection — the user is told to pick another — and
+/// never a false acceptance. The screening therefore cannot be weakened by a
+/// collision; only annoyed. Across the 161 426 digests the expected number of
+/// colliding pairs is about 7 x 10^-10.
+///
+/// ## The four indexed forms
+///
+/// A candidate is screened under four forms, and the corpus is indexed under
+/// the same four, computed by the *same* functions ([foldForBlocklist] and
+/// [stripTrailingDigits]) at build time:
+///
+/// | form | catches |
+/// |---|---|
+/// | `entry.toLowerCase()` | the password itself, typed in any case |
+/// | `foldForBlocklist(lower)` | `P@ssw0rd`, `p4ssword`, `mickey.` |
+/// | `stripTrailingDigits(lower)` | `letmein12345` when only `letmein` was seen |
+/// | `stripTrailingDigits(folded)` | both at once: `p@ssw0rd1234` |
+///
+/// 99 838 entries indexed four ways collapse to 161 426 distinct digests
+/// (folding and digit-stripping map many entries onto the same string, and
+/// duplicates are removed). Folding the *corpus* with the same function as
+/// the candidate is the load-bearing part: folding only the input would
+/// silently drop every mutation case.
+///
+/// Because the corpus side is pre-folded into the asset, loading costs a
+/// parse and a set insert — 22 ms measured for 161 426 lines on a
+/// development machine — instead of ~400 000 SHA-256 evaluations (~500 ms
+/// measured for the same machine, and proportionally worse on a phone).
+///
+/// ## Regenerating the asset
+///
+/// The plaintext corpus is never committed. Reproduce it from the public
+/// source, filter it, and index the four forms:
+///
+/// ```sh
+/// curl -sSL -o /tmp/ncsc.txt \
+///   https://raw.githubusercontent.com/danielmiessler/SecLists/refs/heads/master/Passwords/Common-Credentials/100k-most-used-passwords-NCSC.txt
+/// # 835538 bytes, sha256
+/// # c2e5696882c603b76bb67a47ee970897e5a76fc4c3f5547abe3d0ca340c576e0
+///
+/// # CR off, blank/whitespace-only lines out, control bytes out, embedded or
+/// # edge whitespace out, absurd lines out, duplicates out -> 99838 entries
+/// tr -d '\r' < /tmp/ncsc.txt | awk '
+///   /^[[:space:]]*$/ { next }   # blank
+///   /[[:cntrl:]]/     { next }   # control byte: not a typeable password
+///   /[[:space:]]/     { next }   # embedded or edge whitespace
+///   length($0) > 64  { next }   # parse damage, not a password
+///   { print }' | LC_ALL=C sort -u > /tmp/entries.txt
+///
+/// python3 - <<'PY'
+/// import hashlib, re
+/// FOLD = {'0':'o','1':'i','3':'e','4':'a','5':'s','7':'t',
+///         '@':'a','$':'s','!':'i','|':'i'}
+/// TRAILING_SYMBOLS = re.compile(r"[!@#$%^&*.,;]+$")
+/// TRAILING_DIGITS = re.compile(r"[0-9]+$")
+/// fold = lambda p: ''.join(FOLD.get(c, c) for c in TRAILING_SYMBOLS.sub('', p)).lower()
+/// strip_digits = lambda s: TRAILING_DIGITS.sub('', s, count=1)
+/// digests = set()
+/// for raw in open('/tmp/entries.txt', 'rb'):
+///     entry = raw.decode('utf-8').strip()
+///     if not entry or len(entry) > 64:            continue
+///     if any(ord(c) < 0x20 or ord(c) == 0x7f for c in entry): continue
+///     lower = entry.lower(); folded = fold(lower)
+///     for value in (lower, folded, strip_digits(lower), strip_digits(folded)):
+///         digests.add(hashlib.sha256(value.encode('utf-8')).hexdigest()[:16])
+/// open('assets/security/breached_password_sha256.txt', 'w',
+///      encoding='ascii', newline='\n').write('\n'.join(sorted(digests)) + '\n')
+/// PY
+/// ```
+///
+/// The recipe above is byte-identical to the artifact in the repo, and to a
+/// Dart generator that imports [foldForBlocklist] and [stripTrailingDigits]
+/// from this file, so the corpus cannot be folded by a different rule than a
+/// candidate is. Refreshing the corpus is a deliberate change: the digest
+/// count is pinned by
+/// `test/core/security/password_policy_test.dart`, which fails loudly
+/// rather than shipping a shorter screen.
 library;
+
+import 'dart:convert';
+
+import 'package:cryptography/dart.dart';
+import 'package:flutter/services.dart' show AssetBundle, rootBundle;
+
+/// Asset path of the shipped digest corpus, as declared in `pubspec.yaml`.
+///
+/// A directory prefix (`assets/security/`) is used so a future second corpus
+/// can sit beside it without renaming this one.
+const String breachCorpusAssetPath =
+    'assets/security/breached_password_sha256.txt';
+
+/// Length in hex characters of every digest in [breachCorpusAssetPath].
+///
+/// 16 characters is 8 bytes, the truncated SHA-256 prefix argued for in the
+/// library header. The loader skips lines of any other length, so this
+/// constant is the wire format: change it and the whole asset is invalid.
+const int breachDigestHexLength = 16;
 
 /// The curated blocklist, folded to lowercase.
 ///
@@ -190,3 +309,161 @@ bool isListedPassword(String lowercasedPassword) =>
 /// Checks an already-folded [password] against the folded blocklist.
 bool isListedFoldedPassword(String password) =>
     _foldedEntries.contains(password);
+
+/// The process-wide breach corpus, consulted by
+/// `PasswordPolicy.isCommon` after the in-source curated list.
+///
+/// Deliberately a mutable singleton behind an explicit [loadBreachCorpus]:
+/// [PasswordPolicy.isCommon] is synchronous and called from widget code, so
+/// it cannot await anything. Loading is fire-and-forget from the app's
+/// startup path, and until it finishes the screen is the curated list alone
+/// — weaker, never wrong (see `PasswordPolicy.isCommon`).
+final BreachCorpus breachCorpus = BreachCorpus();
+
+/// Loads [breachCorpusAssetPath] into a [BreachCorpus] and returns the
+/// number of distinct digests now in memory.
+///
+/// Defaults to the [breachCorpus] singleton and [rootBundle], which is what
+/// the app uses; tests pass their own [bundle] and [corpus] to stay
+/// isolated. Returns the existing count immediately when [corpus] is
+/// already loaded, so a second call is a no-op rather than a re-read: the
+/// corpus is immutable, and re-parsing 2.7 MB at every resume would be
+/// pointless.
+///
+/// Throws whatever [AssetBundle.load] throws when the asset is missing — a
+/// missing corpus is a build error, not something to paper over silently.
+/// A caller that wants to keep screening anyway can catch it and continue:
+/// the curated list is still in place.
+Future<int> loadBreachCorpus({
+  AssetBundle? bundle,
+  String assetKey = breachCorpusAssetPath,
+  BreachCorpus? corpus,
+}) async {
+  final target = corpus ?? breachCorpus;
+  if (target.isLoaded) {
+    return target.digestCount;
+  }
+
+  final data = await (bundle ?? rootBundle).load(assetKey);
+  // allowMalformed so a stray byte in the asset degrades to a line that is
+  // skipped and counted instead of taking the whole screen down.
+  final text = utf8.decode(
+    data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+    allowMalformed: true,
+  );
+
+  // LineSplitter already treats CR, LF and CRLF as terminators, so a
+  // CRLF-checked-out asset degrades to the same digests rather than to
+  // 16-char-and-one-extra lines that never match.
+  final digests = <String>{};
+  var malformed = 0;
+  for (final line in const LineSplitter().convert(text)) {
+    // Blank and whitespace-only lines are ignored, the same as the build's
+    // filter dropped them; only content lines of the wrong shape are
+    // counted as malformed.
+    if (line.trim().isEmpty) {
+      continue;
+    }
+    if (line.length != breachDigestHexLength) {
+      malformed++;
+      continue;
+    }
+    digests.add(line);
+  }
+
+  target._install(digests: digests, malformedLines: malformed);
+  return target.digestCount;
+}
+
+/// The loaded digest corpus: one in-memory set of truncated SHA-256 digests,
+/// looked up synchronously.
+///
+/// Every lookup form the runtime computes — lowercased, folded, and both with
+/// trailing digits stripped — is already indexed here, because the asset was
+/// generated with the same [foldForBlocklist] / [stripTrailingDigits] pair
+/// (see the library header). Hashing happens per *candidate*, never per
+/// corpus entry, so nothing is folded at load time.
+class BreachCorpus {
+  Set<String>? _digests;
+  int _malformedLines = 0;
+
+  static const _sha256 = DartSha256();
+  static const _hexDigits = '0123456789abcdef';
+
+  /// True once [loadBreachCorpus] has installed a digest set.
+  ///
+  /// This is what lets a screen tell "the corpus has not arrived yet" apart
+  /// from "this password is not breached": the first is a gap in coverage,
+  /// the second is a verdict.
+  bool get isLoaded => _digests != null;
+
+  /// Number of distinct digests held in memory, or 0 before loading.
+  ///
+  /// Equals the line count of [breachCorpusAssetPath] for the shipped asset
+  /// (161 426).
+  int get digestCount => _digests?.length ?? 0;
+
+  /// Number of asset lines skipped for not being a well-formed digest.
+  ///
+  /// Diagnostics only: the shipped asset has 0. A non-zero value means the
+  /// artifact is damaged, and the screen is correspondingly weaker, so it is
+  /// worth logging rather than ignoring.
+  int get malformedLineCount => _malformedLines;
+
+  /// True when any of [candidates] is in the corpus.
+  ///
+  /// [candidates] must already be in the indexed forms — in practice the four
+  /// forms `PasswordPolicy.isCommon` derives from the candidate. Hashing is
+  /// four short SHA-256 evaluations, which measured at roughly 2 us, so this
+  /// stays cheap enough to run on every keystroke if a UI ever wants to.
+  ///
+  /// Returns false when nothing is loaded, so an unloaded corpus is a
+  /// no-op rather than an error.
+  bool containsAny(List<String> candidates) {
+    final digests = _digests;
+    if (digests == null) {
+      return false;
+    }
+    for (final candidate in candidates) {
+      if (digests.contains(_truncatedDigest(candidate))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Drops the loaded digests and returns to the curated-only screen.
+  ///
+  /// Used by tests to start from a known state, and by a caller that wants
+  /// the memory back. The curated in-source list is untouched by this: it is
+  /// not part of the corpus.
+  void clear() {
+    _digests = null;
+    _malformedLines = 0;
+  }
+
+  /// Installs a parsed digest set. Private: only [loadBreachCorpus] builds
+  /// one, so no caller can put an arbitrary set in front of the screen.
+  void _install({
+    required Set<String> digests,
+    required int malformedLines,
+  }) {
+    _digests = digests;
+    _malformedLines = malformedLines;
+  }
+}
+
+/// The truncated SHA-256 hex digest of [value], in the asset's encoding.
+///
+/// Byte-for-byte what the build script computes for a corpus entry, which is
+/// the whole reason folding the candidate can match a folded corpus entry.
+String _truncatedDigest(String value) {
+  final bytes = BreachCorpus._sha256.hashSync(utf8.encode(value)).bytes;
+  final digest = StringBuffer();
+  for (var index = 0; index < breachDigestHexLength ~/ 2; index++) {
+    digest
+      ..writeCharCode(BreachCorpus._hexDigits.codeUnitAt(bytes[index] >> 4))
+      ..writeCharCode(BreachCorpus._hexDigits.codeUnitAt(bytes[index] & 0x0f));
+  }
+  return digest.toString();
+}

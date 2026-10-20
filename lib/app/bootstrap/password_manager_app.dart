@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -9,6 +10,7 @@ import '../../core/security/android_keystore_envelope_key_provider.dart';
 import '../../core/security/biometric_auth_service.dart';
 import '../../core/security/biometric_key_envelope_service.dart';
 import '../../core/security/biometric_unlock_service.dart';
+import '../../core/security/common_password_blocklist.dart';
 import '../../core/security/flutter_secure_storage_service.dart';
 import '../../core/security/local_encrypted_vault_repository.dart';
 import '../../core/security/master_password_service.dart';
@@ -87,6 +89,15 @@ Future<void> runPasswordManagerApp() async {
       deviceSyncLifecycle: deviceSyncLifecycle,
     ),
   );
+
+  // Fire-and-forget on purpose. The breach corpus is ~2.7 MB of digests
+  // and takes tens of milliseconds to parse; blocking the first frame on
+  // it would make startup feel slower for a screen that does not need it
+  // yet. Until it lands, password screening falls back to the in-source
+  // curated list, which is correct but smaller: a password typed in the
+  // first moments after launch is screened against the short list. That
+  // trade is stated in ADR-001 rather than hidden.
+  unawaited(loadBreachCorpus());
 }
 
 /// On Android we use the hardware-backed KeyStore provider. On every

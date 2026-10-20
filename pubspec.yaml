@@ -57,6 +57,8 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  integration_test:
+    sdk: flutter
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -69,6 +71,14 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # Breached-password screening corpus: 161426 truncated SHA-256 digests of
+  # the UK NCSC top-100k most-used passwords, never plaintext. Loaded once
+  # at startup by loadBreachCorpus() in
+  # lib/core/security/common_password_blocklist.dart; the in-source curated
+  # list is what screens passwords until that load completes.
+  assets:
+    - assets/security/breached_password_sha256.txt
 
   # To add assets to your application, add an assets section, like this:
   # assets:
