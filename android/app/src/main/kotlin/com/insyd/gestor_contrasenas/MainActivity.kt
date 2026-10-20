@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.util.Log
+import android.view.WindowManager
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators
 import androidx.biometric.BiometricPrompt
@@ -48,6 +49,15 @@ import javax.crypto.spec.PSource
  *     side turns that into an intent to
  *     [Settings.ACTION_BIOMETRIC_ENROLL] so the user can configure
  *     a fingerprint/face without leaving the app flow.
+ *
+ * Screen protection: the window is marked
+ * [WindowManager.LayoutParams.FLAG_SECURE] in [onCreate], before
+ * `super.onCreate` attaches the Flutter view, so vault content never
+ * reaches screenshots, screen recordings, casting/mirroring or the
+ * recents thumbnail. On API 33+ [setRecentsScreenshotEnabled] is also
+ * disabled so the system does not snapshot the task at all. The
+ * flag is always on; the BiometricPrompt is a system-owned dialog
+ * and is unaffected.
  */
 class MainActivity : FlutterFragmentActivity() {
 
@@ -56,6 +66,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        applyScreenProtection()
         super.onCreate(savedInstanceState)
         applyVaultaTaskDescription()
     }
@@ -76,6 +87,21 @@ class MainActivity : FlutterFragmentActivity() {
             this::openBiometricEnrollment,
         )
         UpdateChannel(flutterEngine, applicationContext)
+    }
+
+    /**
+     * Blocks screenshots, screen recording, casting and the recents
+     * thumbnail for this window. Must run before any content is
+     * shown, so it is called at the very top of [onCreate].
+     */
+    private fun applyScreenProtection() {
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE,
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            setRecentsScreenshotEnabled(false)
+        }
     }
 
     private fun applyVaultaTaskDescription() {
