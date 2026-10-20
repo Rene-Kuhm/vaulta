@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'secure_storage_service.dart';
@@ -59,12 +60,27 @@ enum UnlockAttemptOutcome {
 ///
 /// Clock defenses:
 /// - Rollback: if the current time is earlier than the last recorded
-///   failure, the device is treated as still locked out and the
-///   lockout is re-anchored at "now" for its full duration.
+///   failure (the clock was moved back, or was ahead and got corrected
+///   by NTP), stored timestamps are clamped to "now" and the lockout
+///   is re-anchored there for its full duration, and that re-anchored
+///   state is persisted. The device is therefore locked for at most
+///   one lockout period measured on the corrected clock, and never
+///   unlocks earlier than that. `lockedUntil` is likewise clamped to
+///   `lastFailureAt` plus the scheduled lockout, so a future value
+///   cannot extend a lockout either.
 /// - Forward jump: within one process, a lockout also has to elapse
 ///   on a monotonic clock, so moving the device clock forward does not
-///   end it early. Across restarts only the persisted wall-clock
-///   timestamps survive, so that protection does not carry over.
+///   end it early.
+///
+/// Documented limits (accepted):
+/// - Forward clock jump plus an app restart ends a lockout early:
+///   across restarts only the persisted wall-clock timestamps survive,
+///   the monotonic clock does not.
+/// - Concurrent desktop instances can each get one guess per lockout
+///   window: there is no cross-process lock around the read-merge-write
+///   in [runAttempt]. A desktop user with file access can delete the
+///   stored key anyway, so the Argon2id cost per guess remains the
+///   primary defense there.
 ///
 /// The limiter never wipes the vault: users have no export path yet,
 /// so an auto-wipe would be silent data loss.
@@ -139,6 +155,12 @@ class UnlockAttemptLimiter {
     if (lockoutForFailureCount(_state.failedCount) == Duration.zero) {
       return null;
     }
+    // A rollback can happen while the lock screen is idle (the unlock
+    // button stays disabled, so no attempt would ever re-anchor it).
+    // Re-anchor here too, and persist best effort.
+    if (_reanchorIfClockRolledBack()) {
+      unawaited(_tryWritePersisted(_state));
+    }
     final wall = _wallRemaining(_now()) ?? Duration.zero;
     final deadline = _monotonicDeadline;
     final monotonic = deadline == null
@@ -163,7 +185,9 @@ class UnlockAttemptLimiter {
       return;
     }
     _monotonicDeadline = null;
-    _reanchorIfClockRolledBack();
+    if (_reanchorIfClockRolledBack()) {
+      await _tryWritePersisted(_state);
+    }
     _extendMonotonicDeadlineToWallClock();
   }
 
@@ -190,7 +214,6 @@ class UnlockAttemptLimiter {
       } catch (_) {
         return UnlockAttemptOutcome.storageFailure;
       }
-      _reanchorIfClockRolledBack();
       if (isLockedOut) {
         return UnlockAttemptOutcome.rejected;
       }
@@ -282,12 +305,24 @@ class UnlockAttemptLimiter {
       persisted = _failClosedState();
       await _tryWritePersisted(persisted);
     }
-    if (persisted == null) {
-      // Absent (never written, or cleared by a success elsewhere).
-      // Keep the in-memory view: never weaker than what we know.
-      return;
+    var needsWrite = false;
+    if (persisted != null) {
+      // Clamp before merging: a future timestamp (written while the
+      // clock was ahead) must not win the "latest timestamp" merge on
+      // every attempt and keep the lockout from ever ending.
+      final clamped = persisted.clampedTo(_now());
+      needsWrite = !identical(clamped, persisted);
+      _state = _state.merge(clamped);
     }
-    _state = _state.merge(persisted);
+    // Absent persisted state (never written, or cleared by a success
+    // elsewhere) keeps the in-memory view: never weaker than what we
+    // know.
+    if (_reanchorIfClockRolledBack()) {
+      needsWrite = true;
+    }
+    if (needsWrite) {
+      await _tryWritePersisted(_state);
+    }
     _extendMonotonicDeadlineToWallClock();
   }
 
@@ -303,28 +338,27 @@ class UnlockAttemptLimiter {
     }
   }
 
-  void _reanchorIfClockRolledBack() {
-    final last = _state.lastFailureAt;
-    if (last == null) {
-      return;
-    }
+  /// Clamps the in-memory state to "now" (see [_AttemptState.clampedTo]).
+  /// When `lastFailureAt` was in the future, the lockout restarts at
+  /// "now" on both clocks. Returns true when the state changed, so the
+  /// caller can persist it.
+  bool _reanchorIfClockRolledBack() {
     final now = _now();
-    if (!now.isBefore(last)) {
-      return;
+    final clamped = _state.clampedTo(now);
+    if (identical(clamped, _state)) {
+      return false;
     }
+    final rolledBack = clamped.lastFailureAt != _state.lastFailureAt;
+    _state = clamped;
     final lockout = lockoutForFailureCount(_state.failedCount);
-    _state = _AttemptState(
-      failedCount: _state.failedCount,
-      lastFailureAt: now,
-      lockedUntil: lockout == Duration.zero ? null : now.add(lockout),
-    );
-    if (lockout != Duration.zero) {
+    if (rolledBack && lockout != Duration.zero) {
       final candidate = _monotonicClock() + lockout;
       final current = _monotonicDeadline;
       if (current == null || candidate > current) {
         _monotonicDeadline = candidate;
       }
     }
+    return true;
   }
 
   _AttemptState _failClosedState() {
@@ -381,6 +415,33 @@ class _AttemptState {
   final int failedCount;
   final DateTime? lastFailureAt;
   final DateTime? lockedUntil;
+
+  /// Returns this state with `lastFailureAt` clamped to at most [now]
+  /// and `lockedUntil` clamped to at most `lastFailureAt` plus the
+  /// scheduled lockout for [failedCount]. Returns `this` (identical)
+  /// when nothing needed clamping.
+  _AttemptState clampedTo(DateTime now) {
+    var last = lastFailureAt;
+    if (last != null && now.isBefore(last)) {
+      last = now;
+    }
+    final lockout = UnlockAttemptLimiter.lockoutForFailureCount(failedCount);
+    final maxUntil = last == null || lockout == Duration.zero
+        ? null
+        : last.add(lockout);
+    var until = lockedUntil;
+    if (until != null && (maxUntil == null || until.isAfter(maxUntil))) {
+      until = maxUntil;
+    }
+    if (last == lastFailureAt && until == lockedUntil) {
+      return this;
+    }
+    return _AttemptState(
+      failedCount: failedCount,
+      lastFailureAt: last,
+      lockedUntil: until,
+    );
+  }
 
   /// Conservative merge: highest count, latest timestamps.
   _AttemptState merge(_AttemptState other) => _AttemptState(

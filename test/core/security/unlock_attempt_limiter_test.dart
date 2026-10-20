@@ -290,6 +290,103 @@ void main() {
       expect(restarted.remainingLockout(), const Duration(seconds: 120));
     });
 
+    group('clock ahead, then corrected backwards (e.g. by NTP)', () {
+      // Ported from the security re-review repro: a future
+      // lastFailureAt used to win every merge and lock the user out
+      // until the wall clock caught up (months).
+      Future<UnlockAttemptLimiter> lockedWhileClockAhead() async {
+        clocks = _FakeClocks(DateTime.utc(2027, 1, 1));
+        final limiter = newLimiter();
+        await limiter.load();
+        for (var i = 0; i < 5; i++) {
+          expect(await limiter.runAttempt(wrong), UnlockAttemptOutcome.failed);
+        }
+        // NTP corrects the clock back to real time. No real time
+        // passes on the monotonic clock.
+        clocks.advanceWallOnly(
+          DateTime.utc(2026, 10, 19, 12).difference(DateTime.utc(2027, 1, 1)),
+        );
+        return limiter;
+      }
+
+      Future<UnlockAttemptOutcome> correctPassword(UnlockAttemptLimiter l) =>
+          l.runAttempt(() async => true);
+
+      test(
+        'locked now, unlocks after one lockout on the corrected clock',
+        () async {
+          final limiter = await lockedWhileClockAhead();
+
+          expect(await correctPassword(limiter), UnlockAttemptOutcome.rejected);
+          clocks.advance(const Duration(seconds: 29));
+          expect(await correctPassword(limiter), UnlockAttemptOutcome.rejected);
+          clocks.advance(const Duration(seconds: 1));
+          expect(
+            await correctPassword(limiter),
+            UnlockAttemptOutcome.succeeded,
+          );
+        },
+      );
+
+      test(
+        'the re-anchored state is persisted, not left in the future',
+        () async {
+          final limiter = await lockedWhileClockAhead();
+
+          expect(limiter.isLockedOut, isTrue);
+          await correctPassword(limiter);
+
+          final stored = DateTime.parse(
+            persisted()['lastFailureAt']! as String,
+          );
+          final storedUntil = DateTime.parse(
+            persisted()['lockedUntil']! as String,
+          );
+          expect(stored, DateTime.utc(2026, 10, 19, 12));
+          expect(storedUntil, DateTime.utc(2026, 10, 19, 12, 0, 30));
+        },
+      );
+
+      test('an idle lock screen (no attempts) also unlocks in time', () async {
+        final limiter = await lockedWhileClockAhead();
+
+        // The unlock button is disabled while locked, so only
+        // remainingLockout() is polled by the countdown.
+        expect(limiter.remainingLockout(), const Duration(seconds: 30));
+        clocks.advance(const Duration(seconds: 30));
+        expect(limiter.isLockedOut, isFalse);
+      });
+
+      test('survives a restart with the same result', () async {
+        await lockedWhileClockAhead();
+
+        final restarted = newLimiter();
+        await restarted.load();
+
+        expect(restarted.remainingLockout(), const Duration(seconds: 30));
+        expect(await correctPassword(restarted), UnlockAttemptOutcome.rejected);
+        clocks.advance(const Duration(seconds: 30));
+        expect(
+          await correctPassword(restarted),
+          UnlockAttemptOutcome.succeeded,
+        );
+      });
+
+      test('a far-future stored lockedUntil is clamped on read', () async {
+        final limiter = newLimiter();
+        await limiter.load();
+        await failTimes(limiter, 5);
+        final state = persisted()
+          ..['lastFailureAt'] = DateTime.utc(2099).toIso8601String()
+          ..['lockedUntil'] = DateTime.utc(2099, 1, 2).toIso8601String();
+        storage.values[UnlockAttemptLimiter.stateKey] = jsonEncode(state);
+
+        expect(await correctPassword(limiter), UnlockAttemptOutcome.rejected);
+        clocks.advance(const Duration(seconds: 30));
+        expect(await correctPassword(limiter), UnlockAttemptOutcome.succeeded);
+      });
+    });
+
     test('forward clock jump does not end a lockout in-process', () async {
       final limiter = newLimiter();
       await limiter.load();
@@ -410,8 +507,8 @@ void main() {
       final restarted = newLimiter();
       await restarted.load();
 
-      // Bounded to one full lockout from now, not 2099.
-      expect(restarted.remainingLockout(), const Duration(seconds: 30));
+      // Clamped to lastFailureAt + the scheduled 30 s, not 2099.
+      expect(restarted.remainingLockout(), const Duration(seconds: 20));
     });
   });
 }
