@@ -1,4 +1,5 @@
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
@@ -31,15 +32,16 @@ val hasReleaseSigning = listOf(
 android {
     namespace = "com.insyd.gestor_contrasenas"
     compileSdk = flutter.compileSdkVersion
+    // androidx.biometric 1.4.0-alpha07 ships AAR metadata that requires
+    // compileSdk 36.1 or later. AGP 8.x ignored the minor revision, AGP 9
+    // enforces it at `:app:checkDebugAarMetadata`, so pin it explicitly
+    // instead of jumping a whole API level.
+    compileSdkMinor = 1
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
     defaultConfig {
@@ -80,6 +82,14 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
+    }
+}
+
+// AGP 9 deprecates `android.kotlinOptions`; with the external Kotlin plugin
+// (android.builtInKotlin=false) the target is set through the KGP DSL instead.
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
