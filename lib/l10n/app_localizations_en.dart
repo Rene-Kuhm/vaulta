@@ -155,7 +155,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsRoadmapTitle => 'Platform security roadmap';
 
   @override
-  String get settingsRoadmapNotes => 'Vault items use ADR-001 v2: Argon2id derives a KEK from the master password, and a random DEK encrypts entries with AES-256-GCM. Android now uses KeyStore for biometric unlock; iOS/macOS bindings remain pending.';
+  String get settingsRoadmapNotes => 'Vault items use ADR-001 payload v3: Argon2id derives a KEK from the master password, a random DEK encrypts each entry with AES-256-GCM, and every ciphertext is bound to its record id and key id. Android recovers the DEK with biometrics through a KeyStore key; iOS/macOS bindings remain pending.';
 
   @override
   String get settingsSecureStorage => 'Secure storage';
@@ -773,55 +773,34 @@ class AppLocalizationsEn extends AppLocalizations {
   String get accessEyebrow => 'Autofill & access';
 
   @override
-  String get accessTitle => 'Vault on every input';
+  String get accessTitle => 'Autofill is on the way';
 
   @override
-  String get accessSubtitle => 'Set Vaulta as the system autofill provider and unlock your entries the moment a password field needs them.';
+  String get accessSubtitle => 'Vaulta cannot fill passwords in other apps yet. This screen will walk you through the setup as soon as the Android autofill service ships.';
 
   @override
-  String get accessHeroTitle => 'One-tap autofill';
+  String get accessHeroTitle => 'Autofill: coming soon';
 
   @override
-  String get accessHeroBody => 'Hardware-backed. Offline-first. No data leaves the device.';
+  String get accessHeroBody => 'Until then, open the entry in Vaulta and copy the secret. Copied secrets are cleared from the clipboard automatically.';
 
   @override
-  String get accessPlatformAndroid => 'Android 11+';
+  String get accessPlatformAndroid => 'Android first';
 
   @override
-  String get accessPlatformBiometrics => 'Biometric unlock';
+  String get accessComingSoon => 'Coming soon';
 
   @override
-  String get accessPlatformOffline => 'Offline by default';
+  String get accessStatusTitle => 'Not available in this version';
 
   @override
-  String get accessSetupTitle => 'Setup in three steps';
-
-  @override
-  String get accessSetupSubtitle => 'On Android 11 and above the platform exposes an Autofill service that Vaulta can plug into.';
-
-  @override
-  String get accessSetupStep1Title => 'Open Android settings';
-
-  @override
-  String get accessSetupStep1Body => 'Go to System → Languages & input → Autofill service.';
-
-  @override
-  String get accessSetupStep2Title => 'Pick Vaulta';
-
-  @override
-  String get accessSetupStep2Body => 'Select Vaulta as the active service. Android will ask for confirmation.';
-
-  @override
-  String get accessSetupStep3Title => 'Unlock and approve';
-
-  @override
-  String get accessSetupStep3Body => 'Next time you tap a password field, Vaulta prompts for biometrics or master password and fills the right entry.';
+  String get accessStatusBody => 'This build does not register an Android autofill service, so Vaulta will not appear under Settings → Autofill service yet. Nothing on this screen changes your system settings.';
 
   @override
   String get accessUnlockPostureTitle => 'Unlock posture';
 
   @override
-  String get accessUnlockPostureBody => 'Autofill requests are gated by the same unlock state as the rest of the app.';
+  String get accessUnlockPostureBody => 'When autofill ships, its requests will be gated by the same unlock state as the rest of the app.';
 
   @override
   String get accessUnlocked => 'Vault is unlocked';
@@ -836,5 +815,5 @@ class AppLocalizationsEn extends AppLocalizations {
   String get accessRoadmapTitle => 'What\'s next';
 
   @override
-  String get accessRoadmapBody => 'iOS and desktop autofill ship after the biometric platform bindings (iOS/macOS) are in place.';
+  String get accessRoadmapBody => 'Next up: a native Android autofill service that reuses this screen. iOS and desktop autofill come after it.';
 }

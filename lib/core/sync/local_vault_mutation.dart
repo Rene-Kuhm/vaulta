@@ -53,7 +53,9 @@ class LocalVaultMutation {
   /// dispatch.
   final String localRecordId;
 
-  /// Base64 ciphertext (upsert only). Null for deletes.
+  /// Ciphertext (upsert only). Null for deletes. Plain base64 for
+  /// legacy v1/v2 payloads; for v3 it is the record-bound wire form
+  /// produced by `SyncItemPayloadCodec.encode`.
   final String? ciphertext;
 
   /// Base64 nonce (upsert only). Null for deletes.
@@ -62,8 +64,10 @@ class LocalVaultMutation {
   /// Base64 GCM auth tag (upsert only). Null for deletes.
   final String? gcmTag;
 
-  /// DEK version used to encrypt this payload. The remote uses it to
-  /// decide whether a rekey is in flight.
+  /// Item payload format version (1, 2 or 3), shipped as the backend
+  /// `key_version` column so other devices know how to decode the
+  /// payload. Version 3 means the ciphertext is bound to its record id
+  /// and key id through AES-GCM associated data.
   final int? keyVersion;
 
   /// When the local mutation happened. The push queue uses this to

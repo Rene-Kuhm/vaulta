@@ -7,6 +7,7 @@ import 'package:gestor_contrasenas/core/sync/local_remote_vault_store.dart';
 import 'package:gestor_contrasenas/core/sync/local_vault_mutation.dart';
 import 'package:gestor_contrasenas/core/sync/remote_vault_blob_change.dart';
 import 'package:gestor_contrasenas/core/sync/remote_vault_sync_repository.dart';
+import 'package:gestor_contrasenas/core/sync/sync_item_payload_codec.dart';
 import 'package:gestor_contrasenas/core/sync/sync_runtime_hardening.dart';
 
 class _InMemorySecureStorageService implements SecureStorageService {
@@ -389,5 +390,92 @@ void main() {
 
       expect(repository.afterOpIds.length, 2);
     });
+
+    test(
+      'REQ-BS-AAD: v3 payloads ship their version and are only applied '
+      'under the row their bound record id derives to',
+      () async {
+        final storage = _InMemorySecureStorageService();
+        final localStore = LocalRemoteVaultStore(storage: storage);
+        final pullBatches = <int, List<RemoteVaultBlobChange>>{};
+        final repository = _FakeRemoteVaultSyncRepository(
+          pullBatches: pullBatches,
+        );
+        final events = <SyncDiagnosticEvent>[];
+        final applied = <RemoteVaultBlobSnapshot>[];
+        final service = BidirectionalSyncService(
+          repository: repository,
+          localStore: localStore,
+          readDeviceId: () async => 'device-1',
+          pullThrottleInterval: Duration.zero,
+          now: () => DateTime.utc(2026, 6, 11, 12, 0),
+          diagnosticsHook: events.add,
+          applyLocalSnapshots: (snapshots) async {
+            applied.addAll(snapshots);
+            return const ['refused-by-vault'];
+          },
+        );
+        final wire = SyncItemPayloadCodec.encode(
+          recordId: 'entry-1',
+          ciphertextB64: 'Y2lwaGVy',
+        );
+
+        await service.onLocalMutation(
+          LocalVaultMutation.upsert(
+            localRecordId: 'entry-1',
+            ciphertext: wire,
+            nonce: 'bm9uY2U=',
+            gcmTag: 'dGFn',
+            keyVersion: 3,
+            occurredAt: DateTime.utc(2026, 6, 11, 12, 0),
+          ),
+        );
+        final pushed = repository.upsertCalls.single;
+        expect(pushed.keyVersion, 3);
+        expect(pushed.ciphertext, wire);
+        final ownRow = pushed.recordId;
+        const otherRow = '11111111-1111-4111-8111-111111111111';
+
+        RemoteVaultBlobChange change(int cursor, String row, String text) {
+          return RemoteVaultBlobChange(
+            opCursor: cursor,
+            recordId: row,
+            version: 2,
+            keyVersion: 3,
+            ciphertext: text,
+            nonce: 'bm9uY2U=',
+            gcmTag: 'dGFn',
+            updatedAt: DateTime.utc(2026, 6, 11, 12, 0),
+          );
+        }
+
+        pullBatches[0] = [
+          change(1, ownRow, wire),
+          // Same bound ciphertext moved onto another row: rejected.
+          change(2, otherRow, wire),
+          // v3-tagged but no record binding on the wire: rejected.
+          change(3, '22222222-2222-4222-8222-222222222222', 'Y2lwaGVy'),
+        ];
+
+        await service.pullNow(force: true);
+
+        expect(applied.map((s) => s.recordId), ['entry-1']);
+        final rejections = events
+            .where((e) => e.code == SyncStatusCodes.payloadRejected)
+            .map((e) => e.metadata['reason'])
+            .toList();
+        expect(
+          rejections,
+          ['record_binding_mismatch', 'malformed_binding', 'refused_by_vault'],
+        );
+        expect(
+          await localStore.resolveLocalRecordId(
+            userId: 'user-1',
+            remoteRecordId: ownRow,
+          ),
+          'entry-1',
+        );
+      },
+    );
   });
 }

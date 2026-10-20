@@ -31,8 +31,10 @@ class RemoteVaultBlobChange {
   /// checks against this value.
   final int version;
 
-  /// DEK version used to encrypt the payload. The pull path uses
-  /// this to know whether a rekey is in flight.
+  /// Item payload format version (backend `key_version` column).
+  /// Version 3 marks a record-bound payload whose [ciphertext] uses
+  /// the `SyncItemPayloadCodec` wire form; a vault migrated to v3
+  /// refuses anything lower.
   final int keyVersion;
 
   /// Base64 ciphertext. Null for tombstones.
@@ -170,7 +172,7 @@ class RemoteVaultBlobSnapshot {
   /// Vault record version.
   final int version;
 
-  /// DEK version.
+  /// Item payload format version (see [RemoteVaultBlobChange.keyVersion]).
   final int keyVersion;
 
   /// Base64 ciphertext. Null for tombstones.

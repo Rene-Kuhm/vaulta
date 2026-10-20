@@ -23,6 +23,12 @@ typedef VaultRekeyEntries =
       required VaultSession targetSession,
     });
 
+/// Function signature for the repository hook that upgrades every
+/// stored item to the current payload format (v3, record-bound AAD).
+/// The controller calls it after each successful unlock, once the new
+/// session is active. It must be idempotent.
+typedef VaultMigrateEntries = Future<void> Function();
+
 /// Top-level UI state of the vault. Drives which screen the
 /// [SecurityGate] renders.
 enum VaultSecurityStage {
@@ -54,7 +60,10 @@ class VaultSecurityController extends ChangeNotifier {
   /// [masterPasswordService] runs the KDF and record lifecycle.
   /// [biometricAuthService] probes the platform's biometric gate.
   /// [rekeyEntries] is the repository hook invoked on master password
-  /// change to re-encrypt every entry. [biometricEnvelopeService]
+  /// change to re-encrypt every entry. [migrateEntries] is the
+  /// repository hook run after every successful unlock to upgrade
+  /// stored items to the current payload format; if it fails the vault
+  /// stays locked. [biometricEnvelopeService]
   /// wraps the DEK for biometric unlock; defaults to a service built
   /// from [storage]. [biometricUnlockService] is the runtime unlock
   /// orchestrator. [unlockAttemptLimiter] throttles master-password
@@ -66,6 +75,7 @@ class VaultSecurityController extends ChangeNotifier {
     required MasterPasswordService masterPasswordService,
     required BiometricAuthService biometricAuthService,
     VaultRekeyEntries? rekeyEntries,
+    VaultMigrateEntries? migrateEntries,
     BiometricKeyEnvelopeService? biometricEnvelopeService,
     BiometricUnlockService? biometricUnlockService,
     UnlockAttemptLimiter? unlockAttemptLimiter,
@@ -74,6 +84,7 @@ class VaultSecurityController extends ChangeNotifier {
        _masterPasswordService = masterPasswordService,
        _biometricAuthService = biometricAuthService,
        _rekeyEntries = rekeyEntries ?? _unsupportedRekey,
+       _migrateEntries = migrateEntries,
        _biometricEnvelopeService = biometricEnvelopeService ??
            BiometricKeyEnvelopeService(storage: storage),
        _biometricUnlockService = biometricUnlockService,
@@ -103,6 +114,7 @@ class VaultSecurityController extends ChangeNotifier {
   final MasterPasswordService _masterPasswordService;
   final BiometricAuthService _biometricAuthService;
   final VaultRekeyEntries _rekeyEntries;
+  final VaultMigrateEntries? _migrateEntries;
   final BiometricKeyEnvelopeService _biometricEnvelopeService;
   final BiometricUnlockService? _biometricUnlockService;
   final UnlockAttemptLimiter _unlockAttemptLimiter;
@@ -423,6 +435,9 @@ class VaultSecurityController extends ChangeNotifier {
         dekWrap: record.dekWrap!,
       );
       await _storage.save(masterPasswordRecordKey, record.encode());
+      if (!await _migrateEntriesAfterUnlock()) {
+        return false;
+      }
       await _persistBiometricPreference(enableBiometrics);
       await _enrollBiometricEnvelopeIfNeeded(record);
 
@@ -503,6 +518,9 @@ class VaultSecurityController extends ChangeNotifier {
       }
 
       _vaultSession = activeSession;
+      if (!await _migrateEntriesAfterUnlock()) {
+        return false;
+      }
 
       // Always try to (re)enroll the biometric envelope on a fresh
       // unlock. The enrollment is silent (no biometric prompt) and
@@ -558,6 +576,9 @@ class VaultSecurityController extends ChangeNotifier {
           // are not counted here.
           await _unlockAttemptLimiter.recordSuccess();
           _vaultSession = session;
+          if (!await _migrateEntriesAfterUnlock()) {
+            return false;
+          }
           _stage = VaultSecurityStage.unlocked;
           _envelopeEnrolled = true;
           _message = 'Vaulta desbloqueada con biometria.';
@@ -1142,6 +1163,31 @@ class VaultSecurityController extends ChangeNotifier {
         _unlockAttemptStateUnavailable = true;
         _message = null;
         return false;
+    }
+  }
+
+  /// Runs the [VaultMigrateEntries] hook against the session that was
+  /// just activated. Fails closed: if the upgrade throws, the session
+  /// is dropped and the vault stays locked (the stored items are left
+  /// intact by the repository, so the next unlock simply retries).
+  /// Returns true when the vault may proceed to the unlocked stage.
+  Future<bool> _migrateEntriesAfterUnlock() async {
+    final migrate = _migrateEntries;
+    if (migrate == null) {
+      return true;
+    }
+    try {
+      await migrate();
+      return true;
+    } catch (error) {
+      debugPrint(
+        '[Vaulta] item payload migration failed: ${error.runtimeType}',
+      );
+      _vaultSession = null;
+      _stage = VaultSecurityStage.locked;
+      _message =
+          'No pudimos actualizar el cifrado del vault. Tus datos siguen intactos; volve a desbloquear para reintentar.';
+      return false;
     }
   }
 

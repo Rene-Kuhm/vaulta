@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_auth/local_auth.dart';
@@ -361,6 +362,82 @@ void main() {
 
       expect(repository.lastRevokeAllCurrentDeviceId, 'current-device');
       expect(repository.revokeAllOtherCalls, 1);
+    });
+  });
+
+  group('SettingsScreen platform capabilities', () {
+    Future<Map<String, bool>> renderCapabilities(
+      WidgetTester tester,
+      TargetPlatform platform,
+    ) async {
+      debugDefaultTargetPlatformOverride = platform;
+      final controller = await _buildUnlockedController();
+      final localeController = AppLocaleController(
+        storage: _InMemorySecureStorageService(),
+      );
+      await localeController.initialize();
+      addTearDown(controller.dispose);
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1200, 12000);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        _testApp(
+          SettingsScreen(
+            securityController: controller,
+            localeController: localeController,
+          ),
+        ),
+      );
+      await _pumpUi(tester);
+
+      bool enabled(String title) {
+        final row = find
+            .ancestor(of: find.text(title), matching: find.byType(Row))
+            .first;
+        return find
+            .descendant(
+              of: row,
+              matching: find.byIcon(Icons.verified_user_rounded),
+            )
+            .evaluate()
+            .isNotEmpty;
+      }
+
+      final result = {
+        'biometric': enabled('Biometric key recovery'),
+        'hardware': enabled('Hardware-backed keys'),
+        'storage': enabled('Secure storage'),
+      };
+      debugDefaultTargetPlatformOverride = null;
+      return result;
+    }
+
+    testWidgets('Android reports KeyStore-backed biometric unlock', (
+      tester,
+    ) async {
+      final capabilities = await renderCapabilities(
+        tester,
+        TargetPlatform.android,
+      );
+      expect(capabilities, {
+        'biometric': true,
+        'hardware': true,
+        'storage': true,
+      });
+    });
+
+    testWidgets('Windows reports master password only', (tester) async {
+      final capabilities = await renderCapabilities(
+        tester,
+        TargetPlatform.windows,
+      );
+      expect(capabilities, {
+        'biometric': false,
+        'hardware': false,
+        'storage': true,
+      });
     });
   });
 }

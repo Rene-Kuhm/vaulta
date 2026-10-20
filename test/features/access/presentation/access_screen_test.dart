@@ -94,12 +94,71 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('AUTOFILL & ACCESS'), findsOneWidget);
-    expect(find.text('Vault on every input'), findsOneWidget);
+    expect(find.text('Autofill is on the way'), findsOneWidget);
 
     expect(find.text('Lock vault now'), findsOneWidget);
 
     await _disposeTree(tester);
   });
+
+  for (final (locale, comingSoon, statusTitle, forbidden) in [
+    (
+      const Locale('en'),
+      'Coming soon',
+      'Not available in this version',
+      ['Pick Vaulta', 'Setup in three steps', 'One-tap autofill'],
+    ),
+    (
+      const Locale('es'),
+      'Próximamente',
+      'No disponible en esta versión',
+      ['Elegí Vaulta', 'Configuracion en tres pasos', 'Autofill en un toque'],
+    ),
+  ]) {
+    testWidgets(
+      'AccessScreen shows an honest coming-soon state (${locale.languageCode})',
+      (tester) async {
+        tester.view.physicalSize = const Size(1080, 4000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final controller = VaultSecurityController(
+          storage: _InMemorySecureStorageService(),
+          masterPasswordService: MasterPasswordService.test(),
+          biometricAuthService: const _FakeBiometricAuthService(),
+        );
+        await controller.initialize();
+
+        await tester.pumpWidget(
+          MaterialApp(
+            locale: locale,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: AccessScreen(
+              securityController: controller,
+              repository: _EmptyVaultRepository(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text(comingSoon), findsOneWidget);
+        expect(find.text(statusTitle), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey('access-autofill-status')),
+          findsOneWidget,
+        );
+        // No instructions to pick Vaulta as the system autofill
+        // service: that service does not exist in this build.
+        for (final text in forbidden) {
+          expect(find.text(text), findsNothing, reason: text);
+        }
+
+        await _disposeTree(tester);
+      },
+    );
+  }
 }
 
 Future<void> _disposeTree(WidgetTester tester) async {

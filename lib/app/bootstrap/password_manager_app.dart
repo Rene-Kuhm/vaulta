@@ -61,6 +61,7 @@ Future<void> runPasswordManagerApp() async {
     masterPasswordService: MasterPasswordService(),
     biometricAuthService: biometricAuthService,
     rekeyEntries: repository.rekeyEntries,
+    migrateEntries: repository.migrateItemsToCurrentVersion,
     biometricEnvelopeService: envelopeService,
     biometricUnlockService: biometricUnlockService,
   );
