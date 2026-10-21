@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Metadata for VaultaAutofillService, loaded by the platform through the
+    "android.autofill" meta-data in AndroidManifest.xml.
+
+    * The root tag MUST be <autofill-service>. Any other root makes
+      AutofillServiceInfo drop the file ("Meta-data does not start with
+      autofill-service tag"), and the settings activity below is then lost.
+    * android:settingsActivity is read from THIS element, not from the <service>
+      element in the manifest. The manifest declares it too so the two
+      declarations are visibly the same value; keep them in sync. It is what the
+      system's autofill settings screen uses to open Vaulta.
+    * <compatibility-package> does not decide whether the service is offered.
+      It opts an *installed* package into the framework's legacy "compatibility
+      mode" up to a version code, and the framework honors an entry only when
+      its own allowlist (config_autofillCompatModePackages) contains that
+      package; anything else is logged as "Ignoring not allowed compat package".
+
+    The single entry below is androidx.autofill, the AndroidX integration. It
+    names a library rather than an installed app, so it matches nothing at
+    runtime and compatibility mode never engages for it: it is inert on purpose,
+    and it exists so this file carries the compatibility element the AndroidX
+    integration expects. The per-app entries that actually matter (browsers,
+    known apps) belong to the matching slice, where they come from evidence
+    instead of guesses.
+-->
+<autofill-service
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.insyd.gestor_contrasenas.MainActivity">
+    <compatibility-package android:name="androidx.autofill" />
+</autofill-service>
