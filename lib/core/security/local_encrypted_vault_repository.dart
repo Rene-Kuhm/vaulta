@@ -7,6 +7,7 @@ import '../../features/vault/domain/vault_item.dart';
 import '../../features/vault/domain/vault_summary.dart';
 import '../sync/local_vault_mutation.dart';
 import '../sync/remote_snapshot_applier.dart';
+import '../sync/remote_snapshot_envelope.dart';
 import '../sync/remote_vault_blob_change.dart';
 import '../sync/sync_item_payload_codec.dart';
 import 'aes_gcm_vault_crypto_service.dart';
@@ -400,7 +401,7 @@ class LocalEncryptedVaultRepository
     final itemKeyVersion = isItemKeyed ? _readPositiveInt(payload, 'iv') : null;
     if (isItemKeyed &&
         (itemKeySalt == null ||
-            !_isBase64(itemKeySalt) ||
+            !isBase64Value(itemKeySalt) ||
             itemKeyVersion == null)) {
       return null;
     }
@@ -445,19 +446,6 @@ class LocalEncryptedVaultRepository
     return value is int && value > 0 ? value : null;
   }
 
-  /// True when [value] decodes as base64. An item key salt that does not
-  /// would make the receiving device throw while it derives the item key,
-  /// aborting a whole pull batch instead of refusing one payload, so the
-  /// value is checked before it is queued and before it is used.
-  static bool _isBase64(String value) {
-    try {
-      base64Decode(value);
-      return true;
-    } on FormatException {
-      return false;
-    }
-  }
-
   /// Applies a batch of remote snapshots to the local vault, fed by
   /// the pull sync path. Each snapshot is decrypted with the active
   /// session and the resulting vault is written back (always as the current
@@ -490,11 +478,13 @@ class LocalEncryptedVaultRepository
         currentItems.remove(localId);
         continue;
       }
-      final isBound =
-          snapshot.keyVersion >= SyncItemPayloadCodec.boundPayloadVersion;
-      final encrypted = _encryptedPayloadFromSnapshot(snapshot);
+      final envelope = RemoteSnapshotEnvelope.fromSnapshot(
+        snapshot: snapshot,
+        session: session,
+      );
+      final encrypted = envelope.encrypted;
       if (encrypted == null) {
-        if (isBound) {
+        if (envelope.isRejected) {
           rejected.add(localId);
         }
         continue;
@@ -504,7 +494,7 @@ class LocalEncryptedVaultRepository
           encrypted: encrypted,
           session: session,
           minimumVersion: minimumVersion,
-          expectedRecordId: isBound ? localId : null,
+          expectedRecordId: envelope.isRecordBound ? localId : null,
         );
         currentItems[decrypted.item.id] = decrypted.item;
       } on VaultPayloadRejectedError {
@@ -518,83 +508,6 @@ class LocalEncryptedVaultRepository
     return rejected;
   }
 
-  String? _encryptedPayloadFromSnapshot(RemoteVaultBlobSnapshot snapshot) {
-    final ciphertext = snapshot.ciphertext;
-    final nonce = snapshot.nonce;
-    if (ciphertext == null ||
-        ciphertext.isEmpty ||
-        nonce == null ||
-        nonce.isEmpty) {
-      return null;
-    }
-    final session = _requireSession();
-    if (snapshot.keyVersion >= SyncItemPayloadCodec.boundPayloadVersion) {
-      final bound = SyncItemPayloadCodec.decode(ciphertext);
-      if (bound == null) {
-        return null;
-      }
-      if (snapshot.keyVersion >= SyncItemPayloadCodec.itemKeyPayloadVersion) {
-        // Same rule as the write path: an item-keyed payload that did not
-        // bring its salt and item key version cannot be reopened here,
-        // so it is refused instead of decrypted into a wrong key.
-        final salt = snapshot.itemKeySalt;
-        final itemKeyVersion = snapshot.itemKeyVersion;
-        if (salt == null || salt.isEmpty || itemKeyVersion == null) {
-          return null;
-        }
-        if (!_isBase64(salt)) {
-          return null;
-        }
-        return jsonEncode({
-          'v': snapshot.keyVersion,
-          'keyId': session.keyId,
-          'rid': bound.recordId,
-          'iv': itemKeyVersion,
-          'salt': salt,
-          'payload': {
-            'alg': 'AES-256-GCM',
-            'nonce_b64': nonce,
-            'ciphertext_b64': bound.ciphertextB64,
-            'tag_b64': snapshot.gcmTag ?? '',
-          },
-        });
-      }
-      return jsonEncode({
-        'v': snapshot.keyVersion,
-        'keyId': session.keyId,
-        'rid': bound.recordId,
-        'payload': {
-          'alg': 'AES-256-GCM',
-          'nonce_b64': nonce,
-          'ciphertext_b64': bound.ciphertextB64,
-          'tag_b64': snapshot.gcmTag ?? '',
-        },
-      });
-    }
-    if (snapshot.keyVersion == 2 && session.isV2) {
-      return jsonEncode({
-        'v': 2,
-        'keyId': session.keyId,
-        'kdf': session.kdf,
-        'dek_wrap': session.dekWrap,
-        'payload': {
-          'alg': 'AES-256-GCM',
-          'nonce_b64': nonce,
-          'ciphertext_b64': ciphertext,
-          'tag_b64': snapshot.gcmTag ?? '',
-        },
-      });
-    }
-    return jsonEncode({
-      'version': 1,
-      'algorithm': 'aes-256-gcm',
-      'keyId': session.keyId,
-      'nonce': nonce,
-      'ciphertext': ciphertext,
-      'mac': snapshot.gcmTag ?? '',
-    });
-  }
-
   Future<List<String>> _readEncryptedItems() async {
     final raw = await _storage.read(encryptedVaultItemsKey);
     if (raw == null || raw.isEmpty) {
@@ -603,51 +516,26 @@ class LocalEncryptedVaultRepository
     return (jsonDecode(raw) as List<dynamic>).cast<String>();
   }
 
-  /// Decrypts one stored envelope and enforces the record binding.
-  ///
-  /// For v3 the record id comes from the envelope (and must equal
-  /// [expectedRecordId] when the caller knows it); GCM authenticates
-  /// it, and the decrypted item's `id` must equal it. Legacy payloads
-  /// carry no binding, so the id check only runs when the caller
-  /// passes [expectedRecordId].
+  /// Decrypts one stored envelope and enforces the record binding, through the
+  /// shared checks in [decryptSnapshotItem] so the vault's own read paths and
+  /// the pull path cannot disagree on what a payload bound elsewhere means.
   Future<_DecryptedItem> _decryptStoredItem({
     required String encrypted,
     required VaultSession session,
     required int minimumVersion,
     String? expectedRecordId,
   }) async {
-    final header = _cryptoService.inspect(encrypted);
-    final isBound = header.version >= currentItemPayloadVersion;
-    final recordId = isBound ? header.recordId : null;
-    if (isBound &&
-        (recordId == null ||
-            (expectedRecordId != null && recordId != expectedRecordId))) {
-      throw VaultPayloadRejectedError(
-        VaultPayloadRejection.recordMismatch,
-        'Vault payload is bound to a different record.',
-      );
-    }
-    final plaintext = await _cryptoService.decrypt(
-      ciphertext: encrypted,
-      secretKey: session,
-      expectedKeyId: session.keyId,
-      recordId: recordId,
+    final decrypted = await decryptSnapshotItem(
+      cryptoService: _cryptoService,
+      encrypted: encrypted,
+      session: session,
       minimumVersion: minimumVersion,
+      expectedRecordId: expectedRecordId,
     );
-    final item = VaultItem.fromJson(
-      jsonDecode(plaintext) as Map<String, dynamic>,
-    );
-    final requiredId = recordId ?? expectedRecordId;
-    if (requiredId != null && item.id != requiredId) {
-      throw VaultPayloadRejectedError(
-        VaultPayloadRejection.recordMismatch,
-        'Decrypted item id does not match its bound record id.',
-      );
-    }
     return _DecryptedItem(
-      item: item,
-      plaintext: plaintext,
-      version: header.version,
+      item: decrypted.item,
+      plaintext: decrypted.plaintext,
+      version: decrypted.payloadVersion,
     );
   }
 

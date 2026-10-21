@@ -9,6 +9,8 @@ import '../security/secure_storage_service.dart';
 import '../security/vault_crypto_service.dart';
 import '../security/vault_repository.dart';
 import '../security/vault_session.dart';
+import '../sync/remote_snapshot_applier.dart';
+import '../sync/remote_vault_blob_change.dart';
 import 'sqlite_vault_repository.dart';
 import 'vault_blob_migration.dart';
 import 'vault_database_opener.dart';
@@ -28,7 +30,8 @@ import 'vault_database_salt_store.dart';
 ///
 /// Every operation re-reads the session. A locked vault therefore fails closed
 /// with a clear error instead of using a key that should no longer be in memory.
-class LazySqliteVaultRepository implements VaultRepository {
+class LazySqliteVaultRepository
+    implements VaultRepository, RemoteSnapshotApplier {
   /// Builds the repository. [databasePath] is resolved lazily so tests can point
   /// it at a temporary directory without touching platform channels.
   LazySqliteVaultRepository({
@@ -87,6 +90,15 @@ class LazySqliteVaultRepository implements VaultRepository {
   @override
   Future<void> deleteItem(String id) async =>
       (await _repository()).deleteItem(id);
+
+  /// Applies pulled remote snapshots through the opened database.
+  ///
+  /// Sync's pull path only needs this port, so the storage flag can switch the
+  /// whole vault without sync knowing which storage is behind it.
+  @override
+  Future<List<String>> applyRemoteSnapshots({
+    required Iterable<RemoteVaultBlobSnapshot> snapshots,
+  }) async => (await _repository()).applyRemoteSnapshots(snapshots: snapshots);
 
   /// Items whose title matches [query]. Delegates to the database repository,
   /// which decrypts only title envelopes.
