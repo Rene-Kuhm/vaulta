@@ -6,40 +6,56 @@ import android.content.Intent
 import android.content.IntentSender
 import android.os.CancellationSignal
 import android.service.autofill.AutofillService
+import android.service.autofill.Dataset
 import android.service.autofill.FillCallback
 import android.service.autofill.FillRequest
 import android.service.autofill.FillResponse
 import android.service.autofill.SaveCallback
 import android.service.autofill.SaveRequest
+import android.text.InputType
 import android.util.Log
 import android.view.View
 import android.view.autofill.AutofillId
+import android.view.autofill.AutofillValue
 import android.widget.RemoteViews
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Vaulta's autofill entry point (ADR-008, slice A).
+ * Vaulta's autofill entry point (ADR-008).
  *
- * This slice declares the binding and proves the *locked* half of the
- * two-phase answer and nothing else:
+ * The service answers a fill request in one of three ways, and the order in
+ * which it decides is the design:
  *
- *   * [onFillRequest] always answers with zero datasets plus an
- *     authentication intent, which is the correct answer while the vault
- *     is locked and is the only answer this slice implements. There is no
- *     session, no vault read and no matching here: building datasets is a
- *     later slice behind its own review.
- *   * [onSaveRequest] is a deliberate no-op; see the comment there.
+ *   * **The app can answer and has a match** → datasets built from the bridge
+ *     answer, one per candidate, with the username in the username fields and
+ *     the secret in the password fields.
+ *   * **The app can answer and has no match** → the single "search in Vaulta"
+ *     marker and no item. Never a guess: an autofill menu that offers the wrong
+ *     vault entry next to a bank login is a phishing assist (ADR-008 §3).
+ *   * **Nothing can answer** (no engine handle, vault locked, channel error) →
+ *     the locked contract from the previous slice: zero datasets and an
+ *     authentication intent.
+ *
+ * The data comes from Dart, over [VaultaAutofillBridge], from the app's single
+ * engine. This file contains no decryption, no key handling and no storage: the
+ * vault is answered by the `VaultRepository` that already exists, and this
+ * process must not grow a second view of it.
  *
  * What must stay true of this file:
  *
- *   * No secret, no title, no username and no item count ever reaches the
- *     system. The authentication presentation is a static label, because
- *     Android renders that surface outside this process and screenshots it
- *     are possible (ADR-008 §1).
- *   * Nothing is written to disk and no network call is made (ADR-008 §6).
- *   * No Flutter engine is started here. A system-started service has no
- *     engine and this slice does not need one; the service runs in the app
- *     process, so it inherits the process's lock policy and nothing more
- *     (ADR-008 §4).
+ *   * No secret, no title, no username and no URL ever reaches the system's
+ *     authentication surface. That presentation is a static label, because
+ *     Android renders it outside this process and screenshots are possible
+ *     (ADR-008 §1). Dataset labels do carry the item title and username: that
+ *     is the fill UI the user is choosing from, which is the one place they
+ *     belong.
+ *   * Nothing is logged except the requesting package and the outcome
+ *     (ADR-008 §6), and nothing is cached: a dataset is built from one answer
+ *     to one request and dropped when the request ends (ADR-008 §4).
+ *   * Nothing is written to disk and no network call is made.
+ *
+ * The whole file targets API 26+, which is the level the autofill framework
+ * starts at; the platform cannot bind this service below that.
  */
 class VaultaAutofillService : AutofillService() {
 
@@ -53,8 +69,8 @@ class VaultaAutofillService : AutofillService() {
         // requester package) and never sent anywhere else.
         val requester = structure?.activityComponent?.packageName
         try {
-            val ids = if (structure == null) emptyArray() else collectAutofillIds(structure)
-            if (ids.isEmpty()) {
+            val fields = if (structure == null) null else collectFields(structure)
+            if (fields == null || fields.autofillIds.isEmpty()) {
                 // Nothing in this screen can be autofilled, so there is
                 // nothing to unlock for. setAuthentication() rejects an empty
                 // id array, and answering "no response" is the honest result:
@@ -64,16 +80,45 @@ class VaultaAutofillService : AutofillService() {
                 return
             }
 
-            val response = FillResponse.Builder()
-                // Zero datasets: while the vault is locked there is no data to
-                // offer. The authentication intent is the entire answer, and
-                // the system calls onFillRequest() again once the user has
-                // authenticated.
-                .setAuthentication(ids, unlockIntentSender(), unlockPresentation())
-                .build()
+            // The framework hands the request to the main thread, and the
+            // channel answers on it too, so this flag is only guarding against
+            // a cancellation racing an answer.
+            val answered = AtomicBoolean(false)
+            cancellationSignal.setOnCancelListener {
+                answered.set(true)
+                Log.i(TAG, "fill request package=$requester answer=cancelled")
+            }
 
-            Log.i(TAG, "fill request package=$requester answer=locked")
-            callback.onSuccess(response)
+            if (!VaultaAutofillBridge.isAvailable) {
+                // No engine handle: the app is not running, so there is no
+                // session to read, and the correct answer is the locked one.
+                answered.set(true)
+                Log.i(TAG, "fill request package=$requester answer=locked")
+                callback.onSuccess(lockedResponse(fields))
+                return
+            }
+
+            VaultaAutofillBridge.query(fields.host, requester.orEmpty()) { answer ->
+                if (!answered.compareAndSet(false, true)) return@query
+                try {
+                    if (answer == null || answer.isLocked) {
+                        Log.i(TAG, "fill request package=$requester answer=locked")
+                        callback.onSuccess(lockedResponse(fields))
+                    } else if (answer.isSearchOnly || !fields.hasWritableFields) {
+                        // Open vault, no host match — or a screen with nothing
+                        // to write a credential into. Both end in the same
+                        // honest affordance: one marker, no item.
+                        Log.i(TAG, "fill request package=$requester answer=search-only")
+                        callback.onSuccess(searchResponse(fields))
+                    } else {
+                        Log.i(TAG, "fill request package=$requester answer=matched")
+                        callback.onSuccess(matchedResponse(fields, answer.candidates))
+                    }
+                } catch (e: Throwable) {
+                    Log.w(TAG, "fill request package=$requester answer=failed ${e.javaClass.simpleName}")
+                    callback.onFailure(FAILURE_MESSAGE)
+                }
+            }
         } catch (e: Throwable) {
             // Never forward the exception text to the fill UI: it is built
             // from requester-supplied structure data.
@@ -93,15 +138,100 @@ class VaultaAutofillService : AutofillService() {
         callback.onSuccess()
     }
 
+    // ---- Responses ----
+
+    /**
+     * Zero datasets plus the authentication intent. This is the whole answer
+     * while the vault is locked, and it is also the answer to any failure: the
+     * user sees the unlock affordance, nothing about the vault.
+     */
+    private fun lockedResponse(fields: FillFields): FillResponse =
+        FillResponse.Builder()
+            .setAuthentication(
+                fields.autofillIds.toTypedArray(),
+                unlockIntentSender(),
+                unlockPresentation(),
+            )
+            .build()
+
+    /**
+     * The "search in Vaulta" marker: zero datasets plus one affordance whose
+     * label names the action, never the vault. Tapping it opens Vaulta for this
+     * app; the picker itself is slice C work behind the same activity.
+     *
+     * It is deliberately the same shape as [lockedResponse] — the framework's
+     * response-level authentication affordance is the one surface that can
+     * launch an activity from a fill response, so both answers use it and only
+     * the label differs.
+     */
+    private fun searchResponse(fields: FillFields): FillResponse =
+        FillResponse.Builder()
+            .setAuthentication(
+                fields.autofillIds.toTypedArray(),
+                unlockIntentSender(),
+                searchPresentation(),
+            )
+            .build()
+
+    /** One dataset per candidate, built only from the vault answer. */
+    private fun matchedResponse(
+        fields: FillFields,
+        candidates: List<AutofillCandidate>,
+    ): FillResponse {
+        val builder = FillResponse.Builder()
+        var built = 0
+        for (candidate in candidates) {
+            val dataset = buildDataset(fields, candidate) ?: continue
+            builder.addDataset(dataset)
+            built++
+        }
+        // An empty response shows no affordance at all, so a match that turned
+        // out to carry nothing writable falls back to the marker.
+        if (built == 0) return searchResponse(fields)
+        return builder.build()
+    }
+
+    /**
+     * Builds one dataset, or `null` when it would carry nothing to write.
+     *
+     * Empty values are skipped rather than written: `AutofillValue.forText("")`
+     * would clear a username the user already typed, and an entry with no
+     * username or no secret is a real vault state, not an error.
+     */
+    private fun buildDataset(fields: FillFields, candidate: AutofillCandidate): Dataset? {
+        val fillUsername = candidate.username.isNotEmpty() && fields.usernameIds.isNotEmpty()
+        val fillSecret = candidate.secret.isNotEmpty() && fields.passwordIds.isNotEmpty()
+        if (!fillUsername && !fillSecret) return null
+
+        val presentation = RemoteViews(packageName, android.R.layout.simple_list_item_2).apply {
+            setTextViewText(android.R.id.text1, candidate.label)
+            setTextViewText(android.R.id.text2, candidate.username)
+        }
+        val builder = Dataset.Builder(presentation)
+        if (fillUsername) {
+            val usernameValue = AutofillValue.forText(candidate.username)
+            for (id in fields.usernameIds) {
+                builder.setValue(id, usernameValue)
+            }
+        }
+        if (fillSecret) {
+            val secretValue = AutofillValue.forText(candidate.secret)
+            for (id in fields.passwordIds) {
+                builder.setValue(id, secretValue)
+            }
+        }
+        return builder.build()
+    }
+
     /**
      * Intent that shows [AutofillUnlockActivity] when the user taps the
-     * authentication affordance.
+     * authentication affordance or the search marker.
      *
      * `FLAG_MUTABLE` is required, not an oversight: the platform fills the
      * authentication arguments (dataset id, client state) into this intent
      * before launching it, and an immutable PendingIntent would drop them.
      * The intent is explicit and the activity is not exported, so only the
-     * PendingIntent holder (the autofill framework) can start it. The stub
+     * PendingIntent holder (the autofill framework) can start it. The
      * activity reads none of the filled-in extras, so nothing the requesting
      * app supplies can influence what is shown.
      */
@@ -128,38 +258,137 @@ class VaultaAutofillService : AutofillService() {
             setTextViewText(android.R.id.text1, UNLOCK_LABEL)
         }
 
-    /**
-     * Autofill ids of the views the platform can attach the authentication UI
-     * to. Only fields that advertise themselves as autofillable are collected
-     * — this is not matching against the vault, which is a later slice.
-     */
-    private fun collectAutofillIds(structure: AssistStructure): Array<AutofillId> {
-        val ids = ArrayList<AutofillId>()
-        for (i in 0 until structure.windowNodeCount) {
-            collectAutofillIds(structure.getWindowNodeAt(i).rootViewNode, ids)
+    /** Static label for the search-only affordance. Same rule: a constant. */
+    private fun searchPresentation(): RemoteViews =
+        RemoteViews(packageName, android.R.layout.simple_list_item_1).apply {
+            setTextViewText(android.R.id.text1, SEARCH_LABEL)
         }
-        return ids.toTypedArray()
+
+    // ---- Reading the request structure ----
+
+    /**
+     * The parts of the requesting screen this service uses: the ids the
+     * platform can attach UI to, the ids worth writing a credential into, and
+     * the web domain the platform reported, if any.
+     */
+    private class FillFields(
+        val autofillIds: List<AutofillId>,
+        val usernameIds: List<AutofillId>,
+        val passwordIds: List<AutofillId>,
+        val host: String?,
+    ) {
+        /** True when at least one field can receive a credential. */
+        val hasWritableFields: Boolean
+            get() = usernameIds.isNotEmpty() || passwordIds.isNotEmpty()
     }
 
-    private fun collectAutofillIds(node: AssistStructure.ViewNode, out: MutableList<AutofillId>) {
+    /**
+     * Walks the structure once and classifies what it finds.
+     *
+     * Only fields that advertise themselves as autofillable are collected. A
+     * text field that is not a password field counts as a username field,
+     * which is the safe default: the username is not the secret, so a wrong
+     * guess there costs an edit, while a secret in the wrong field is a
+     * disclosure.
+     */
+    private fun collectFields(structure: AssistStructure): FillFields {
+        val all = ArrayList<AutofillId>()
+        val username = ArrayList<AutofillId>()
+        val password = ArrayList<AutofillId>()
+        for (i in 0 until structure.windowNodeCount) {
+            collectFields(structure.getWindowNodeAt(i).rootViewNode, all, username, password)
+        }
+        return FillFields(
+            autofillIds = all,
+            usernameIds = username,
+            passwordIds = password,
+            host = requestedHost(structure),
+        )
+    }
+
+    private fun collectFields(
+        node: AssistStructure.ViewNode,
+        all: MutableList<AutofillId>,
+        username: MutableList<AutofillId>,
+        password: MutableList<AutofillId>,
+    ) {
         // autofillId is null for nodes the platform does not consider fillable.
         val autofillId = node.autofillId
-        if (autofillId != null && node.autofillType != View.AUTOFILL_TYPE_NONE) {
-            out.add(autofillId)
+        val autofillType = node.autofillType
+        if (autofillId != null && autofillType != View.AUTOFILL_TYPE_NONE) {
+            all.add(autofillId)
+            if (autofillType == View.AUTOFILL_TYPE_TEXT) {
+                if (isPasswordField(node)) {
+                    password.add(autofillId)
+                } else {
+                    username.add(autofillId)
+                }
+            }
         }
         for (i in 0 until node.childCount) {
-            collectAutofillIds(node.getChildAt(i), out)
+            collectFields(node.getChildAt(i), all, username, password)
         }
+    }
+
+    /** True for a masked text field, whether it advertises a hint or not. */
+    private fun isPasswordField(node: AssistStructure.ViewNode): Boolean {
+        val hints = node.autofillHints
+        if (hints != null && hints.any { it == View.AUTOFILL_HINT_PASSWORD }) return true
+        val inputType = node.inputType
+        val variation = inputType and InputType.TYPE_MASK_VARIATION
+        return when (inputType and InputType.TYPE_MASK_CLASS) {
+            InputType.TYPE_CLASS_TEXT ->
+                variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                    variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD ||
+                    variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+            InputType.TYPE_CLASS_NUMBER ->
+                variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            else -> false
+        }
+    }
+
+    /**
+     * The web domain the platform reported for this request, taken from the web
+     * views in the structure (the activity itself only carries the requester
+     * package). `null` for a native app with no web view, which the fill
+     * handler answers with the search marker.
+     *
+     * Package matching is deliberately absent: it is a later slice, and an
+     * unverified package-to-domain guess would be exactly the kind of guess
+     * ADR-008 §3 rejects.
+     */
+    private fun requestedHost(structure: AssistStructure): String? {
+        for (i in 0 until structure.windowNodeCount) {
+            val host = webDomainOf(structure.getWindowNodeAt(i).rootViewNode)
+            if (!host.isNullOrBlank()) return host
+        }
+        return null
+    }
+
+    private fun webDomainOf(node: AssistStructure.ViewNode): String? {
+        val host = node.webDomain
+        if (!host.isNullOrBlank()) return host
+        for (i in 0 until node.childCount) {
+            val childHost = webDomainOf(node.getChildAt(i))
+            if (!childHost.isNullOrBlank()) return childHost
+        }
+        return null
     }
 
     private companion object {
         const val TAG = "Vaulta/Autofill"
 
         /**
-         * The only text this slice ever shows in the system's fill UI. Keep it
-         * free of vault data (ADR-008 §1) and keep it a constant.
+         * The only text the locked path ever shows in the system's fill UI.
+         * Keep it free of vault data (ADR-008 §1) and keep it a constant.
          */
         const val UNLOCK_LABEL = "Unlock Vaulta"
+
+        /**
+         * The only text the "nothing matched" path shows. It names the app the
+         * user is about to search in and nothing about the vault.
+         */
+        const val SEARCH_LABEL = "Search in Vaulta"
 
         const val FAILURE_MESSAGE = "Vaulta could not answer this fill request"
 

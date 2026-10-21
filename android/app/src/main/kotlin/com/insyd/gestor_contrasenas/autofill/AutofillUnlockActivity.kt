@@ -16,7 +16,7 @@ import com.insyd.gestor_contrasenas.R
  * Stub of the unlock screen the autofill flow will use (ADR-008 §2).
  *
  * Slice A only proves the locked contract, so this activity does not unlock
- * anything: it shows a static message and finishes. Slice B replaces the body
+ * anything: it shows a static message and finishes. Slice C replaces the body
  * with the existing unlock path ([com.insyd.gestor_contrasenas.BiometricChannel]
  * / the master-password fallback) so the Keystore envelope, the prompt policy
  * and the attempt limiter stay the single implementation the app already uses.
@@ -24,7 +24,7 @@ import com.insyd.gestor_contrasenas.R
  * It is deliberately built with plain platform views instead of a layout
  * resource, so this slice adds nothing under res/ beyond the autofill metadata.
  *
- * The one thing that must not be lost when slice B lands:
+ * The one thing that must not be lost when slice C lands:
  * [WindowManager.LayoutParams.FLAG_SECURE] is set in [onCreate] before any
  * content is attached. This is the only screen in the product that a
  * screenshot could capture next to a credential.
@@ -83,7 +83,7 @@ class AutofillUnlockActivity : Activity() {
         /**
          * Stub copy, kept as constants on purpose: this slice owns no file
          * under res/values, so the strings move to a localized resource when
-         * slice B implements the real unlock screen.
+         * slice C implements the real unlock screen.
          */
         const val MESSAGE_TITLE = "Unlock in Vaulta"
         const val MESSAGE_HINT = "Vaulta unlocks with your biometrics before it fills anything."

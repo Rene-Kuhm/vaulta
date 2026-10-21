@@ -26,6 +26,8 @@ import '../../core/sync/device_registration_repository.dart';
 import '../../core/sync/device_registration_service.dart';
 import '../../core/sync/device_sync_bootstrap.dart';
 import '../../core/sync/local_vault_mutation.dart';
+import '../../features/autofill/autofill_channel.dart';
+import '../../features/autofill/autofill_fill_handler.dart';
 import '../../features/home/presentation/app_shell.dart';
 import '../../features/security/presentation/security_gate.dart';
 import '../theme/app_theme.dart';
@@ -70,6 +72,11 @@ Future<void> runPasswordManagerApp() async {
   // "pull advances sync state, vault unchanged", but nothing here passes it any
   // more.
   late final RemoteSnapshotApplier snapshotApplier;
+  // Autofill asks the vault exactly one question, "which items are indexed for
+  // this host". The database answers it with an index lookup; the blob has no
+  // index, so the lookup port decides which shape it can offer and the handler
+  // never gains a way to read the whole vault by accident (ADR-008 §3, §5).
+  final AutofillVaultLookup autofillLookup;
   if (vaultSqliteStorageEnabled) {
     final sqlite = LazySqliteVaultRepository(
       storage: storage,
@@ -85,6 +92,11 @@ Future<void> runPasswordManagerApp() async {
     rekeyHook = sqlite.rekeyEntries;
     migrateHook = sqlite.migrateItemsToCurrentVersion;
     snapshotApplier = sqlite;
+    autofillLookup = VaultRepositoryAutofillLookup(
+      repository: sqlite,
+      isUnlocked: () => securityController.isUnlocked,
+      findByHost: sqlite.findByHost,
+    );
   } else {
     final blob = LocalEncryptedVaultRepository(
       storage: storage,
@@ -96,6 +108,10 @@ Future<void> runPasswordManagerApp() async {
     rekeyHook = blob.rekeyEntries;
     migrateHook = blob.migrateItemsToCurrentVersion;
     snapshotApplier = blob;
+    autofillLookup = VaultRepositoryAutofillLookup(
+      repository: blob,
+      isUnlocked: () => securityController.isUnlocked,
+    );
   }
   await readPayloadFloor();
   final envelopeService = BiometricKeyEnvelopeService(storage: storage);
@@ -126,6 +142,16 @@ Future<void> runPasswordManagerApp() async {
 
   await securityController.initialize();
   await localeController.initialize();
+
+  // The autofill bridge, on the app's single engine and nowhere else. The
+  // service runs in this process and calls this channel; when the process has
+  // no engine (started by the service alone) or the session is locked, the
+  // Dart answer is "locked" and the service keeps the slice A response. It is
+  // registered here, next to the rest of the wiring, so it exists exactly once
+  // and never as a second engine with a second, stale view of the vault.
+  AutofillChannel(
+    handler: AutofillFillHandler(lookup: autofillLookup),
+  ).register();
 
   final deviceSyncLifecycle = await buildDeviceSyncLifecycle(
     storage: storage,
