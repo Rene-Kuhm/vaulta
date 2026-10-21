@@ -15,6 +15,56 @@ import 'package:gestor_contrasenas/features/security/presentation/unlock_throttl
 import 'package:gestor_contrasenas/l10n/app_localizations.dart';
 
 void main() {
+  testWidgets(
+      'the master password setup screen is fully labelled for a screen reader',
+      (tester) async {
+    // An icon-only toggle with no tooltip has NO accessible name: a screen
+    // reader announces it as an unlabelled button. That is not a cosmetic
+    // defect on the screen that creates the only key that opens the vault.
+    final handle = tester.ensureSemantics();
+    final controller = VaultSecurityController(
+      storage: _InMemorySecureStorageService(),
+      masterPasswordService: MasterPasswordService.test(),
+      biometricAuthService: const _FakeBiometricAuthService(),
+    );
+    addTearDown(() async {
+      controller.dispose();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
+    await controller.initialize();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: SecurityGate(
+          controller: controller,
+          child: const Scaffold(body: Center(child: Text('Unlocked vault'))),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+    // Both reveal toggles are nameable, and they name themselves honestly:
+    // the button says what it WILL do, not what the field currently is.
+    expect(find.byTooltip(l10n.securityShowPassword), findsNWidgets(2));
+    expect(find.byTooltip(l10n.securityHidePassword), findsNothing);
+
+    // Both fields are reachable by name, not just by position.
+    expect(find.bySemanticsLabel(l10n.securityCreateMasterPassword),
+        findsWidgets);
+    expect(find.bySemanticsLabel(l10n.securityConfirmMasterPassword),
+        findsWidgets);
+
+    // Disposed here, not in a teardown: the framework verifies semantics
+    // handles are released before tearDown runs.
+    handle.dispose();
+  });
+
   testWidgets('locks gate when app moves to background state', (tester) async {
     final controller = VaultSecurityController(
       storage: _InMemorySecureStorageService(),

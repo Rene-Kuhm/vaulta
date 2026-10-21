@@ -671,6 +671,18 @@ abstract class AppLocalizations {
   /// **'Biometric unlock is unavailable: no biometrics are enrolled, or this Android version cannot require a biometric. You can still unlock with your master password.'**
   String get securityBiometricUnavailable;
 
+  /// No description provided for @securityShowPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Show password'**
+  String get securityShowPassword;
+
+  /// No description provided for @securityHidePassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide password'**
+  String get securityHidePassword;
+
   /// No description provided for @securityCreateSecureAccess.
   ///
   /// In en, this message translates to:

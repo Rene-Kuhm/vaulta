@@ -658,6 +658,12 @@ class _OnboardingForm extends StatelessWidget {
                 prefixIcon: const Icon(Icons.password_rounded),
                 suffixIcon: IconButton(
                   onPressed: onTogglePasswordObscure,
+                  // An icon-only button with no tooltip has no accessible
+                  // name: a screen reader announces "button" and nothing
+                  // else. The label names what the button WILL do.
+                  tooltip: obscurePassword
+                      ? l10n.securityShowPassword
+                      : l10n.securityHidePassword,
                   icon: Icon(
                     obscurePassword
                         ? Icons.visibility_off_rounded
@@ -687,6 +693,9 @@ class _OnboardingForm extends StatelessWidget {
                 prefixIcon: const Icon(Icons.password_rounded),
                 suffixIcon: IconButton(
                   onPressed: onToggleConfirmationObscure,
+                  tooltip: obscureConfirmation
+                      ? l10n.securityShowPassword
+                      : l10n.securityHidePassword,
                   icon: Icon(
                     obscureConfirmation
                         ? Icons.visibility_off_rounded
@@ -1198,6 +1207,9 @@ class _UnlockForm extends StatelessWidget {
               prefixIcon: const Icon(Icons.password_rounded),
               suffixIcon: IconButton(
                 onPressed: onToggleObscure,
+                tooltip: obscurePassword
+                    ? l10n.securityShowPassword
+                    : l10n.securityHidePassword,
                 icon: Icon(
                   obscurePassword
                       ? Icons.visibility_off_rounded
@@ -1479,6 +1491,8 @@ class _SetupBiometricDialogState extends State<_SetupBiometricDialog> {
                   onPressed: () {
                     setState(() => _obscure = !_obscure);
                   },
+                  tooltip:
+                      _obscure ? l10n.securityShowPassword : l10n.securityHidePassword,
                   icon: Icon(
                     _obscure
                         ? Icons.visibility_off_rounded

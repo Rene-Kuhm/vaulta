@@ -305,6 +305,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get securityBiometricUnavailable => 'Biometric unlock is unavailable: no biometrics are enrolled, or this Android version cannot require a biometric. You can still unlock with your master password.';
 
   @override
+  String get securityShowPassword => 'Show password';
+
+  @override
+  String get securityHidePassword => 'Hide password';
+
+  @override
   String get securityCreateSecureAccess => 'Create secure vault access';
 
   @override

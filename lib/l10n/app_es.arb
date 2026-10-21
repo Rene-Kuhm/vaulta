@@ -117,6 +117,8 @@
     }
   },
   "securityBiometricUnavailable": "El desbloqueo biométrico no está disponible: no hay biometría enrolled, o esta versión de Android no puede exigir una biometría. Igual vas a poder entrar con tu master password.",
+  "securityShowPassword": "Mostrar contraseña",
+  "securityHidePassword": "Ocultar contraseña",
   "securityCreateSecureAccess": "Crear acceso seguro al vault",
   "securityUnlockEyebrow": "Desbloquear",
   "securityUnlockTitle": "Tu vault queda cerrado hasta validar identidad real.",

@@ -1304,6 +1304,9 @@ class _ChangeMasterPasswordDialogState
                           _obscureCurrent = !_obscureCurrent;
                         });
                       },
+                      tooltip: _obscureCurrent
+                          ? context.l10n.securityShowPassword
+                          : context.l10n.securityHidePassword,
                       icon: Icon(
                         _obscureCurrent
                             ? Icons.visibility_off_rounded
@@ -1326,6 +1329,9 @@ class _ChangeMasterPasswordDialogState
                           _obscureNew = !_obscureNew;
                         });
                       },
+                      tooltip: _obscureNew
+                          ? context.l10n.securityShowPassword
+                          : context.l10n.securityHidePassword,
                       icon: Icon(
                         _obscureNew
                             ? Icons.visibility_off_rounded
@@ -1348,6 +1354,9 @@ class _ChangeMasterPasswordDialogState
                           _obscureConfirmation = !_obscureConfirmation;
                         });
                       },
+                      tooltip: _obscureConfirmation
+                          ? context.l10n.securityShowPassword
+                          : context.l10n.securityHidePassword,
                       icon: Icon(
                         _obscureConfirmation
                             ? Icons.visibility_off_rounded

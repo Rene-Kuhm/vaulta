@@ -117,6 +117,8 @@
     }
   },
   "securityBiometricUnavailable": "Biometric unlock is unavailable: no biometrics are enrolled, or this Android version cannot require a biometric. You can still unlock with your master password.",
+  "securityShowPassword": "Show password",
+  "securityHidePassword": "Hide password",
   "securityCreateSecureAccess": "Create secure vault access",
   "securityUnlockEyebrow": "Unlock",
   "securityUnlockTitle": "Your vault stays closed until real identity is verified.",
