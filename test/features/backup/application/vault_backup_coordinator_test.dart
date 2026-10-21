@@ -1,8 +1,13 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:gestor_contrasenas/core/security/vault_backup_service.dart';
 import 'package:gestor_contrasenas/core/security/vault_security_controller.dart';
 import 'package:gestor_contrasenas/features/backup/application/vault_backup_coordinator.dart';
+import 'package:gestor_contrasenas/features/backup/domain/vault_clear_text_export.dart';
+import 'package:gestor_contrasenas/features/vault/domain/vault_item.dart';
 
 import '../backup_test_support.dart';
 
@@ -279,5 +284,121 @@ void main() {
       vaultBackupFileName(DateTime(2026, 10, 19, 8, 5)),
       'vaulta-backup-20261019-0805.vaulta',
     );
+  });
+
+  group('clear-text export', () {
+    Future<Uint8List> exportClearText(
+      VaultBackupExportGrant grant,
+      VaultClearTextFormat format, {
+      bool acknowledged = true,
+    }) {
+      return coordinator.createClearTextExport(
+        grant: grant,
+        format: format,
+        acknowledgedUnencrypted: acknowledged,
+        appVersion: '1.0.21+22',
+      );
+    }
+
+    test(
+      'is refused without the explicit unencrypted acknowledgement',
+      () async {
+        final grant = await authorize();
+
+        await expectLater(
+          exportClearText(grant, VaultClearTextFormat.csv, acknowledged: false),
+          throwsA(isA<VaultClearTextExportNotConfirmedException>()),
+        );
+        await expectLater(
+          exportClearText(
+            grant,
+            VaultClearTextFormat.json,
+            acknowledged: false,
+          ),
+          throwsA(isA<VaultClearTextExportNotConfirmedException>()),
+        );
+        expect(repository.items, hasLength(2), reason: 'nothing was written');
+
+        // A refused confirmation must not burn the grant.
+        final bytes = await exportClearText(grant, VaultClearTextFormat.csv);
+        expect(utf8.decode(bytes), contains('GitHub,rene@example.com'));
+      },
+    );
+
+    test('renders every item as CSV', () async {
+      final bytes = await exportClearText(
+        await authorize(),
+        VaultClearTextFormat.csv,
+      );
+      final csv = utf8.decode(bytes);
+      final lines = csv.split('\r\n');
+
+      expect(
+        lines.first,
+        'title,username,password,url,notes,category,updated_at',
+      );
+      expect(csv, contains('GitHub,rene@example.com,gh-Secret!123'));
+      expect(csv, contains('Bank,rene@example.com,B4nk!Secret'));
+    });
+
+    test('renders every item as JSON that round-trips', () async {
+      final bytes = await exportClearText(
+        await authorize(),
+        VaultClearTextFormat.json,
+      );
+      final decoded = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+
+      expect(decoded['app_version'], '1.0.21+22');
+      expect(decoded['exported_at'], now.toIso8601String());
+      final restored = [
+        for (final map in decoded['items'] as List)
+          VaultItem.fromJson(map as Map<String, dynamic>),
+      ];
+      expect(restored.map((item) => item.id), ['a', 'b']);
+      expect(restored.map((item) => item.secret), [
+        'gh-Secret!123',
+        'B4nk!Secret',
+      ]);
+      expect(restored.map((item) => item.updatedAt), [
+        repository.items[0].updatedAt,
+        repository.items[1].updatedAt,
+      ]);
+    });
+
+    test('a locked vault or a spent grant produces nothing', () async {
+      final spent = await authorize();
+      await exportClearText(spent, VaultClearTextFormat.csv);
+      await expectLater(
+        exportClearText(spent, VaultClearTextFormat.csv),
+        throwsA(isA<VaultBackupNotAuthorizedException>()),
+      );
+
+      final lockedGrant = await authorize();
+      await controller.lock();
+      await expectLater(
+        exportClearText(lockedGrant, VaultClearTextFormat.csv),
+        throwsA(isA<VaultBackupNotAuthorizedException>()),
+      );
+    });
+
+    test('the encrypted export still produces its own envelope', () async {
+      final bytes = await coordinator.createBackup(
+        grant: await authorize(),
+        backupPassword: testBackupPassword,
+        confirmation: testBackupPassword,
+        appVersion: '1.0.21+22',
+      );
+
+      expect(
+        vaultBackupFileName(now),
+        endsWith('.${VaultBackupService.fileExtension}'),
+      );
+      expect(utf8.decode(bytes).contains('gh-Secret!123'), isFalse);
+      final contents = await VaultBackupService.test().decrypt(
+        bytes: bytes,
+        backupPassword: testBackupPassword,
+      );
+      expect(contents.items.map((item) => item.title), ['GitHub', 'Bank']);
+    });
   });
 }

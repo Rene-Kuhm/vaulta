@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import '../../../core/security/master_password_service.dart';
@@ -6,6 +7,7 @@ import '../../../core/security/vault_repository.dart';
 import '../../../core/security/vault_security_controller.dart';
 import '../../../core/security/vault_session.dart';
 import '../../vault/application/vault_backup_merger.dart';
+import '../domain/vault_clear_text_export.dart';
 
 /// Why a backup password was refused at export time.
 enum VaultBackupPasswordIssue {
@@ -42,6 +44,18 @@ class VaultBackupNotAuthorizedException implements Exception {
 
   @override
   String toString() => 'VaultBackupNotAuthorizedException';
+}
+
+/// Thrown by [VaultBackupCoordinator.createClearTextExport] when the
+/// caller did not record the user's explicit acknowledgement that the
+/// file will be written unencrypted. Structural guard so no code path
+/// can serialize the vault in clear text by accident.
+class VaultClearTextExportNotConfirmedException implements Exception {
+  /// Builds the exception.
+  const VaultClearTextExportNotConfirmedException();
+
+  @override
+  String toString() => 'VaultClearTextExportNotConfirmedException';
 }
 
 /// Single-use proof that the master password was re-entered through
@@ -164,6 +178,40 @@ class VaultBackupCoordinator {
       backupPassword: backupPassword,
       appVersion: appVersion,
     );
+  }
+
+  /// Renders the vault as a clear-text (unencrypted) file in [format],
+  /// after consuming [grant]. [acknowledgedUnencrypted] must be `true`:
+  /// the caller is promising that the user saw the warning that the file
+  /// will be readable by anyone, and confirmed it. Without it this
+  /// method throws [VaultClearTextExportNotConfirmedException] and the
+  /// grant stays usable.
+  ///
+  /// Throws [VaultBackupNotAuthorizedException] for a used, expired or
+  /// unlocked-session-less grant. The encrypted `.vaulta` export is
+  /// untouched by this path.
+  Future<Uint8List> createClearTextExport({
+    required VaultBackupExportGrant grant,
+    required VaultClearTextFormat format,
+    required bool acknowledgedUnencrypted,
+    required String appVersion,
+  }) async {
+    _checkGrant(grant);
+    if (!acknowledgedUnencrypted) {
+      throw const VaultClearTextExportNotConfirmedException();
+    }
+    grant._consumed = true;
+    const exporter = VaultClearTextExporter();
+    final items = await _repository.fetchItems();
+    final content = switch (format) {
+      VaultClearTextFormat.csv => exporter.csv(items),
+      VaultClearTextFormat.json => exporter.json(
+        items,
+        exportedAt: _clock(),
+        appVersion: appVersion,
+      ),
+    };
+    return Uint8List.fromList(utf8.encode(content));
   }
 
   /// Reads the unauthenticated header of a picked file, for display
