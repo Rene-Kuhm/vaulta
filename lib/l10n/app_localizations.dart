@@ -2116,6 +2116,54 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Unlock Vaulta to restore a backup.'**
   String get backupRestoreLocked;
+
+  /// No description provided for @syncSignInTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to sync'**
+  String get syncSignInTitle;
+
+  /// No description provided for @syncSignInBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your vault stays encrypted on this device. The account only carries ciphertext between your devices.'**
+  String get syncSignInBody;
+
+  /// No description provided for @syncEmailLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Email'**
+  String get syncEmailLabel;
+
+  /// No description provided for @syncPasswordLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get syncPasswordLabel;
+
+  /// No description provided for @syncSignInAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in'**
+  String get syncSignInAction;
+
+  /// No description provided for @syncSignInInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong email or password.'**
+  String get syncSignInInvalid;
+
+  /// No description provided for @syncSignInOffline.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not reach the server. Check your connection.'**
+  String get syncSignInOffline;
+
+  /// No description provided for @syncSignInRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to sync this vault.'**
+  String get syncSignInRequired;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

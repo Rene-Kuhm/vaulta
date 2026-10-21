@@ -500,5 +500,13 @@
     }
   },
   "backupRestoreFailed": "The restore was interrupted. Entries written before the error were kept.",
-  "backupRestoreLocked": "Unlock Vaulta to restore a backup."
+  "backupRestoreLocked": "Unlock Vaulta to restore a backup.",
+  "syncSignInTitle": "Sign in to sync",
+  "syncSignInBody": "Your vault stays encrypted on this device. The account only carries ciphertext between your devices.",
+  "syncEmailLabel": "Email",
+  "syncPasswordLabel": "Password",
+  "syncSignInAction": "Sign in",
+  "syncSignInInvalid": "Wrong email or password.",
+  "syncSignInOffline": "Could not reach the server. Check your connection.",
+  "syncSignInRequired": "Sign in to sync this vault."
 }

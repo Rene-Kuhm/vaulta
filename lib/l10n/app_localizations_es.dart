@@ -1102,4 +1102,28 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get backupRestoreLocked => 'Desbloquea Vaulta para restaurar una copia.';
+
+  @override
+  String get syncSignInTitle => 'Inicia sesion para sincronizar';
+
+  @override
+  String get syncSignInBody => 'Tu vault sigue cifrado en este dispositivo. La cuenta solo transporta texto cifrado entre tus dispositivos.';
+
+  @override
+  String get syncEmailLabel => 'Correo';
+
+  @override
+  String get syncPasswordLabel => 'Contrasena';
+
+  @override
+  String get syncSignInAction => 'Entrar';
+
+  @override
+  String get syncSignInInvalid => 'Correo o contrasena incorrectos.';
+
+  @override
+  String get syncSignInOffline => 'No se pudo llegar al servidor. Revisa tu conexion.';
+
+  @override
+  String get syncSignInRequired => 'Inicia sesion para sincronizar este vault.';
 }

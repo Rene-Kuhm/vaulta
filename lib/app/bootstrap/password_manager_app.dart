@@ -8,6 +8,7 @@ import 'package:gestor_contrasenas/l10n/app_localizations.dart';
 import '../localization/app_locale_controller.dart';
 import '../../core/sync/remote_snapshot_applier.dart';
 import '../../core/storage/lazy_sqlite_vault_repository.dart';
+import '../../features/sync/presentation/sync_sign_in_gate.dart';
 import '../../core/storage/vault_storage_flags.dart';
 import '../../core/security/aes_gcm_vault_crypto_service.dart';
 import '../../core/security/android_keystore_envelope_key_provider.dart';
@@ -273,16 +274,12 @@ class _NullEnvelopeKeyProvider implements BiometricEnvelopeKeyProvider {
 
   @override
   Future<BiometricEnvelopeKeyResult> acquireEnvelopeKey() async {
-    return const BiometricEnvelopeKeyResult.unavailable(
-      'platform_not_android',
-    );
+    return const BiometricEnvelopeKeyResult.unavailable('platform_not_android');
   }
 
   @override
   Future<BiometricEnvelopeKeyResult> releaseEnvelopeKey() async {
-    return const BiometricEnvelopeKeyResult.unavailable(
-      'platform_not_android',
-    );
+    return const BiometricEnvelopeKeyResult.unavailable('platform_not_android');
   }
 }
 
@@ -343,16 +340,22 @@ class PasswordManagerApp extends StatelessWidget {
             GlobalWidgetsLocalizations.delegate,
           ],
           supportedLocales: AppLocalizations.supportedLocales,
-          home: SecurityGate(
-            controller: securityController,
-            deviceSyncLifecycle: deviceSyncLifecycle,
-            child: AppShell(
-              repository: repository,
-              securityController: securityController,
-              localeController: localeController,
-              conflictResolver: deviceSyncLifecycle?.conflictResolver,
-              revocationService: deviceSyncLifecycle?.revocationService,
-              secureStorage: secureStorage,
+          // Sign-in wraps the vault gate, not the other way around: with no
+          // session every RLS policy rejects the write, so the account has to
+          // exist before sync can mean anything. When the build has no Supabase
+          // defines this is a pass-through and the app stays local-only.
+          home: SyncSignInGate(
+            child: SecurityGate(
+              controller: securityController,
+              deviceSyncLifecycle: deviceSyncLifecycle,
+              child: AppShell(
+                repository: repository,
+                securityController: securityController,
+                localeController: localeController,
+                conflictResolver: deviceSyncLifecycle?.conflictResolver,
+                revocationService: deviceSyncLifecycle?.revocationService,
+                secureStorage: secureStorage,
+              ),
             ),
           ),
         );

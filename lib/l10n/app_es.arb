@@ -442,5 +442,13 @@
   "backupRestoreNothing": "Todas las entradas de esta copia ya estan en tu vault.",
   "backupRestoreSuccess": "{count, plural, =1{Se restauro 1 entrada.} other{Se restauraron {count} entradas.}}",
   "backupRestoreFailed": "La restauracion se interrumpio. Se conservaron las entradas escritas antes del error.",
-  "backupRestoreLocked": "Desbloquea Vaulta para restaurar una copia."
+  "backupRestoreLocked": "Desbloquea Vaulta para restaurar una copia.",
+  "syncSignInTitle": "Inicia sesion para sincronizar",
+  "syncSignInBody": "Tu vault sigue cifrado en este dispositivo. La cuenta solo transporta texto cifrado entre tus dispositivos.",
+  "syncEmailLabel": "Correo",
+  "syncPasswordLabel": "Contrasena",
+  "syncSignInAction": "Entrar",
+  "syncSignInInvalid": "Correo o contrasena incorrectos.",
+  "syncSignInOffline": "No se pudo llegar al servidor. Revisa tu conexion.",
+  "syncSignInRequired": "Inicia sesion para sincronizar este vault."
 }
