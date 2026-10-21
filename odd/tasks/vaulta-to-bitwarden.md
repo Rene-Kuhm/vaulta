@@ -210,3 +210,29 @@ el sentido de la migración.
 L24 (pendiente, ola 2 D2): el swap del composition root al storage nuevo. **No se hizo**: cambia el
 storage activo de vaults reales y el plan de verificación del ADR exige probarlo en un dispositivo
 real con un backup cifrado hecho antes. Necesita aprobación explícita.
+
+L25 (ola 2 D2, `5488470`): el switch del bootstrap quedó cableado con `VAULTA_SQLITE_STORAGE`
+(off por defecto) y `path_provider` resolviendo la ruta. Cablearlo destapó un acople real: el sync
+pedía la clase concreta `LocalEncryptedVaultRepository` porque usa `applyRemoteSnapshots`. Se
+introdujo el puerto `RemoteSnapshotApplier`. El camino SQLite todavía no lo implementa, así que pasa
+`null`, que el lifecycle ya documenta como "pull avanza el estado, el vault no cambia". Hueco
+declarado en el ADR (`565314d`), no silencioso.
+
+L26 (verificación en dispositivo, `85fdbe5`): la app pone `FLAG_SECURE`, así que `phone look` devuelve
+0 bytes y el árbol de accesibilidad no expone widgets: la automatización visual es imposible por
+diseño. Se pasó a un test de integración en el dispositivo, que es evidencia más fuerte. En Android
+10 (`emulator-5556`), con secure storage y sistema de archivos reales: blob legacy escrito como lo
+escribe la app, migración en el primer uso, ítem e índice de autofill intactos, blob conservado como
+rollback, y `.db` 4096 B / `-wal` 70072 B / `-shm` 32768 B **sin el secreto, el título, el usuario ni
+el host en claro**. Cierra los gates 6 y 7 del ADR.
+
+L27 (hallazgo del emulador, no del código): en API 36 el APK instalaba pero nada podía lanzarlo
+(`am start`, `monkey` y `cmd resolve-activity` decían "no activity found") mientras `dumpsys`
+listaba el alias. La causa era `State: RUNNING_LOCKED`: con el usuario bloqueado Android no resuelve
+componentes que no son `directBootAware`. Con `RUNNING_UNLOCKED` en API 29 el mismo APK resuelve al
+instante. No era el APK ni el cableado.
+
+L28 (pendiente): portar `applyRemoteSnapshots` al storage SQLite antes de que el flag pueda ser el
+default para alguien que sincroniza; y la secuencia manual completa sobre un vault creado por la UI
+(backup `.vaulta`, migrar, reiniciar, desbloquear, verificar, restaurar), que por `FLAG_SECURE` es
+genuinamente manual.
