@@ -1,6 +1,6 @@
 # ADR-007: Local vault storage moves from one encrypted blob to an encrypted database
 
-- Status: Proposed
+- Status: **Accepted** (2026-10-21)
 - Date: 2026-10-21
 - Supersedes: none. Keeps the ADR-001 crypto contract unchanged.
 
