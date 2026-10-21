@@ -108,6 +108,26 @@ Las specs provienen de dos fuentes, citadas literalmente:
 - **T8** (S4, derivado) — El copy de l10n que T5 volvió falso. Route: inline.
   Commit: `2f13e49`.
 
+- **L19 (2026-10-21, verificación en una máquina independiente):** el work se
+  publicó en la VPS (bare `~/remotes/vaulta.git`, rama `feat/enterprise-closure`)
+  y se verificó **allá**, no repetido acá: `flutter analyze` sin hallazgos,
+  **412 tests verdes**, cobertura de `lib/core/security` **85.9%** — idéntica
+  a la local. La VPS tiene 4 cores y 7 GB pero **no puede correr el emulador**:
+  `/dev/kvm` es `root:kvm` y el usuario `agentes` no está en ese grupo, y no hay
+  sudo. Así que la verificación que falta (API < 30) **no se puede hacer ahí**;
+  queda como está.
+
+- **L20 (2026-10-21, CI de integration tests — escrito y DESCARTADO a
+  propósito):** se escribió el job de workflow +
+  `scripts/run_android_keystore_integration.sh` para que los 7 tests corran
+  sin humano. **No se commiteó.** El script falla en un emulador recién
+  creado: enrolar la huella exige manejar la UI de Ajustes, y en un AVD
+  limpio aparece el wizard de Google Play Services delante, con lo cual la
+  navegación por texto no encuentra la sección. Es exactamente la fragilidad
+  que el propio script advertía. Un job de CI que falla en el primer PR con
+  un X rojo entrena a ignorar el CI, que es peor que no tenerlo. Queda para
+  iterarlo contra un runner real, no como así.
+
 ## Risk
 
 - **Risk: item 1** — T3, T4 y T8 escriben datos: el rewrite v2→v3 crea una DEK
