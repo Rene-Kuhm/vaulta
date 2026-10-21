@@ -65,6 +65,32 @@
             android:icon="@mipmap/ic_launcher"
             android:roundIcon="@mipmap/ic_launcher_round"
             tools:node="merge" />
+        <!-- Autofill service (ADR-008, slice A). The service is bound by the
+             system with BIND_AUTOFILL_SERVICE and answers the locked case: an
+             authentication intent and zero datasets, no vault read.
+             android:settingsActivity lets the system's autofill settings open
+             Vaulta; AutofillServiceInfo reads the same value from
+             res/xml/autofill_service.xml, so the two declarations must match. -->
+        <service
+            android:name=".autofill.VaultaAutofillService"
+            android:exported="true"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE"
+            android:settingsActivity="com.insyd.gestor_contrasenas.MainActivity">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/autofill_service" />
+        </service>
+        <!-- Stub unlock screen for the autofill flow (ADR-008, slice A).
+             Not exported: the system reaches it through the service's
+             PendingIntent, which carries this app's identity. -->
+        <activity
+            android:name=".autofill.AutofillUnlockActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/NormalTheme" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
