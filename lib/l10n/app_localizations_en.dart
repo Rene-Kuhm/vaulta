@@ -405,6 +405,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get clipboardCleared => 'Clipboard cleared.';
 
   @override
+  String get entryPasswordHistoryTitle => 'Previous passwords';
+
+  @override
+  String get entryPasswordHistoryHint => 'Older passwords kept when you change the secret. Newest first.';
+
+  @override
+  String get entryPasswordHistoryCopyTooltip => 'Copy previous password';
+
+  @override
+  String get entryPasswordHistoryRevealTooltip => 'Show previous password';
+
+  @override
+  String get entryPasswordHistoryHideTooltip => 'Hide previous password';
+
+  @override
   String get totpTitle => 'One-time code';
 
   @override
