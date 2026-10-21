@@ -960,6 +960,50 @@ class AppLocalizationsEs extends AppLocalizations {
   String get backupExportFailed => 'No se pudo crear la copia. Intenta de nuevo.';
 
   @override
+  String get backupExportClearTextAction => 'Exportar sin cifrar (CSV/JSON)';
+
+  @override
+  String get backupClearTextTitle => 'Exportar archivo sin cifrar';
+
+  @override
+  String get backupClearTextReauthBody => 'Vuelve a ingresar tu master password para exportar el vault en texto plano.';
+
+  @override
+  String backupClearTextItemCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'El archivo tendrá $count entradas.',
+      one: 'El archivo tendrá 1 entrada.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupClearTextWarning => 'Este archivo NO está cifrado. Cualquiera que lo abra va a leer todas tus contraseñas, incluidas las apps que lo sincronicen a la nube. Borralo apenas termines de migrar.';
+
+  @override
+  String get backupClearTextFormatLabel => 'Formato';
+
+  @override
+  String get backupClearTextFormatCsv => 'CSV — gestores de contraseñas y planillas';
+
+  @override
+  String get backupClearTextFormatJson => 'JSON — todos los campos, sin pérdida de datos';
+
+  @override
+  String get backupClearTextConfirm => 'Entiendo que el archivo va a quedar sin cifrar en el disco.';
+
+  @override
+  String get backupClearTextCreateAction => 'Exportar archivo sin cifrar';
+
+  @override
+  String get backupClearTextSuccess => 'Archivo sin cifrar guardado. Borralo cuando ya no lo necesites.';
+
+  @override
+  String get backupClearTextExportFailed => 'No se pudo crear el archivo sin cifrar. Intenta de nuevo.';
+
+  @override
   String get backupReauthExpired => 'Tu confirmacion vencio. Vuelve a iniciar la exportacion.';
 
   @override

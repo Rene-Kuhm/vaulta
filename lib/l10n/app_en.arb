@@ -412,6 +412,25 @@
   "backupSaveCancelled": "Saving was cancelled. No file was written.",
   "backupExportSuccess": "Encrypted backup saved.",
   "backupExportFailed": "The backup could not be created. Try again.",
+  "backupExportClearTextAction": "Export unencrypted (CSV/JSON)",
+  "backupClearTextTitle": "Export unencrypted file",
+  "backupClearTextReauthBody": "Re-enter your master password to export the vault in clear text.",
+  "backupClearTextItemCount": "{count, plural, =1{The file will contain 1 entry.} other{The file will contain {count} entries.}}",
+  "@backupClearTextItemCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupClearTextWarning": "This file is NOT encrypted. Every password in it is readable by anyone who opens it, including any app that syncs it to the cloud. Delete it as soon as you finish migrating.",
+  "backupClearTextFormatLabel": "Format",
+  "backupClearTextFormatCsv": "CSV — password managers and spreadsheets",
+  "backupClearTextFormatJson": "JSON — every field, no information loss",
+  "backupClearTextConfirm": "I understand the file will be unencrypted on disk.",
+  "backupClearTextCreateAction": "Export unencrypted file",
+  "backupClearTextSuccess": "Unencrypted file saved. Delete it once you are done with it.",
+  "backupClearTextExportFailed": "The unencrypted file could not be created. Try again.",
   "backupReauthExpired": "Your confirmation expired. Start the export again.",
   "backupRestoreTitle": "Restore backup",
   "backupRestoreIntro": "Pick a .vaulta file and enter its backup password. Nothing is written to your vault until you confirm.",
