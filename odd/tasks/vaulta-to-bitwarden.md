@@ -130,3 +130,19 @@ escritura de un `saveItem` pasa de O(N) a O(1), y eso se mide, no se afirma.
 
 L13 (pendiente de decisión): el ADR queda en Proposed. No se implementa hasta que el dueño lo
 acepte, porque la migración corre sobre vaults reales.
+
+L14 (pedido):
+
+> para lo que sea sqlite usa la forma mas avanzada que exista
+
+L15 (corrección del ADR por investigación, commit `0be4d14`): la primera versión del ADR nombraba
+`sqlite3_flutter_libs` y `sqlcipher_flutter_libs`. Verificado contra el registro de paquetes:
+ambos están en versión `+eol` desde el 2026-02-15, con la nota "Not used anymore, update to version
+3.x of package:sqlite3", porque `sqlite3` 3.x compila SQLite con **native assets**. El stack de los
+tutoriales está muerto. Stack real: `sqlite3` 3.7.1 → SQLite **3.54.0**, `drift` 2.35.2, y el
+cifrado se elige con `hooks.user_defines.sqlite3.source: sqlite3mc` → **SQLite3 Multiple Ciphers
+2.6.1**, licencia **MIT**, con cifrados AEAD (AES-256-GCM, ChaCha20-Poly1305). SQLCipher queda
+descartado: sólo ofrece CBC + HMAC, puede traer un SQLite más viejo y linkea OpenSSL en Windows,
+Linux y Android. `drift_flutter` también queda afuera porque arrastra los dos paquetes EOL.
+Native assets viene activado por defecto en este toolchain (`flutter config`), así que el riesgo
+de la ola 2 baja a "compilar en Windows y Linux", que se verifica compilando.
