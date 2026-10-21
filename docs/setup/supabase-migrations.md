@@ -245,3 +245,40 @@ is the test. The usual suspects, in order of likelihood: grants on the RPCs (the
 granted to `authenticated`, so an unauthenticated call fails with a permission error
 that looks like a policy error), `forcerowsecurity` blocking the RPC owner, and the
 `vault_ops` idempotency unique constraint rejecting a retry with a changed payload.
+
+### Connection strings: the direct host is IPv6-only, use the pooler
+
+Measured against a real project (`hugwpxvudrgpnnrukakj`):
+
+```
+db.<ref>.supabase.co          →  AAAA only (2600:1f14:...), no A record
+aws-0-sa-east-1.pooler.supabase.com → A 52.67.1.88      (IPv4)
+```
+
+The connection string Supabase shows first, `postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres`,
+is the **direct** connection and it is IPv6-only. On a machine without a public
+IPv6 route it fails with `Network is unreachable` before authentication is even
+attempted — which reads like a credential problem and is not one. A Tailscale-only
+`fd7a:` address does not count: it is a ULA, not a route to the internet.
+
+Use the pooler instead, and take the exact host from the dashboard's Connect panel
+because the region prefix varies (`aws-0-<region>`, and newer projects use
+`aws-1-<region>`):
+
+```
+# session mode, better for migrations (DDL + prepared statements)
+postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+
+# transaction mode, better for a serverless client
+postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+```
+
+Note the user name changes with the pooler: `postgres` becomes
+`postgres.<project-ref>`. Forgetting that produces `password authentication failed`
+with a correct password.
+
+Apply the migrations in session mode; transaction mode can reject multi-statement
+DDL and anything relying on session state.
+
+If the project needs to accept the direct connection, that is an IPv4 add-on in the
+Supabase dashboard, not something a client can work around.
