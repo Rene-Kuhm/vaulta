@@ -38,6 +38,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   google_fonts: ^6.3.1
   flutter_secure_storage: ^10.0.0
+  sqlite3: ^3.7.1
   local_auth: ^3.0.1
   cryptography: ^2.9.0
   intl: ^0.20.2
@@ -110,3 +111,11 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# ADR-007: SQLite3 Multiple Ciphers en vez de SQLite pelado. Native assets compila
+# el motor (SQLite 3.54.0 + sqlite3mc 2.6.1) por plataforma; sin esto el archivo de
+# la base quedaría en claro. Verificado en el spike del ADR.
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlite3mc
