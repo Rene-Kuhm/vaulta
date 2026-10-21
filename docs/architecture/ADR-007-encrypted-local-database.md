@@ -73,19 +73,20 @@ hooks:
 
 SQLite3 Multiple Ciphers wins on the two things that matter here:
 
-- **AEAD block ciphers.** It offers AES-256-GCM and ChaCha20-Poly1305. SQLCipher
+- **AEAD block ciphers.** It offers ChaCha20-Poly1305 and Ascon-AEAD128. SQLCipher
   only offers AES-256-CBC with a separate HMAC — encrypt-then-MAC, a composition
   this project already avoided at the payload layer by choosing AES-GCM
   (ADR-001). Encrypting the file with a weaker construction than the payload
   would be incoherent.
-- **Freshness.** The bundled `sqlite3mc` 2.6.1 tracks SQLite 3.54.0, while the
-  bundled SQLCipher build "may include an older SQLite version" (upstream's own
-  warning), and links OpenSSL on Windows, Linux and Android.
+- **Freshness and licensing.** The bundled `sqlite3mc` 2.6.1 tracks SQLite
+  3.54.0 and is **MIT** (`utelle/SQLite3MultipleCiphers`), while the bundled
+  SQLCipher build "may include an older SQLite version" (upstream's own warning)
+  and links OpenSSL on Windows, Linux and Android.
 
-License: SQLite3 Multiple Ciphers is **MIT** (`utelle/SQLite3MultipleCiphers`,
-Copyright 2019-2026 Ulrich Telle), which is compatible with shipping this app.
-SQLCipher's community edition carries its own terms and an OpenSSL link — one
-more thing to audit for no gain.
+**Measured in spike zero** (see below): this build accepts exactly
+`chacha20`, `ascon128`, `aes128cbc`, `aes256cbc`. It does **not** accept
+`aes256gcm`, `aes128gcm`, `sqlchacha20`, `aegis128` or `aegis256`. So the AEAD
+choice is **ChaCha20-Poly1305** (`pragma cipher = 'chacha20'`), not AES-GCM.
 
 The database key is derived per session, never stored:
 
@@ -94,11 +95,29 @@ dbKey = HKDF-SHA256(DEK, info: "vaulta:db:v1", salt: per-database)
 ```
 
 The DEK already only exists in memory after unlock (ADR-001), so this adds no new
-key to protect and no new place for it to leak. The cipher scheme must be set
-**before** the key; getting that order wrong silently falls back to the
-SQLCipher-compatible default, which is exactly the weaker construction we are
-avoiding. Confirming that order against the bundled `sqlite3mc` is the first
-spike of the implementation.
+key to protect and no new place for it to leak.
+
+### 2b. Pragma order is part of the contract
+
+Three statements, in this order, on every connection before anything else:
+
+```sql
+PRAGMA cipher = 'chacha20';   -- the build's default today, declared anyway
+PRAGMA key    = :dbKey;
+PRAGMA journal_mode = WAL;    -- only after the key
+```
+
+Spike zero proved both failure directions are real:
+
+- `journal_mode = WAL` **before** the key → `SqliteException(26) file is not a
+  database`: the header gets written before the cipher context exists.
+- `cipher` **after** `key` → `SqliteException(26)`, also loud.
+
+That second point is the important one: the ordering mistake fails **loudly**,
+not with an empty result set. Silent data invisibility would have been a reason
+to reject the whole design. It also means the default must never be relied on:
+if a future bundled version changes it, old databases stop opening, so the
+scheme is declared explicitly even though it matches today's default.
 
 ### 3. Pragma and schema posture
 
@@ -227,13 +246,35 @@ Negative and accepted:
 - **`drift_flutter` for convenience.** It pulls the two EOL packages into the
   graph for no benefit.
 
+## Spike zero result (done, 2026-10-21)
+
+Run on this machine against `sqlite3` 3.7.1 / `source: sqlite3mc`:
+
+| Check | Result |
+|---|---|
+| Native assets build SQLite | **3.54.0**, built from source by the hook, works |
+| Default cipher of the build | `chacha20` (ChaCha20-Poly1305, AEAD) |
+| Schemes accepted | `chacha20`, `ascon128`, `aes128cbc`, `aes256cbc` |
+| Schemes rejected | `aes256gcm`, `aes128gcm`, `sqlchacha20`, `aegis128`, `aegis256` |
+| `STRICT` tables enforced | yes — a column without a type is rejected (`missing datatype`) |
+| Secret visible in `.db` with `strings` | **no** |
+| Open without key | fails, `SqliteException(26)` |
+| Open with key | round-trip correct |
+| `journal_mode` before key | fails, `file is not a database` |
+| `cipher` after `key` | fails, not silent |
+
+Still to prove in the real Flutter app: that the same hook configuration builds
+for Android, Windows and Linux, and that `.db`/`-wal`/`-shm` contain no
+plaintext **while the database is open** (the spike closed it before scanning, so
+WAL was checkpointed away).
+
 ## Verification plan
 
 Not done until all of these pass:
 
-1. **Spike zero**: with `source: sqlite3mc`, confirm the cipher scheme is AEAD,
-   that the scheme is applied *before* the key, and that a reopened database
-   without the key fails with a clear error instead of returning empty data.
+1. ~~**Spike zero**: cipher is AEAD, scheme applied before the key, reopening
+   without the key fails clearly~~ — **done above**; the Flutter-target build is
+   carried into item 9.
 2. **Migration unit tests** against a synthetic blob: happy path, undecryptable
    blob, interrupted insert (must roll back and leave the blob), re-run on an
    already-migrated vault (no-op), legacy blob still present after a failure.
@@ -250,7 +291,8 @@ Not done until all of these pass:
    migrate, restart, unlock, verify count and a sample of secrets, confirm the
    backup still restores.
 8. **Existing suite green**: 445 tests, plus the new ones.
-9. **Desktop builds compile** for Windows and Linux with native assets.
+9. **Desktop builds compile** for Windows and Linux with native assets, and the
+   Android build ships the encrypted SQLite, not the plain one.
 
 ## Out of scope
 
