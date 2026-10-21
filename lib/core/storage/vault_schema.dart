@@ -62,3 +62,27 @@ CREATE TABLE vault_meta (
 ) STRICT
 ''',
 ];
+
+/// Upsert of one item row, shared by the repository and the migration so the two
+/// can never drift apart.
+const String vaultItemsUpsertSql = '''
+INSERT INTO vault_items
+  (record_id, key_id, key_version, payload, title_ct, category, updated_at, deleted_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+ON CONFLICT(record_id) DO UPDATE SET
+  key_id = excluded.key_id,
+  key_version = excluded.key_version,
+  payload = excluded.payload,
+  title_ct = excluded.title_ct,
+  category = excluded.category,
+  updated_at = excluded.updated_at,
+  deleted_at = NULL
+''';
+
+/// Removes the autofill index rows of one item.
+const String vaultHostsDeleteSql =
+    'DELETE FROM vault_hosts WHERE record_id = ?';
+
+/// Adds one autofill index row.
+const String vaultHostsInsertSql =
+    'INSERT OR IGNORE INTO vault_hosts (record_id, host) VALUES (?, ?)';

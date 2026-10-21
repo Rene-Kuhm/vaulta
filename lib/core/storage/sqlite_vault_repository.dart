@@ -7,6 +7,8 @@ import '../../features/vault/domain/vault_summary.dart';
 import '../security/vault_crypto_service.dart';
 import '../security/vault_repository.dart';
 import '../security/vault_session.dart';
+import 'vault_host.dart';
+import 'vault_schema.dart';
 
 /// SQLite-backed [VaultRepository] (ADR-007).
 ///
@@ -111,37 +113,19 @@ class SqliteVaultRepository implements VaultRepository {
 
     _db.execute('BEGIN IMMEDIATE');
     try {
-      _db.execute(
-        '''
-INSERT INTO vault_items
-  (record_id, key_id, key_version, payload, title_ct, category, updated_at, deleted_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
-ON CONFLICT(record_id) DO UPDATE SET
-  key_id = excluded.key_id,
-  key_version = excluded.key_version,
-  payload = excluded.payload,
-  title_ct = excluded.title_ct,
-  category = excluded.category,
-  updated_at = excluded.updated_at,
-  deleted_at = NULL
-''',
-        [
-          item.id,
-          session.keyId,
-          _readMinimumVersion(),
-          payload,
-          title,
-          item.category.name,
-          updatedAt.millisecondsSinceEpoch,
-        ],
-      );
-      _db.execute('DELETE FROM vault_hosts WHERE record_id = ?', [item.id]);
-      final host = _hostOf(item);
+      _db.execute(vaultItemsUpsertSql, [
+        item.id,
+        session.keyId,
+        _readMinimumVersion(),
+        payload,
+        title,
+        item.category.name,
+        updatedAt.millisecondsSinceEpoch,
+      ]);
+      _db.execute(vaultHostsDeleteSql, [item.id]);
+      final host = vaultHostOfWebsite(item.website);
       if (host != null) {
-        _db.execute(
-          'INSERT OR IGNORE INTO vault_hosts (record_id, host) VALUES (?, ?)',
-          [item.id, host],
-        );
+        _db.execute(vaultHostsInsertSql, [item.id, host]);
       }
       _db.execute('COMMIT');
     } catch (_) {
@@ -208,20 +192,6 @@ ON CONFLICT(record_id) DO UPDATE SET
       );
     }
     return session;
-  }
-
-  /// Host used to index the item for autofill. Uses [VaultItem.website] and
-  /// drops the scheme, the path and a leading `www.`.
-  String? _hostOf(VaultItem item) {
-    final website = item.website?.trim();
-    if (website == null || website.isEmpty) return null;
-    var host = website.toLowerCase();
-    final schemeEnd = host.indexOf('://');
-    if (schemeEnd >= 0) host = host.substring(schemeEnd + 3);
-    final cut = host.indexOf(RegExp(r'[/?#]'));
-    if (cut >= 0) host = host.substring(0, cut);
-    if (host.startsWith('www.')) host = host.substring(4);
-    return host.isEmpty ? null : host;
   }
 
   Future<List<VaultItem>> _decryptRows(List<Row> rows) async {
