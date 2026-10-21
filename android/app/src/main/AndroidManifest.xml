@@ -65,9 +65,11 @@
             android:icon="@mipmap/ic_launcher"
             android:roundIcon="@mipmap/ic_launcher_round"
             tools:node="merge" />
-        <!-- Autofill service (ADR-008, slice A). The service is bound by the
-             system with BIND_AUTOFILL_SERVICE and answers the locked case: an
-             authentication intent and zero datasets, no vault read.
+        <!-- Autofill service (ADR-008). The service is bound by the
+             system with BIND_AUTOFILL_SERVICE and answers in two phases: while
+             the vault is locked, zero datasets plus the authentication intent;
+             once it is unlocked, datasets built from the vault over the app's
+             single engine.
              android:settingsActivity lets the system's autofill settings open
              Vaulta; AutofillServiceInfo reads the same value from
              res/xml/autofill_service.xml, so the two declarations must match. -->
@@ -83,9 +85,11 @@
                 android:name="android.autofill"
                 android:resource="@xml/autofill_service" />
         </service>
-        <!-- Stub unlock screen for the autofill flow (ADR-008, slice A).
-             Not exported: the system reaches it through the service's
-             PendingIntent, which carries this app's identity. -->
+        <!-- Unlock screen for the autofill flow (ADR-008 §1, §2). It owns no
+             engine and no unlock path of its own: it starts MainActivity, which
+             does, and finishes as soon as the vault reports unlocked or after a
+             bounded wait. Not exported: the system reaches it through the
+             service's PendingIntent, which carries this app's identity. -->
         <activity
             android:name=".autofill.AutofillUnlockActivity"
             android:exported="false"
