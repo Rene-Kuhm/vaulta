@@ -232,7 +232,14 @@ listaba el alias. La causa era `State: RUNNING_LOCKED`: con el usuario bloqueado
 componentes que no son `directBootAware`. Con `RUNNING_UNLOCKED` en API 29 el mismo APK resuelve al
 instante. No era el APK ni el cableado.
 
-L28 (pendiente): portar `applyRemoteSnapshots` al storage SQLite antes de que el flag pueda ser el
-default para alguien que sincroniza; y la secuencia manual completa sobre un vault creado por la UI
-(backup `.vaulta`, migrar, reiniciar, desbloquear, verificar, restaurar), que por `FLAG_SECURE` es
-genuinamente manual.
+L28 (ola 4, cerrada): `applyRemoteSnapshots` portado al storage SQLite. La reconstrucción del sobre
+desde un snapshot tiene cuatro ramas (v1, v2 con kdf/dek_wrap, v3 atado al record, v4 con clave por
+ítem y sal) y se extrajo a `lib/core/sync/remote_snapshot_envelope.dart` en vez de copiarla: dos
+copias de esa lógica derivan. `SqliteVaultRepository` aplica snapshots en una transacción (tombstone
+= soft delete + limpieza del índice de host), y el bootstrap ya pasa el repositorio SQLite a sync en
+vez de `null`. La extracción no cambió comportamiento: los 563 tests previos siguieron verdes, y la
+rama quedó en **575 tests**.
+
+L29 (pendiente): el round trip real entre dos dispositivos sobre el storage SQLite, y la secuencia
+manual completa sobre un vault creado por la UI (backup `.vaulta`, migrar, reiniciar, desbloquear,
+verificar, restaurar), que por `FLAG_SECURE` es genuinamente manual.

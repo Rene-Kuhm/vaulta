@@ -213,19 +213,28 @@ database in the same transaction, so the existing "rekey in progress" flag keeps
 its meaning. The biometric envelope is unaffected: the DEK remains the root of
 both the item keys and the database key.
 
-### 9. What the flag exposed and does not yet close
+### 9. What the flag exposed, and how it was closed
 
 Wiring the switch proved the sync layer was coupled to the blob implementation:
 `buildDeviceSyncLifecycle` took the concrete `LocalEncryptedVaultRepository`
 because it forwards pulled snapshots through `applyRemoteSnapshots`. That is now a
-narrow port, `RemoteSnapshotApplier`, which the blob implements.
+narrow port, `RemoteSnapshotApplier`.
 
-The SQLite storage does **not** implement it yet. Its path therefore passes
-`null`, which the lifecycle already documents as "pull advances the local sync
-state, vault items unchanged". This is a deliberate, recorded degradation: until
-the port is implemented for the database, **sync on the SQLite path pulls nothing
-into the vault**. Pull-to-apply has to be ported before the flag can default on
-for anyone who syncs.
+Porting it to the database required the envelope reconstruction to be shared
+rather than copied: building a decryptable envelope from a snapshot has four
+branches (v1 legacy, v2 with the session's kdf/dek_wrap, v3 record-bound, v4
+item-keyed with a base64 salt and a key version), and two copies of that would
+drift. It lives in `lib/core/sync/remote_snapshot_envelope.dart`, used by both
+repositories, and the existing sync suite stayed green through the extraction.
+
+`SqliteVaultRepository` now applies snapshots: a tombstone becomes a soft delete
+plus host-index removal, a valid snapshot is decrypted with the same binding
+checks and upserted, and a refused one adds its record id to the rejected list and
+changes nothing, all in one transaction. The bootstrap passes the SQLite
+repository to sync instead of `null`.
+
+What is still true: sync pull-to-apply is proven by tests, not yet by a real
+round trip between two devices on the database storage.
 
 ## Consequences
 
@@ -238,7 +247,8 @@ Negative and accepted:
 - **Native assets must build SQLite for every target**, including Windows and
   Linux desktop. This is verified by compiling, not assumed. Native assets is
   enabled by default in this toolchain but is a moving part.
-- **Sync pull-to-apply is not ported** to the database storage; the gap above.
+- **Sync pull-to-apply on the database** is covered by tests but not yet by a real
+  two-device round trip.
 - **Two layers of encryption** to reason about. Mitigated by the rule that the
   payload envelope is byte-identical to what sync expects, so only one codec
   exists.
