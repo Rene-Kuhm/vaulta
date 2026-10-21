@@ -40,6 +40,26 @@ icon, **never a secret, never a username, never an item count that leaks how man
 credentials exist for that app**. The system renders that surface outside our
 process and screenshots it.
 
+### 1b. One engine, and no headless one
+
+The obvious way to make a system-started service talk to Dart is to give it its own
+`FlutterEngine`. That is rejected, and the reason is not style:
+
+- The service runs in the app's process: it declares no `android:process`, and
+  `MainActivity` is a `FlutterFragmentActivity` with a single engine and no
+  `FlutterEngineGroup`.
+- A second engine has its own Dart heap. It **cannot see the unlocked session**, so
+  it could not decrypt anything the main engine holds. The only ways to make it work
+  would be to cache a session or a plaintext index somewhere both can read, or to
+  reimplement the crypto in Kotlin — both are worse than having no autofill.
+- A service holding its own engine also invites exactly the thing this ADR forbids
+  (section 4): a place where decrypted data outlives the request.
+
+So the service asks **the app's engine** over a MethodChannel. When that engine or
+the channel is not available — app not running, vault locked — the answer is "not
+available" and the response is the authentication intent from section 1. The bridge
+holds a channel handle and nothing else: no session, no items, no cache.
+
 ### 2. The unlock path is the existing one, not a second one
 
 The unlock activity calls `BiometricUnlockService.unlock()`, the same path the app
