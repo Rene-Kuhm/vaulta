@@ -11,6 +11,8 @@ import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../core/security/vault_repository.dart';
 import '../../../core/sync/sync_conflict_resolver.dart';
+import '../../health/presentation/vault_health_copy.dart';
+import '../../health/presentation/vault_health_report_screen.dart';
 import '../../sync/presentation/sync_conflicts_sheet.dart';
 import '../application/vault_import_models.dart';
 import '../domain/vault_item.dart';
@@ -177,6 +179,7 @@ class _VaultDashboardScreenState extends State<VaultDashboardScreen> {
                             onCreateEntry: _createEntry,
                             onImportEntries: () =>
                                 _importEntries(existingItems: data.items),
+                            onOpenHealthReport: _openHealthReport,
                           ),
                           const SizedBox(height: AppSpacing.lg),
                           _VaultSection(
@@ -325,6 +328,14 @@ class _VaultDashboardScreenState extends State<VaultDashboardScreen> {
       ).showSnackBar(SnackBar(content: Text(context.l10n.vaultUpdatedMessage)));
       _refresh();
     }
+  }
+
+  Future<void> _openHealthReport() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => VaultHealthReportScreen(repository: widget.repository),
+      ),
+    );
   }
 }
 
@@ -569,10 +580,12 @@ class _QuickActions extends StatelessWidget {
     required this.summary,
     required this.onCreateEntry,
     required this.onImportEntries,
+    required this.onOpenHealthReport,
   });
   final VaultSummary summary;
   final Future<void> Function() onCreateEntry;
   final Future<void> Function() onImportEntries;
+  final Future<void> Function() onOpenHealthReport;
 
   @override
   Widget build(BuildContext context) {
@@ -588,6 +601,14 @@ class _QuickActions extends StatelessWidget {
             subtitle: l10n.dashboardQuickActionsSummary,
           ),
           const SizedBox(height: AppSpacing.md),
+          _QuickActionRow(
+            icon: Icons.health_and_safety_rounded,
+            tint: AppColors.success,
+            title: VaultHealthCopy.title,
+            subtitle: VaultHealthCopy.entryPointSubtitle,
+            onTap: onOpenHealthReport,
+          ),
+          const Divider(height: AppSpacing.lg),
           _QuickActionRow(
             icon: Icons.add_moderator_rounded,
             tint: AppColors.crimsonBright,
