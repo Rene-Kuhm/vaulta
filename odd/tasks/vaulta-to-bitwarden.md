@@ -51,6 +51,15 @@ riesgo de datos y por dependencia de orden.
 Rama de integración: `orq/20261021-090429` (worktree `~/proyectos/.herdr-worktrees/vaulta/orq-20261021-090429`).
 Base de la ola: `e6cebcf` (pin de Flutter). Suite en la integración: **445 tests verdes**, `flutter analyze` sin issues.
 
+### Ola 2 (ejecutada)
+
+| ID | Qué | Commit | Verificación |
+|----|-----|--------|--------------|
+| A | Esquema `STRICT` + opener cifrado + dependencias | `d307a83`, `ec6ae88` | 452 tests, analyze limpio |
+| B | `SqliteVaultRepository` con `search` y `findByHost` | `c4caa45` | 462 tests |
+| C | Migración desde el blob con rollback | `40216d4` | 8 tests de rollback, 470 tests |
+| D1 | Medición de la amplificación de escritura | `60d64c3` | 472 tests |
+
 Después de esta ola, en orden y no en paralelo:
 
 | Ola | Contenido | Por qué ese orden |
@@ -162,3 +171,42 @@ adivinarse.
 
 L18 (detalle del ecosistema): `Database.dispose()` está deprecado en `sqlite3` 3.7; se usa
 `close()`. La rama queda en cero issues.
+
+L19 (ola 2 A, `d307a83` y `ec6ae88`): esquema `STRICT`, opener con el orden de pragmas y
+dependencias. `sqlite3` 3.7.1 construido como SQLite3 Multiple Ciphers por native assets.
+`payload` y `title_ct` quedan en `TEXT` (no BLOB) porque el servicio de cifrado produce y consume
+el sobre como string JSON, que es lo mismo que viaja por sync: guardar bytes habría agregado un
+segundo códec al lado del que ya existe. 452 tests.
+
+L20 (gate de confidencialidad, cerrado): el ADR lo dejaba pendiente porque el spike sólo podía
+escanear un archivo cerrado y con checkpoint. El test lo prueba **con la base abierta y WAL
+activo**: el título no aparece en claro en `.db`, `-wal` ni `-shm`. También: abrir sin clave lanza
+excepción en vez de devolver vacío, una clave con un bit cambiado no lee, `STRICT` rechaza un tipo
+equivocado, y una versión de esquema desconocida se rechaza en vez de adivinarse.
+
+L21 (ola 2 B, `c4caa45`): `VaultRepository` sobre la base, sin cablear. Un guardado toca una fila;
+`deleteItem` es soft delete; `fetchItemById`, `search` y `findByHost` dejan de descifrar todo el
+vault. El título lleva un marcador `{kind: title}` para que un cifrado de título no se pueda mover
+a la columna del payload y descifrarse como ítem. 462 tests.
+
+L22 (ola 2 C, `40216d4`): migración en una transacción, con verificación de conteo y de conjunto de
+`record_id` **dentro** de la transacción, y el blob movido a `vault_encrypted_items_legacy_v1` sólo
+después del commit. Los cuatro caminos de falla dejan cero filas y el blob intacto: sobre
+indescifrable, ítem atado a otro registro, verificación que no cierra, y vault bloqueado. Segunda
+corrida = no-op. 8 tests de migración, 470 tests.
+
+L23 (ola 2 D1, `60d64c3`, el número que justifica todo): un guardado con un vault de 500 ítems.
+
+| repositorio | cifrados | bytes escritos |
+|---|---|---|
+| blob actual | **501** | **179.433** |
+| SQLite nuevo | **2** | **277** |
+
+250× menos trabajo criptográfico y 648× menos bytes. La medición cuenta operaciones, no tiempos, así
+que no puede volverse flaky. El test del lado SQLite exige exactamente 2 sobres (payload y título),
+así que un cambio futuro que vuelva a recifrar el vault falla el test en vez de deshacer en silencio
+el sentido de la migración.
+
+L24 (pendiente, ola 2 D2): el swap del composition root al storage nuevo. **No se hizo**: cambia el
+storage activo de vaults reales y el plan de verificación del ADR exige probarlo en un dispositivo
+real con un backup cifrado hecho antes. Necesita aprobación explícita.
