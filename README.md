@@ -91,7 +91,6 @@ El desbloqueo biometrico esta implementado solo para Android. En Windows, iOS, m
 Lo siguiente **todavia no esta disponible** en ninguna version publicada:
 
 - Autofill nativo de Android (no hay `AutofillService` declarado en la app).
-- Exportacion y backup cifrado del vault.
 - Sincronizacion con cuenta entre dispositivos (la base tecnica existe, ver [Seguridad](#seguridad)).
 - TOTP integrado (codigos de doble factor).
 - Firma de codigo para el binario de Windows.
@@ -142,6 +141,8 @@ Vaulta implementa una postura de seguridad local basada en:
 - AES-256-GCM para cifrado autenticado.
 - Clave DEK independiente del password del usuario.
 - Envelope protegido para desbloqueo biometrico en Android.
+- Exportacion y restauracion de backup cifrado (`.vaulta`, Argon2id + AES-256-GCM, password propia distinta de la master password; ver [ADR-006](docs/architecture/ADR-006-encrypted-backup.md)).
+- La pantalla de seguridad reporta las capacidades del dispositivo consultando a los servicios que las implementan, con tres estados (disponible, no disponible, no se pudo determinar) en vez de asumir un `false`.
 - Bloqueo automatico al salir de primer plano o por inactividad.
 - Borrado automatico del portapapeles tras copiar un secreto.
 - Manejo explicito de estados de error y sesiones revocadas.
@@ -229,7 +230,7 @@ flutter build windows --release
 
 GitHub Actions tiene dos workflows:
 
-- `flutter-ci.yml`: en cada push y pull request ejecuta `flutter analyze`, `flutter test` y un umbral de cobertura del 50% sobre `lib/core/security`.
+- `flutter-ci.yml`: en cada push y pull request ejecuta `flutter analyze`, `flutter test` y un umbral de cobertura del 60% sobre `lib/core/security` (`scripts/check_coverage.sh`).
 - `dev-apk-release.yml`: en cada push a `master` analiza, compila la APK release firmada con la clave de upload y la publica como `vaulta.apk` en el release `dev-latest`, que es el que consulta el actualizador de la app.
 
 Ningun workflow compila ni firma el build de Windows. El bundle de Windows se sube a mano a los releases estables (por ejemplo `v1.0.22`).

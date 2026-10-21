@@ -10,9 +10,12 @@ import '../application/vault_backup_coordinator.dart';
 import '../data/vault_backup_file_gateway.dart';
 import 'vault_backup_export_dialog.dart';
 import 'vault_backup_restore_screen.dart';
+import 'vault_clear_text_export_dialog.dart';
 
-/// Settings panel with the encrypted backup actions: export the vault
-/// to a `.vaulta` file and restore one (ADR-006).
+/// Settings panel with the backup actions: export the vault to an
+/// encrypted `.vaulta` file (the default, ADR-006), export an
+/// unencrypted CSV/JSON file for migrating to another password manager,
+/// and restore an encrypted backup.
 class BackupSection extends StatelessWidget {
   /// Builds the section. [fileGateway] defaults to the `file_picker`
   /// implementation and [appVersionLoader] to `package_info_plus`.
@@ -80,6 +83,12 @@ class BackupSection extends StatelessWidget {
                 label: Text(l10n.backupExportAction),
               ),
               OutlinedButton.icon(
+                key: const Key('backup.section.exportClearText'),
+                onPressed: () => _exportClearText(context),
+                icon: const Icon(Icons.table_view_rounded),
+                label: Text(l10n.backupExportClearTextAction),
+              ),
+              OutlinedButton.icon(
                 key: const Key('backup.section.restore'),
                 onPressed: () => _restore(context),
                 icon: const Icon(Icons.settings_backup_restore_rounded),
@@ -99,6 +108,24 @@ class BackupSection extends StatelessWidget {
       context: context,
       barrierDismissible: false,
       builder: (_) => VaultBackupExportDialog(
+        coordinator: coordinator,
+        securityController: securityController,
+        fileGateway: fileGateway,
+        appVersionLoader: appVersionLoader,
+      ),
+    );
+    if (saved == true) {
+      messenger?.showSnackBar(SnackBar(content: Text(successText)));
+    }
+  }
+
+  Future<void> _exportClearText(BuildContext context) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final successText = context.l10n.backupClearTextSuccess;
+    final saved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => VaultClearTextExportDialog(
         coordinator: coordinator,
         securityController: securityController,
         fileGateway: fileGateway,

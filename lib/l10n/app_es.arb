@@ -56,8 +56,11 @@
   "settingsRoadmapNotes": "Los ítems del vault usan el payload v4 de ADR-001: Argon2id deriva una KEK desde la master password, una DEK aleatoria abre la bóveda y cada ítem se sella con AES-256-GCM bajo su propia clave, con el ciphertext atado a su id de registro, id de clave de ítem, versión de clave de ítem e IV. Android recupera la DEK con biometría mediante una clave del KeyStore; iOS/macOS quedan pendientes.",
   "settingsSecureStorage": "Almacenamiento seguro",
   "settingsBiometricUnlock": "Recovery biométrico de clave",
-  "settingsHardwareBackedKeys": "Claves con respaldo de hardware",
+  "settingsHardwareBackedKeys": "Clave en el KeyStore",
   "settingsVaultEncryptionReady": "Cifrado del vault conectado end-to-end",
+  "settingsCapabilitySupported": "Disponible",
+  "settingsCapabilityUnsupported": "No disponible",
+  "settingsCapabilityUnknown": "No se pudo determinar",
   "settingsConflictsTitle": "Conflictos de sync",
   "settingsConflictsEmpty": "Sin conflictos pendientes. La cola de sync está limpia.",
   "settingsConflictsRefresh": "Refrescar",
@@ -395,6 +398,25 @@
   "backupSaveCancelled": "Se cancelo el guardado. No se escribio ningun archivo.",
   "backupExportSuccess": "Copia cifrada guardada.",
   "backupExportFailed": "No se pudo crear la copia. Intenta de nuevo.",
+  "backupExportClearTextAction": "Exportar sin cifrar (CSV/JSON)",
+  "backupClearTextTitle": "Exportar archivo sin cifrar",
+  "backupClearTextReauthBody": "Vuelve a ingresar tu master password para exportar el vault en texto plano.",
+  "backupClearTextItemCount": "{count, plural, =1{El archivo tendrá 1 entrada.} other{El archivo tendrá {count} entradas.}}",
+  "@backupClearTextItemCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupClearTextWarning": "Este archivo NO está cifrado. Cualquiera que lo abra va a leer todas tus contraseñas, incluidas las apps que lo sincronicen a la nube. Borralo apenas termines de migrar.",
+  "backupClearTextFormatLabel": "Formato",
+  "backupClearTextFormatCsv": "CSV — gestores de contraseñas y planillas",
+  "backupClearTextFormatJson": "JSON — todos los campos, sin pérdida de datos",
+  "backupClearTextConfirm": "Entiendo que el archivo va a quedar sin cifrar en el disco.",
+  "backupClearTextCreateAction": "Exportar archivo sin cifrar",
+  "backupClearTextSuccess": "Archivo sin cifrar guardado. Borralo cuando ya no lo necesites.",
+  "backupClearTextExportFailed": "No se pudo crear el archivo sin cifrar. Intenta de nuevo.",
   "backupReauthExpired": "Tu confirmacion vencio. Vuelve a iniciar la exportacion.",
   "backupRestoreTitle": "Restaurar copia",
   "backupRestoreIntro": "Elige un archivo .vaulta e ingresa su password. No se escribe nada en tu vault hasta que confirmes.",

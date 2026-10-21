@@ -22,8 +22,15 @@ class VaultBackupPickedFile {
 /// platform channels.
 abstract interface class VaultBackupFileGateway {
   /// Asks the user where to save [bytes] under the suggested
-  /// [fileName]. Returns false when the user cancelled.
-  Future<bool> save({required String fileName, required Uint8List bytes});
+  /// [fileName]. [fileExtension] (without the dot) is the extension the
+  /// platform save dialog filters on; it defaults to the encrypted
+  /// `.vaulta` backup so existing callers keep their exact behavior.
+  /// Returns false when the user cancelled.
+  Future<bool> save({
+    required String fileName,
+    required Uint8List bytes,
+    String fileExtension = VaultBackupService.fileExtension,
+  });
 
   /// Lets the user pick a backup file. Returns `null` when cancelled.
   /// Throws [VaultBackupException] with [VaultBackupFailure.malformed]
@@ -43,13 +50,14 @@ class FilePickerVaultBackupFileGateway implements VaultBackupFileGateway {
   Future<bool> save({
     required String fileName,
     required Uint8List bytes,
+    String fileExtension = VaultBackupService.fileExtension,
   }) async {
     // On Android the plugin writes [bytes] to the SAF document the user
     // creates; on desktop it writes them to the chosen path.
     final path = await FilePicker.saveFile(
       fileName: fileName,
       type: FileType.custom,
-      allowedExtensions: const [VaultBackupService.fileExtension],
+      allowedExtensions: [fileExtension],
       bytes: bytes,
     );
     return path != null;

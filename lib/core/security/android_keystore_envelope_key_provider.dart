@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'biometric_unlock_service.dart';
+import 'platform_security_plan.dart';
 import 'secure_storage_service.dart';
 
 /// Android KeyStore-backed implementation of [BiometricEnvelopeKeyProvider].
@@ -227,13 +228,42 @@ class AndroidKeystoreEnvelopeKeyProvider
   /// available. We probe with `isAvailable` rather than calling
   /// `ensureKey` here, because we do not want to create the key
   /// until the user explicitly enrolls.
+  ///
+  /// This answers a `bool` on purpose: it gates enrollment and unlock,
+  /// where anything short of a confirmed "yes" has to fail closed. For
+  /// reporting to the user use [probeHardwareBackedKeyAvailability],
+  /// which keeps "the platform said no" and "we could not ask" apart.
   Future<bool> isHardwareBackedBiometricAvailable() async {
-    if (!_isAndroid) return false;
+    return (await probeHardwareBackedKeyAvailability()).isSupported;
+  }
+
+  /// Tri-state answer to "does this device have the KeyStore-backed
+  /// biometric envelope right now?".
+  ///
+  /// `isAvailable` on the native side means what the envelope needs: the
+  /// platform accepts an `AUTH_BIOMETRIC_STRONG` RSA spec (API 30+) *and*
+  /// the user has a strong biometric enrolled. When that call fails we
+  /// have learned nothing, so the answer is
+  /// [SecurityCapabilityState.unknown] — reporting it as `false` is the
+  /// silent-false bug the security screen shipped with.
+  Future<SecurityCapabilityState> probeHardwareBackedKeyAvailability() async {
+    if (!_isAndroid) return SecurityCapabilityState.unsupported;
     try {
       final result = await _keystoreChannel.invokeMethod<bool>('isAvailable');
-      return result ?? false;
-    } on PlatformException {
-      return false;
+      if (result == null) return SecurityCapabilityState.unknown;
+      return result
+          ? SecurityCapabilityState.supported
+          : SecurityCapabilityState.unsupported;
+    } on PlatformException catch (error) {
+      debugPrint(
+        '[Vaulta/KeyStore] isAvailable threw ${error.code} ${error.message}',
+      );
+      return SecurityCapabilityState.unknown;
+    } catch (error) {
+      // MissingPluginException on a target where the channel was never
+      // registered, and anything else unexpected: no answer either way.
+      debugPrint('[Vaulta/KeyStore] isAvailable unavailable: $error');
+      return SecurityCapabilityState.unknown;
     }
   }
 

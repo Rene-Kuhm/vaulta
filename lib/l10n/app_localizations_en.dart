@@ -164,10 +164,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsBiometricUnlock => 'Biometric key recovery';
 
   @override
-  String get settingsHardwareBackedKeys => 'Hardware-backed keys';
+  String get settingsHardwareBackedKeys => 'KeyStore-held key';
 
   @override
   String get settingsVaultEncryptionReady => 'Vault item encryption wired end-to-end';
+
+  @override
+  String get settingsCapabilitySupported => 'Available';
+
+  @override
+  String get settingsCapabilityUnsupported => 'Not available';
+
+  @override
+  String get settingsCapabilityUnknown => 'Could not determine';
 
   @override
   String get settingsConflictsTitle => 'Sync conflicts';
@@ -943,6 +952,50 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get backupExportFailed => 'The backup could not be created. Try again.';
+
+  @override
+  String get backupExportClearTextAction => 'Export unencrypted (CSV/JSON)';
+
+  @override
+  String get backupClearTextTitle => 'Export unencrypted file';
+
+  @override
+  String get backupClearTextReauthBody => 'Re-enter your master password to export the vault in clear text.';
+
+  @override
+  String backupClearTextItemCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'The file will contain $count entries.',
+      one: 'The file will contain 1 entry.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupClearTextWarning => 'This file is NOT encrypted. Every password in it is readable by anyone who opens it, including any app that syncs it to the cloud. Delete it as soon as you finish migrating.';
+
+  @override
+  String get backupClearTextFormatLabel => 'Format';
+
+  @override
+  String get backupClearTextFormatCsv => 'CSV — password managers and spreadsheets';
+
+  @override
+  String get backupClearTextFormatJson => 'JSON — every field, no information loss';
+
+  @override
+  String get backupClearTextConfirm => 'I understand the file will be unencrypted on disk.';
+
+  @override
+  String get backupClearTextCreateAction => 'Export unencrypted file';
+
+  @override
+  String get backupClearTextSuccess => 'Unencrypted file saved. Delete it once you are done with it.';
+
+  @override
+  String get backupClearTextExportFailed => 'The unencrypted file could not be created. Try again.';
 
   @override
   String get backupReauthExpired => 'Your confirmation expired. Start the export again.';

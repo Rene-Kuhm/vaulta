@@ -7,6 +7,7 @@ import 'package:gestor_contrasenas/core/security/master_password_record.dart';
 import 'package:gestor_contrasenas/core/security/master_password_service.dart';
 import 'package:gestor_contrasenas/core/security/secure_storage_service.dart';
 import 'package:gestor_contrasenas/core/security/unlock_attempt_limiter.dart';
+import 'package:gestor_contrasenas/core/security/vault_backup_service.dart';
 import 'package:gestor_contrasenas/core/security/vault_repository.dart';
 import 'package:gestor_contrasenas/core/security/vault_security_controller.dart';
 import 'package:gestor_contrasenas/features/backup/data/vault_backup_file_gateway.dart';
@@ -161,6 +162,9 @@ class FakeBackupFileGateway implements VaultBackupFileGateway {
   /// File names passed to every [save] call.
   final List<String> savedNames = [];
 
+  /// Extensions passed to every [save] call.
+  final List<String> savedExtensions = [];
+
   /// File returned by [pick].
   VaultBackupPickedFile? fileToPick;
 
@@ -171,9 +175,11 @@ class FakeBackupFileGateway implements VaultBackupFileGateway {
   Future<bool> save({
     required String fileName,
     required Uint8List bytes,
+    String fileExtension = VaultBackupService.fileExtension,
   }) async {
     savedNames.add(fileName);
     savedBytes.add(bytes);
+    savedExtensions.add(fileExtension);
     return saveResults.isEmpty ? true : saveResults.removeAt(0);
   }
 }

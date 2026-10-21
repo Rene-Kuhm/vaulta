@@ -1,22 +1,30 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/widgets.dart';
 import 'package:local_auth/local_auth.dart';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:gestor_contrasenas/core/security/android_keystore_envelope_key_provider.dart';
 import 'package:gestor_contrasenas/core/security/biometric_auth_service.dart';
 import 'package:gestor_contrasenas/core/security/biometric_key_envelope_service.dart';
 import 'package:gestor_contrasenas/core/security/biometric_unlock_service.dart';
 import 'package:gestor_contrasenas/core/security/master_password_record.dart';
 import 'package:gestor_contrasenas/core/security/master_password_service.dart';
+import 'package:gestor_contrasenas/core/security/native_biometric_auth_service.dart';
+import 'package:gestor_contrasenas/core/security/platform_security_plan.dart';
 import 'package:gestor_contrasenas/core/security/secure_storage_service.dart';
 import 'package:gestor_contrasenas/core/security/unlock_attempt_limiter.dart';
 import 'package:gestor_contrasenas/core/security/vault_security_controller.dart';
 import 'package:gestor_contrasenas/core/security/vault_session.dart';
 
 void main() {
+  // The capability probe tests below stand in fake `MethodChannel`s for the
+  // Android KeyStore and BiometricPrompt sides of the app, which needs the
+  // test binding. Plain async tests are unaffected by it.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('VaultSecurityController', () {
     test('creates and verifies master password flow', () async {
       final storage = _InMemorySecureStorageService();
@@ -988,6 +996,172 @@ void main() {
       );
     });
   });
+
+  // The security screen used to print a static platform table: `false` for
+  // capabilities that worked on the device, and no way at all to say "I
+  // could not find out". These tests pin the probe against the services
+  // that actually perform the operations — one test per state, including
+  // the failure modes that used to be flattened into `false`.
+  group('VaultSecurityController capability probe', () {
+    const keystoreChannel = MethodChannel(
+      AndroidKeystoreEnvelopeKeyProvider.keystoreChannelName,
+    );
+    const biometricChannel = MethodChannel(
+      AndroidKeystoreEnvelopeKeyProvider.biometricChannelName,
+    );
+
+    late _FakeCapabilityPlatform platform;
+    late _InMemorySecureStorageService storage;
+
+    setUp(() {
+      platform = _FakeCapabilityPlatform();
+      platform.install(keystoreChannel, biometricChannel);
+      storage = _InMemorySecureStorageService();
+    });
+
+    tearDown(() => platform.uninstall(keystoreChannel, biometricChannel));
+
+    /// A controller wired exactly like `password_manager_app.dart` wires
+    /// it on Android: the native gate plus the KeyStore envelope provider.
+    VaultSecurityController androidController({bool withUnlocker = true}) {
+      final authService = NativeBiometricAuthService(isAndroid: true);
+      final controller = VaultSecurityController(
+        storage: storage,
+        masterPasswordService: MasterPasswordService.test(),
+        biometricAuthService: authService,
+        biometricUnlockService: withUnlocker
+            ? BiometricUnlockService(
+                storage: storage,
+                biometricAuthService: authService,
+                envelopeService: BiometricKeyEnvelopeService(storage: storage),
+                envelopeKeyProvider: AndroidKeystoreEnvelopeKeyProvider(
+                  storage: storage,
+                  isAndroid: true,
+                ),
+                isMobileTarget: true,
+              )
+            : null,
+      );
+      addTearDown(controller.dispose);
+      return controller;
+    }
+
+    test('reports the KeyStore capabilities the device really has', () async {
+      final plan = await androidController().probeSecurityPlan();
+
+      expect(plan.secureStorage, SecurityCapabilityState.supported);
+      expect(plan.biometricUnlock, SecurityCapabilityState.supported);
+      expect(plan.hardwareBackedKeys, SecurityCapabilityState.supported);
+      expect(plan.vaultEncryptionReady, SecurityCapabilityState.supported);
+      // The probe asks the platform, it does not keep a table.
+      expect(platform.keystoreCalls, contains('isAvailable'));
+      expect(platform.biometricCalls, contains('probeAvailability'));
+      expect(
+        platform.biometricCalls,
+        isNot(contains('requestDecryptAuthorization')),
+        reason: 'reporting capabilities must never open a biometric prompt',
+      );
+    });
+
+    test('reports not available when the platform answers no', () async {
+      // Android 10 (the KeyStore channel refuses the API 30 biometric-only
+      // spec) with no biometric enrolled: a real, confirmed "no".
+      platform.available = false;
+      platform.strongBiometricEnrolled = false;
+
+      final plan = await androidController().probeSecurityPlan();
+
+      expect(plan.hardwareBackedKeys, SecurityCapabilityState.unsupported);
+      expect(plan.biometricUnlock, SecurityCapabilityState.unsupported);
+      expect(plan.secureStorage, SecurityCapabilityState.supported);
+    });
+
+    test('reports unknown when the KeyStore cannot answer', () async {
+      platform.availableError = PlatformException(code: 'KEYSTORE');
+
+      final plan = await androidController().probeSecurityPlan();
+
+      expect(
+        plan.hardwareBackedKeys,
+        SecurityCapabilityState.unknown,
+        reason: 'a failed channel call is not evidence of a missing key',
+      );
+      expect(plan.biometricUnlock, SecurityCapabilityState.unknown);
+      expect(plan.hardwareBackedKeys.isUnsupported, isFalse);
+    });
+
+    test('reports unknown when the biometric probe cannot answer', () async {
+      platform.probeError = PlatformException(code: 'UNAVAILABLE');
+
+      final plan = await androidController().probeSecurityPlan();
+
+      expect(plan.biometricUnlock, SecurityCapabilityState.unknown);
+      expect(plan.hardwareBackedKeys, SecurityCapabilityState.supported);
+    });
+
+    test('reports unknown when secure storage cannot be read', () async {
+      storage.failReads = true;
+
+      final plan = await androidController().probeSecurityPlan();
+
+      expect(plan.secureStorage, SecurityCapabilityState.unknown);
+    });
+
+    test('reports not available for a build with no platform key', () async {
+      // Outside Android the bootstrap wires a no-op envelope provider, so
+      // there is no key-recovery path to report. That is a property of the
+      // build, which means a confirmed "no", not an "unknown".
+      final plan = await androidController(withUnlocker: false)
+          .probeSecurityPlan();
+
+      expect(plan.biometricUnlock, SecurityCapabilityState.unsupported);
+      expect(plan.hardwareBackedKeys, SecurityCapabilityState.unsupported);
+      expect(platform.keystoreCalls, isEmpty);
+      expect(platform.biometricCalls, isEmpty);
+    });
+  });
+
+  // A capability that needs two things can only be claimed when both were
+  // confirmed. This is the rule the screen's "biometric unlock" answer
+  // rests on, so it is pinned directly.
+  group('SecurityCapabilityState.both', () {
+    test('a confirmed no wins over a maybe and over a yes', () {
+      expect(
+        SecurityCapabilityState.both(
+          SecurityCapabilityState.unsupported,
+          SecurityCapabilityState.unknown,
+        ),
+        SecurityCapabilityState.unsupported,
+      );
+      expect(
+        SecurityCapabilityState.both(
+          SecurityCapabilityState.supported,
+          SecurityCapabilityState.unsupported,
+        ),
+        SecurityCapabilityState.unsupported,
+      );
+    });
+
+    test('a maybe wins over a yes', () {
+      expect(
+        SecurityCapabilityState.both(
+          SecurityCapabilityState.supported,
+          SecurityCapabilityState.unknown,
+        ),
+        SecurityCapabilityState.unknown,
+      );
+    });
+
+    test('a yes needs both halves', () {
+      expect(
+        SecurityCapabilityState.both(
+          SecurityCapabilityState.supported,
+          SecurityCapabilityState.supported,
+        ),
+        SecurityCapabilityState.supported,
+      );
+    });
+  });
 }
 
 class _CountingMasterPasswordService extends MasterPasswordService {
@@ -1034,6 +1208,10 @@ class _SucceedingBiometricUnlockService extends BiometricUnlockService {
 class _InMemorySecureStorageService implements SecureStorageService {
   final Map<String, String> _values = {};
 
+  /// When true, reads throw, simulating a platform store that cannot
+  /// answer (as opposed to a store that answers "nothing stored").
+  bool failReads = false;
+
   /// When true, writes of the unlock attempt state throw, simulating
   /// an unavailable keystore.
   bool failSaves = false;
@@ -1048,7 +1226,12 @@ class _InMemorySecureStorageService implements SecureStorageService {
   }
 
   @override
-  Future<String?> read(String key) async => _values[key];
+  Future<String?> read(String key) async {
+    if (failReads) {
+      throw StateError('keystore unavailable');
+    }
+    return _values[key];
+  }
 
   @override
   Future<void> save(String key, String value) async {
@@ -1104,5 +1287,81 @@ class _FakeBiometricAuthService implements BiometricAuthService {
       canCheckBiometrics: true,
       availableBiometrics: [BiometricType.strong],
     );
+  }
+}
+
+/// Stands in for the Android KeyStore + `BiometricManager` side of the
+/// app while a capability probe runs.
+///
+/// Deliberately has two answers and two failure knobs, because the whole
+/// job of the probe is to keep "answered no" apart from "could not ask":
+/// a fake that could not express the difference would let the regression
+/// back in.
+class _FakeCapabilityPlatform {
+  /// What `KeystoreChannel.isAvailable` answers (API >= 30 with a strong
+  /// biometric enrolled, in production terms).
+  bool available = true;
+
+  /// Thrown by `isAvailable` instead of answering, when set.
+  PlatformException? availableError;
+
+  /// Whether `probeAvailability` reports a strong biometric enrolled.
+  bool strongBiometricEnrolled = true;
+
+  /// Thrown by `probeAvailability`, when set.
+  PlatformException? probeError;
+
+  /// Method names seen on each channel, in call order.
+  final List<String> keystoreCalls = <String>[];
+  final List<String> biometricCalls = <String>[];
+
+  void install(MethodChannel keystore, MethodChannel biometric) {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(keystore, _handleKeystore);
+    messenger.setMockMethodCallHandler(biometric, _handleBiometric);
+  }
+
+  void uninstall(MethodChannel keystore, MethodChannel biometric) {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(keystore, null);
+    messenger.setMockMethodCallHandler(biometric, null);
+  }
+
+  Future<Object?> _handleKeystore(MethodCall call) async {
+    keystoreCalls.add(call.method);
+    switch (call.method) {
+      case 'isAvailable':
+        final error = availableError;
+        if (error != null) throw error;
+        return available;
+      default:
+        throw MissingPluginException('no handler for ${call.method}');
+    }
+  }
+
+  Future<Object?> _handleBiometric(MethodCall call) async {
+    biometricCalls.add(call.method);
+    switch (call.method) {
+      case 'probeAvailability':
+        final error = probeError;
+        if (error != null) throw error;
+        const success = 0;
+        const noneEnrolled = 11;
+        final code = strongBiometricEnrolled ? success : noneEnrolled;
+        return <String, dynamic>{
+          'canUseStrong': strongBiometricEnrolled,
+          'canUseWeak': false,
+          'canUseStrongOrCredential': strongBiometricEnrolled,
+          'canUseDeviceCredential': false,
+          'strongCode': code,
+          'weakCode': noneEnrolled,
+          'strongOrCredentialCode': code,
+          'deviceCredentialCode': noneEnrolled,
+        };
+      default:
+        throw MissingPluginException('no handler for ${call.method}');
+    }
   }
 }

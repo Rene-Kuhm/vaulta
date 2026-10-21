@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
+import 'android_keystore_envelope_key_provider.dart';
 import 'biometric_auth_service.dart';
 import 'biometric_key_envelope_service.dart';
 import 'biometric_unlock_service.dart';
 import 'master_password_record.dart';
 import 'master_password_service.dart';
 import 'native_biometric_auth_service.dart';
+import 'platform_security_plan.dart';
 import 'secure_storage_service.dart';
 import 'sensitive_clipboard_service.dart';
 import 'unlock_attempt_limiter.dart';
@@ -327,6 +329,103 @@ class VaultSecurityController extends ChangeNotifier {
       return service.probeCapability();
     }
     return NativeBiometricCapability.empty;
+  }
+
+  /// Probes the platform capabilities the security screen reports.
+  ///
+  /// Every answer comes from the service that performs the operation, not
+  /// from a static "which platform is this" table. The old table answered
+  /// `false` for capabilities that worked and had no way to say "I could
+  /// not find out"; this probe keeps the three states apart, and the UI
+  /// renders an unknown state differently from a confirmed no.
+  Future<PlatformSecurityPlan> probeSecurityPlan() async {
+    final hardwareBackedKeys = await _probeHardwareBackedKeys();
+    // Biometric unlock needs both halves: a prompt the platform is willing
+    // to open and a platform-protected key to release. When there is no
+    // key path at all the answer is already settled, and the gate is not
+    // even asked. Otherwise one confirmed "no" is a no, and if either
+    // half could not be asked the pair is unknown rather than false.
+    final biometricGate = hardwareBackedKeys.isUnsupported
+        ? SecurityCapabilityState.unsupported
+        : await _probeBiometricGate();
+    return PlatformSecurityPlan(
+      secureStorage: await _probeSecureStorage(),
+      hardwareBackedKeys: hardwareBackedKeys,
+      biometricUnlock: SecurityCapabilityState.both(
+        biometricGate,
+        hardwareBackedKeys,
+      ),
+      // A property of this build, not of the device: the controller is
+      // constructed with the master-password and envelope services and
+      // the AES-256-GCM / Argon2id implementation is compiled in. There
+      // is no runtime question to ask, so this one is a confirmed yes.
+      vaultEncryptionReady: SecurityCapabilityState.supported,
+    );
+  }
+
+  /// True when secure storage answers a read. A throw means we cannot
+  /// tell whether the platform store works, which is not the same as it
+  /// being unavailable.
+  Future<SecurityCapabilityState> _probeSecureStorage() async {
+    try {
+      await _storage.read(biometricEnabledKey);
+      return SecurityCapabilityState.supported;
+    } catch (error) {
+      debugPrint('[Vaulta] secure storage probe failed: $error');
+      return SecurityCapabilityState.unknown;
+    }
+  }
+
+  /// Asks the wired envelope-key provider whether the platform key is
+  /// there. Outside Android the bootstrap wires a no-op provider that
+  /// never touches a platform key, so "no" is a fact of the build and
+  /// not a failure to answer.
+  Future<SecurityCapabilityState> _probeHardwareBackedKeys() async {
+    final provider = _biometricUnlockService?.envelopeKeyProvider;
+    if (provider is! AndroidKeystoreEnvelopeKeyProvider) {
+      return SecurityCapabilityState.unsupported;
+    }
+    return provider.probeHardwareBackedKeyAvailability();
+  }
+
+  /// Asks the biometric gate whether it can authorize a prompt right
+  /// now. On Android that is the native `BiometricManager` probe the
+  /// KeyStore path also uses, so the screen and the unlock agree; the
+  /// prompt itself is never opened here.
+  Future<SecurityCapabilityState> _probeBiometricGate() async {
+    final service = _biometricAuthService;
+    try {
+      if (service is NativeBiometricAuthService) {
+        final capability = await service.probeCapability();
+        if (_biometricProbeDidNotAnswer(capability)) {
+          return SecurityCapabilityState.unknown;
+        }
+        return capability.canUseStrong
+            ? SecurityCapabilityState.supported
+            : SecurityCapabilityState.unsupported;
+      }
+      final availability = await service.getAvailability();
+      final usable =
+          availability.canAuthenticate && availability.hasEnrolledBiometrics;
+      return usable
+          ? SecurityCapabilityState.supported
+          : SecurityCapabilityState.unsupported;
+    } catch (error) {
+      debugPrint('[Vaulta] biometric gate probe failed: $error');
+      return SecurityCapabilityState.unknown;
+    }
+  }
+
+  /// [NativeBiometricAuthService.probeCapability] collapses a failed or
+  /// unregistered channel into [NativeBiometricCapability.empty], whose
+  /// error codes are all the `-1` sentinel. Real `BiometricManager` codes
+  /// are never negative, so all-`-1` means the question was never
+  /// answered.
+  bool _biometricProbeDidNotAnswer(NativeBiometricCapability capability) {
+    return capability.strongErrorCode < 0 &&
+        capability.weakErrorCode < 0 &&
+        capability.strongOrCredentialErrorCode < 0 &&
+        capability.deviceCredentialErrorCode < 0;
   }
 
   /// Opens the system biometric-enrollment settings. Returns true

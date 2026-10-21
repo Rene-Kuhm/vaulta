@@ -404,7 +404,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsHardwareBackedKeys.
   ///
   /// In en, this message translates to:
-  /// **'Hardware-backed keys'**
+  /// **'KeyStore-held key'**
   String get settingsHardwareBackedKeys;
 
   /// No description provided for @settingsVaultEncryptionReady.
@@ -412,6 +412,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Vault item encryption wired end-to-end'**
   String get settingsVaultEncryptionReady;
+
+  /// No description provided for @settingsCapabilitySupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Available'**
+  String get settingsCapabilitySupported;
+
+  /// No description provided for @settingsCapabilityUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Not available'**
+  String get settingsCapabilityUnsupported;
+
+  /// No description provided for @settingsCapabilityUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not determine'**
+  String get settingsCapabilityUnknown;
 
   /// No description provided for @settingsConflictsTitle.
   ///
@@ -1870,6 +1888,78 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The backup could not be created. Try again.'**
   String get backupExportFailed;
+
+  /// No description provided for @backupExportClearTextAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Export unencrypted (CSV/JSON)'**
+  String get backupExportClearTextAction;
+
+  /// No description provided for @backupClearTextTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Export unencrypted file'**
+  String get backupClearTextTitle;
+
+  /// No description provided for @backupClearTextReauthBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Re-enter your master password to export the vault in clear text.'**
+  String get backupClearTextReauthBody;
+
+  /// No description provided for @backupClearTextItemCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{The file will contain 1 entry.} other{The file will contain {count} entries.}}'**
+  String backupClearTextItemCount(int count);
+
+  /// No description provided for @backupClearTextWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'This file is NOT encrypted. Every password in it is readable by anyone who opens it, including any app that syncs it to the cloud. Delete it as soon as you finish migrating.'**
+  String get backupClearTextWarning;
+
+  /// No description provided for @backupClearTextFormatLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Format'**
+  String get backupClearTextFormatLabel;
+
+  /// No description provided for @backupClearTextFormatCsv.
+  ///
+  /// In en, this message translates to:
+  /// **'CSV — password managers and spreadsheets'**
+  String get backupClearTextFormatCsv;
+
+  /// No description provided for @backupClearTextFormatJson.
+  ///
+  /// In en, this message translates to:
+  /// **'JSON — every field, no information loss'**
+  String get backupClearTextFormatJson;
+
+  /// No description provided for @backupClearTextConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'I understand the file will be unencrypted on disk.'**
+  String get backupClearTextConfirm;
+
+  /// No description provided for @backupClearTextCreateAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Export unencrypted file'**
+  String get backupClearTextCreateAction;
+
+  /// No description provided for @backupClearTextSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Unencrypted file saved. Delete it once you are done with it.'**
+  String get backupClearTextSuccess;
+
+  /// No description provided for @backupClearTextExportFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The unencrypted file could not be created. Try again.'**
+  String get backupClearTextExportFailed;
 
   /// No description provided for @backupReauthExpired.
   ///
