@@ -16,7 +16,7 @@ void main() {
   late Uint8List key;
 
   const secretTitle = 'Banco Galicia - TITULO-SECRETO-123';
-  const secretPayload = <int>[1, 2, 3, 4, 5, 6, 7, 8];
+  const secretPayload = 'payload-ciphertext-no-es-un-secreto';
 
   setUp(() async {
     dir = Directory.systemTemp.createTempSync('vault_db_test');
@@ -68,7 +68,7 @@ void main() {
       () => db.execute(
         'INSERT INTO vault_items '
         '(record_id, key_id, key_version, payload, title_ct, category, updated_at) '
-        "VALUES ('r1', 'k1', 'not-an-integer', x'00', x'00', 'work', 0)",
+        "VALUES ('r1', 'k1', 'not-an-integer', 'payload-x', 'titulo-x', 'work', 0)",
       ),
       throwsA(isA<SqliteException>()),
     );
@@ -86,8 +86,8 @@ void main() {
         'r1',
         'k1',
         4,
-        Uint8List.fromList(secretPayload),
-        Uint8List.fromList(secretTitle.codeUnits),
+        secretPayload,
+        secretTitle,
         'work',
         1700000000,
       ],
@@ -112,7 +112,7 @@ void main() {
     db.execute(
       'INSERT INTO vault_items '
       '(record_id, key_id, key_version, payload, title_ct, category, updated_at) '
-      "VALUES ('r1', 'k1', 4, x'00', x'00', 'work', 0)",
+      "VALUES ('r1', 'k1', 4, 'payload-x', 'titulo-x', 'work', 0)",
     );
     db.close();
 
@@ -130,7 +130,7 @@ void main() {
     db.execute(
       'INSERT INTO vault_items '
       '(record_id, key_id, key_version, payload, title_ct, category, updated_at) '
-      "VALUES ('r1', 'k1', 4, x'00', x'00', 'work', 0)",
+      "VALUES ('r1', 'k1', 4, 'payload-x', 'titulo-x', 'work', 0)",
     );
     db.close();
 
@@ -170,8 +170,8 @@ void main() {
         'record-1',
         'key-1',
         4,
-        Uint8List.fromList(secretPayload),
-        Uint8List.fromList([9, 9, 9]),
+        secretPayload,
+        'titulo-cifrado',
         'finance',
         1700000001,
       ],
