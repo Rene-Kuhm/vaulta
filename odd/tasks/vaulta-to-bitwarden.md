@@ -146,3 +146,19 @@ descartado: sólo ofrece CBC + HMAC, puede traer un SQLite más viejo y linkea O
 Linux y Android. `drift_flutter` también queda afuera porque arrastra los dos paquetes EOL.
 Native assets viene activado por defecto en este toolchain (`flutter config`), así que el riesgo
 de la ola 2 baja a "compilar en Windows y Linux", que se verifica compilando.
+
+L16 (ola 2 A, commit `d307a83`): esquema `STRICT` y opener cifrado, sin cablear nada. `sqlite3`
+3.7.1 construido como SQLite3 Multiple Ciphers por native assets, `pragma cipher` → `pragma key`
+→ `journal_mode` en ese orden, clave de base derivada por HKDF del DEK (`vaulta:db:v1`) con sal
+por base que vive en secure storage, nunca dentro de la base. **452 tests** (445 + 7) y
+`flutter analyze` sin issues.
+
+L17 (gate de confidencialidad, cerrado): el ADR lo dejaba pendiente porque el spike sólo podía
+escanear un archivo cerrado y con checkpoint. El test nuevo lo prueba **con la base abierta y WAL
+activo**: el título no aparece en claro en `.db`, `-wal` ni `-shm`. También quedan probados: abrir
+sin clave lanza excepción en vez de devolver vacío, una clave con un byte cambiado no lee nada,
+`STRICT` rechaza un tipo equivocado, y una versión de esquema desconocida se rechaza en vez de
+adivinarse.
+
+L18 (detalle del ecosistema): `Database.dispose()` está deprecado en `sqlite3` 3.7; se usa
+`close()`. La rama queda en cero issues.
