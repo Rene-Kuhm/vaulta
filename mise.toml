@@ -1,0 +1,4 @@
+[tools]
+# Toolchain del proyecto: sin esto el shim de mise no resuelve y `flutter test` falla.
+# pubspec.yaml pide Dart SDK ^3.11.3, que es el que trae Flutter 3.47.7.
+flutter = "3.47.7"
