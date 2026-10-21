@@ -35,10 +35,20 @@ Declare a service bound by `android.permission.BIND_AUTOFILL_SERVICE`.
   dedicated unlock activity. Android shows it, the user authenticates, and the
   system calls `onFillRequest` again. Only that second call returns data.
 
-The presentation shown in the authentication response carries a label and an
-icon, **never a secret, never a username, never an item count that leaks how many
-credentials exist for that app**. The system renders that surface outside our
-process and screenshots it.
+Two surfaces, two different rules — they were conflated in the first draft of this
+ADR and the distinction matters:
+
+- **The authentication affordance** (the "Unlock Vaulta" row the system shows while
+  the vault is locked) carries a static label and an icon: **never a secret, never a
+  title, never a username, never an item count**. Android renders it outside this
+  process and it can be screenshotted, and it is shown *before* the user proves who
+  they are.
+- **The dataset rows** (the fill menu the user picks a credential from) do carry the
+  item title and the username. That is the entire point of a fill menu: choosing
+  blind is not a choice. They never carry the secret in the label.
+
+The line is "what the user sees before authenticating" versus "what the user sees
+in order to choose". The first leaks; the second is the product.
 
 ### 1b. One engine, and no headless one
 
