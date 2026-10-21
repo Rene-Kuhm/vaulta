@@ -211,19 +211,29 @@ diferencial contra el árbol base y el umbral de cobertura.
   **L16 lo destraba por otro lado**: el emulador `vaulta-a16` no tiene ninguno
   de estos gates.
 
-- **L18 (2026-10-21, API < 30 SIGUE sin verificar — el límite de L10 no
-  cambió):** `vaulta-a10` (API 29) levanta y **el APK instala en 454 ms**, pero
-  `flutter test integration_test` no puede establecer conexión de debug
-  (`No tests ran` / `Error waiting for a debug connection: The log reader
-  stopped unexpectedly`). Aparte, `am start` y `monkey` no resuelven el
-  launcher de la app en esa AVD, y el harness **desinstala el paquete al
-  finalizar** (`deletePackageX` / `pkg removed`), así que después de una
-  corrida no hay nada que lanzar. Dos candidatos a explicar, ninguno
-  verificado: que el `activity-alias` `.VaultaLauncherActivity` no resuelva
-  en Android 10, o que sea un artefacto de la imagen del emulador. Si fuera
-  lo primero, Vaulta no arrancaría en Android 10 — y `minSdk` es 23. **Vale
-  investigarlo: no es la misma pregunta que la del rechazo biométrico, y es
-  más grave si es real.**
+- **L18 (2026-10-21, CORREGIDO — API<30 en emulador, y no era un bug de la app):**
+  la alarma anterior era mía, por dos errores de método. Uno: maté un
+  `flutter test integration_test` a mitad de camino y dejé el paquete a medio
+  instalar; los `am start` posteriores fallaron contra ese estado roto, no
+  contra la app. Dos: `am start -a MAIN -c LAUNCHER -p <pkg>` no resuelve
+  un `activity-alias` — hay que pasar el componente completo
+  (`am start -n <pkg>/.VaultaLauncherActivity`) o usar `monkey`.
+
+  Sobre un AVD **recién wipeado**, `cmd package resolve-activity` resuelve
+  `com.insyd.gestor_contrasenas/.VaultaLauncherActivity` con `match=0x108000`,
+  `am start -n` lo levanta y `monkey` lo lanza: **la app arranca en Android 10.**
+  El proceso vive, el VM de Dart levanta y no hay excepciones.
+
+  La pantalla queda en rojo plano, y la causa NO es Vaulta: el log del proceso
+  muestra `E flutter : [ERROR:flutter/impeller/toolkit/egl/egl.cc(56)] EGL
+  Error: Success (12288)` seguido de `Using the Impeller rendering backend
+  (OpenGLES)`. Impeller no logra contexto EGL en la imagen del emulador de API
+  29, así que no hay primer frame. Es un problema de pila gráfica de esa
+  imagen, no de la app.
+
+  **El comportamiento de S4 en API<30 sigue sin observarse**, pero ya no por un
+  bloqueo de infraestructura sino porque falta un render que muestre la UI. Se
+  necesitaría un emulador de API 29 con GL funcional, o un dispositivo real.
 
 - **L15 (2026-10-21, T8, derivado de T5):** el subagente de docs reportó
   que T5 dejaba dos textos de UI mintiendo y lo verifiqué: a un usuario con
