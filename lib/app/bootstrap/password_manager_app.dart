@@ -154,7 +154,7 @@ Future<void> runPasswordManagerApp() async {
     handler: AutofillFillHandler(lookup: autofillLookup),
   ).register();
 
-  final deviceSyncLifecycle = await buildDeviceSyncLifecycle(
+  Future<DeviceSyncLifecycle?> buildSyncLifecycle() => buildDeviceSyncLifecycle(
     storage: storage,
     vaultRepository: snapshotApplier,
     mutationSink: mutationSink,
@@ -169,7 +169,7 @@ Future<void> runPasswordManagerApp() async {
       securityController: securityController,
       localeController: localeController,
       secureStorage: storage,
-      deviceSyncLifecycle: deviceSyncLifecycle,
+      buildSyncLifecycle: buildSyncLifecycle,
     ),
   );
 
@@ -297,6 +297,7 @@ class PasswordManagerApp extends StatelessWidget {
     required this.localeController,
     required this.secureStorage,
     this.deviceSyncLifecycle,
+    this.buildSyncLifecycle,
   });
 
   /// Encrypted vault repository. Injected so the [AppShell] can
@@ -318,6 +319,13 @@ class PasswordManagerApp extends StatelessWidget {
   /// Optional device sync lifecycle. When non-null, the [AppShell]
   /// picks up the conflict resolver and revocation service from it.
   final DeviceSyncLifecycle? deviceSyncLifecycle;
+
+  /// Builds the device sync lifecycle once a session exists.
+  ///
+  /// The lifecycle cannot be created at bootstrap: it resolves the user from
+  /// `auth.currentUser`, and at bootstrap there is no user yet. Building it there
+  /// produced a sync that registered no device and pushed nothing, silently.
+  final Future<DeviceSyncLifecycle?> Function()? buildSyncLifecycle;
 
   @override
   Widget build(BuildContext context) {
@@ -345,15 +353,17 @@ class PasswordManagerApp extends StatelessWidget {
           // exist before sync can mean anything. When the build has no Supabase
           // defines this is a pass-through and the app stays local-only.
           home: SyncSignInGate(
-            child: SecurityGate(
+            buildSync: buildSyncLifecycle,
+            initialLifecycle: deviceSyncLifecycle,
+            childBuilder: (lifecycle) => SecurityGate(
               controller: securityController,
-              deviceSyncLifecycle: deviceSyncLifecycle,
+              deviceSyncLifecycle: lifecycle,
               child: AppShell(
                 repository: repository,
                 securityController: securityController,
                 localeController: localeController,
-                conflictResolver: deviceSyncLifecycle?.conflictResolver,
-                revocationService: deviceSyncLifecycle?.revocationService,
+                conflictResolver: lifecycle?.conflictResolver,
+                revocationService: lifecycle?.revocationService,
                 secureStorage: secureStorage,
               ),
             ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../core/sync/device_registration_service.dart';
 import 'sync_sign_in_form.dart';
 
 /// Whether this build was compiled with the sync backend configured.
@@ -30,10 +31,25 @@ bool get syncConfigured => supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;
 class SyncSignInGate extends StatefulWidget {
   /// Wraps [child]. [client] is injectable so the gate can be exercised without
   /// a live project; production reads [Supabase.instance].
-  const SyncSignInGate({required this.child, this.client, super.key});
+  const SyncSignInGate({
+    required this.childBuilder,
+    this.client,
+    this.buildSync,
+    this.initialLifecycle,
+    super.key,
+  });
 
-  /// The vault UI to show once a session exists.
-  final Widget child;
+  /// Builds the vault UI, receiving the sync lifecycle.
+  ///
+  /// A builder rather than a plain child on purpose: the sync lifecycle cannot be
+  /// created before a session exists, and it is the session that decides when.
+  final Widget Function(DeviceSyncLifecycle? lifecycle) childBuilder;
+
+  /// Builds the sync lifecycle once a session exists.
+  final Future<DeviceSyncLifecycle?> Function()? buildSync;
+
+  /// Lifecycle already built at bootstrap, used when there is no [buildSync].
+  final DeviceSyncLifecycle? initialLifecycle;
 
   /// Optional client override, for tests.
   final SupabaseClient? client;
@@ -45,6 +61,7 @@ class SyncSignInGate extends StatefulWidget {
 class _SyncSignInGateState extends State<SyncSignInGate> {
   SupabaseClient? _client;
   bool _ready = false;
+  Future<DeviceSyncLifecycle?>? _sync;
 
   @override
   void initState() {
@@ -79,7 +96,7 @@ class _SyncSignInGateState extends State<SyncSignInGate> {
     }
     final client = _client;
     if (client == null) {
-      return widget.child;
+      return widget.childBuilder(widget.initialLifecycle);
     }
     return StreamBuilder<AuthState>(
       stream: client.auth.onAuthStateChange,
@@ -88,11 +105,35 @@ class _SyncSignInGateState extends State<SyncSignInGate> {
         // directly; the stream is what tells us when it appears or goes away.
         final session = snapshot.data?.session ?? client.auth.currentSession;
         if (session != null) {
-          return widget.child;
+          return _buildWithSync();
         }
         return SyncSignInForm(
           onSubmit: (email, password) => _signIn(client, email, password),
         );
+      },
+    );
+  }
+
+  /// Builds the sync lifecycle once per session and renders the vault UI with it.
+  ///
+  /// Without this the lifecycle would be created at bootstrap, before any user
+  /// exists, and `auth.currentUser?.id` would be null forever: the app would sync
+  /// nothing and register no device, silently.
+  Widget _buildWithSync() {
+    final build = widget.buildSync;
+    if (build == null) {
+      return widget.childBuilder(widget.initialLifecycle);
+    }
+    _sync ??= build();
+    return FutureBuilder<DeviceSyncLifecycle?>(
+      future: _sync,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        return widget.childBuilder(snapshot.data);
       },
     );
   }
