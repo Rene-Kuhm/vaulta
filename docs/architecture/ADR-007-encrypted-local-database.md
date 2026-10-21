@@ -213,6 +213,20 @@ database in the same transaction, so the existing "rekey in progress" flag keeps
 its meaning. The biometric envelope is unaffected: the DEK remains the root of
 both the item keys and the database key.
 
+### 9. What the flag exposed and does not yet close
+
+Wiring the switch proved the sync layer was coupled to the blob implementation:
+`buildDeviceSyncLifecycle` took the concrete `LocalEncryptedVaultRepository`
+because it forwards pulled snapshots through `applyRemoteSnapshots`. That is now a
+narrow port, `RemoteSnapshotApplier`, which the blob implements.
+
+The SQLite storage does **not** implement it yet. Its path therefore passes
+`null`, which the lifecycle already documents as "pull advances the local sync
+state, vault items unchanged". This is a deliberate, recorded degradation: until
+the port is implemented for the database, **sync on the SQLite path pulls nothing
+into the vault**. Pull-to-apply has to be ported before the flag can default on
+for anyone who syncs.
+
 ## Consequences
 
 Positive: O(1) write per edit, indexed search, partial reads, room for
@@ -224,6 +238,7 @@ Negative and accepted:
 - **Native assets must build SQLite for every target**, including Windows and
   Linux desktop. This is verified by compiling, not assumed. Native assets is
   enabled by default in this toolchain but is a moving part.
+- **Sync pull-to-apply is not ported** to the database storage; the gap above.
 - **Two layers of encryption** to reason about. Mitigated by the rule that the
   payload envelope is byte-identical to what sync expects, so only one codec
   exists.
