@@ -863,6 +863,30 @@ abstract class AppLocalizations {
   /// **'Clipboard cleared.'**
   String get clipboardCleared;
 
+  /// No description provided for @totpTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'One-time code'**
+  String get totpTitle;
+
+  /// No description provided for @totpCopyCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy code'**
+  String get totpCopyCode;
+
+  /// No description provided for @totpSecondsRemaining.
+  ///
+  /// In en, this message translates to:
+  /// **'{seconds}s remaining'**
+  String totpSecondsRemaining(int seconds);
+
+  /// No description provided for @totpUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'This entry\'s one-time code could not be read.'**
+  String get totpUnavailable;
+
   /// No description provided for @entryNotesTitle.
   ///
   /// In en, this message translates to:

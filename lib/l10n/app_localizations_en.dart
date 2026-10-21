@@ -405,6 +405,20 @@ class AppLocalizationsEn extends AppLocalizations {
   String get clipboardCleared => 'Clipboard cleared.';
 
   @override
+  String get totpTitle => 'One-time code';
+
+  @override
+  String get totpCopyCode => 'Copy code';
+
+  @override
+  String totpSecondsRemaining(int seconds) {
+    return '${seconds}s remaining';
+  }
+
+  @override
+  String get totpUnavailable => 'This entry\'s one-time code could not be read.';
+
+  @override
   String get entryNotesTitle => 'Notes';
 
   @override
