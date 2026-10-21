@@ -4,6 +4,54 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **TOTP (RFC 6238) on vault items.** An item can carry an `otpauth://`
+  URI and the detail screen shows the current code with a countdown and a
+  copy action. HMAC-SHA1 by default, SHA256/SHA512 and 6/8 digits when the
+  URI asks for them. Verified against the eight RFC 6238 Appendix B test
+  vectors, including the 8-digit value that starts with a zero.
+- **KeePass `.kdbx` import.** KDBX 3.1 and 4.x, with a password and
+  optionally a key file. A wrong master password produces a clear error
+  instead of an empty item list. Every previous import format keeps
+  working, and a test pins that CSV still skips the password prompt.
+- **Password history per item.** Rotating a secret keeps the previous one
+  with the instant it was replaced, capped at 10 entries, shown newest
+  first on the detail screen with a copy action. An item that never had a
+  history serializes byte-identically to before.
+- **Vault health report.** A screen that names which items are weak and
+  which share a secret with another item, each tappable to open it, with a
+  real empty state for a healthy vault.
+- **Clear-text CSV and JSON export**, next to the encrypted `.vaulta`
+  export and not replacing it. It requires acknowledging an explicit
+  warning and re-entering the master password, and the encrypted export
+  stays the default.
+
+### Changed
+
+- **The security screen reports the real device capability set.** It used
+  to show `false` for hardware-backed keys and biometric unlock even when
+  the Android KeyStore path worked. It now carries three states — supported,
+  unsupported, and could-not-determine — so an unknown is never disguised
+  as a negative.
+- **`README.md` no longer contradicts the code**: the encrypted export is
+  documented as shipped (it was listed as unavailable) and the coverage
+  gate is stated as 60%, which is what CI enforces.
+
+### Internal
+
+- **Encrypted local database (ADR-007).** SQLite 3.54 built as SQLite3
+  Multiple Ciphers through native assets, `STRICT` tables, per-item payload
+  encryption unchanged, and a verified one-time migration that keeps the
+  legacy blob as the rollback. Off by default behind
+  `--dart-define=VAULTA_SQLITE_STORAGE=true`; the release default still uses
+  the encrypted blob. A save drops from 501 encryptions and 179.433 bytes to
+  2 encryptions and 277 bytes on a 500-item vault.
+- **Sync decoupled from the blob** through a narrow `RemoteSnapshotApplier`
+  port, now implemented by both storages.
+
 ## [1.1.0] - 2026-10-19
 
 ### Security

@@ -36,6 +36,11 @@ El objetivo es ofrecer un vault local para guardar, buscar y gestionar credencia
 - Desbloqueo biometrico real en Android: una clave RSA-2048 del Android KeyStore, atada a biometria fuerte, protege el envelope de la DEK y solo se libera tras un `BiometricPrompt` con `CryptoObject`.
 - CRUD de credenciales con busqueda interna.
 - Importacion local desde CSV y JSON con vista previa antes de guardar.
+- Importacion desde bases KeePass (`.kdbx` 3.1 y 4.x), con master password y key file opcionales.
+- TOTP integrado (RFC 6238): un item guarda su secreto `otpauth://` y la app muestra el codigo vigente con cuenta regresiva.
+- Historial de contrasenas por item: al rotar un secreto, el anterior queda recuperable con la fecha en que se reemplazo.
+- Exportacion en texto plano a CSV y JSON, detras de una advertencia explicita y una re-autenticacion, para poder migrar a otro gestor.
+- Reporte de salud del vault: que items son debiles y cuales comparten secreto, con cada uno abrible desde el reporte.
 - Dashboard con metricas de seguridad del vault.
 - Estados de carga, error, vacio y resultados.
 - Bloqueo automatico al salir de primer plano y por inactividad (15 minutos por defecto, configurable).
@@ -92,7 +97,6 @@ Lo siguiente **todavia no esta disponible** en ninguna version publicada:
 
 - Autofill nativo de Android (no hay `AutofillService` declarado en la app).
 - Sincronizacion con cuenta entre dispositivos (la base tecnica existe, ver [Seguridad](#seguridad)).
-- TOTP integrado (codigos de doble factor).
 - Firma de codigo para el binario de Windows.
 - Auditoria criptografica externa.
 
