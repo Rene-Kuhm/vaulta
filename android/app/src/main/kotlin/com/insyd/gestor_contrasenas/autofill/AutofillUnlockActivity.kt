@@ -69,6 +69,14 @@ class AutofillUnlockActivity : Activity() {
     /** True once [MainActivity] was started, so the poll loop launches it once. */
     private var appStarted = false
 
+    /**
+     * Set when an outcome was logged. Cleared on destroy without one, which is
+     * what happens when the autofill framework finishes this activity itself
+     * instead of letting it reach [finishWith]. Without this line the flow ends
+     * silently and the next person debugging it has no trail at all.
+     */
+    private var outcomeLogged = false
+
     private val pollTask = Runnable { poll() }
     private val timeoutTask = Runnable { finishWith(OUTCOME_TIMEOUT) }
 
@@ -89,6 +97,7 @@ class AutofillUnlockActivity : Activity() {
         // never arrives, the poll loop is simply not rescheduled, and this is
         // what still ends the wait. Nothing here can hang.
         handler.postDelayed(timeoutTask, TOTAL_WAIT_MS)
+        Log.i(TAG, "unlock activity start package=$requesterPackage")
         // Probe before starting the app UI: a fill request can arrive right
         // after the user unlocked in the app, and yanking the app to the front
         // again would be a pointless interruption.
@@ -98,6 +107,9 @@ class AutofillUnlockActivity : Activity() {
     override fun onDestroy() {
         handler.removeCallbacks(pollTask)
         handler.removeCallbacks(timeoutTask)
+        if (!outcomeLogged) {
+            Log.i(TAG, "unlock activity package=$requesterPackage answer=system-finished")
+        }
         super.onDestroy()
     }
 
@@ -157,6 +169,7 @@ class AutofillUnlockActivity : Activity() {
     private fun launchVaulta() {
         if (appStarted) return
         appStarted = true
+        Log.i(TAG, "unlock activity package=$requesterPackage launching=app-ui")
         try {
             startActivity(
                 Intent(this, MainActivity::class.java)
@@ -165,6 +178,7 @@ class AutofillUnlockActivity : Activity() {
         } catch (e: Throwable) {
             // Without the app UI there is nothing to unlock and no point in
             // waiting out the deadline.
+            Log.w(TAG, "unlock activity package=$requesterPackage launch-failed=${e.javaClass.simpleName}")
             appStarted = false
             finishWith(OUTCOME_FAILED)
         }
@@ -180,6 +194,7 @@ class AutofillUnlockActivity : Activity() {
         handler.removeCallbacks(timeoutTask)
         if (isFinishing || isDestroyed) return
         Log.i(TAG, "unlock activity package=$requesterPackage answer=$outcome")
+        outcomeLogged = true
         finish()
     }
 
