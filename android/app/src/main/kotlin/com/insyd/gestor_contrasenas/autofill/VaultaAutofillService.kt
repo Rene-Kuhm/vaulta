@@ -4,6 +4,9 @@ import android.app.PendingIntent
 import android.app.assist.AssistStructure
 import android.content.Intent
 import android.content.IntentSender
+import android.content.pm.verify.domain.DomainVerificationManager
+import android.content.pm.verify.domain.DomainVerificationUserState
+import android.os.Build
 import android.os.CancellationSignal
 import android.service.autofill.AutofillService
 import android.service.autofill.Dataset
@@ -18,6 +21,7 @@ import android.view.View
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillValue
 import android.widget.RemoteViews
+import androidx.annotation.RequiresApi
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -40,6 +44,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  * engine. This file contains no decryption, no key handling and no storage: the
  * vault is answered by the `VaultRepository` that already exists, and this
  * process must not grow a second view of it.
+ *
+ * Which host a request is matched against is decided in one order, and the
+ * order is the decision (ADR-008 §3): the exact host the structure reports
+ * first, then the requesting package's own **verified** web domains, then the
+ * search marker. The middle step never guesses — see [verifiedHostFor] — because
+ * an autofill menu that offers the wrong credential is a phishing assist.
  *
  * What must stay true of this file:
  *
@@ -80,6 +90,19 @@ class VaultaAutofillService : AutofillService() {
                 return
             }
 
+            // Which host the query runs against. The exact host a browser
+            // reports always wins; package resolution only runs when the
+            // structure has none, so it can never override a precise answer
+            // with a broader one (ADR-008 §3). `null` here means "we do not
+            // know which site this is", which the app answers with the search
+            // marker.
+            val host = fields.host ?: verifiedHostFor(requester)
+            val match = when {
+                fields.host != null -> MATCH_HOST
+                host != null -> MATCH_PACKAGE
+                else -> MATCH_NONE
+            }
+
             // The framework hands the request to the main thread, and the
             // channel answers on it too, so this flag is only guarding against
             // a cancellation racing an answer.
@@ -93,26 +116,28 @@ class VaultaAutofillService : AutofillService() {
                 // No engine handle: the app is not running, so there is no
                 // session to read, and the correct answer is the locked one.
                 answered.set(true)
-                Log.i(TAG, "fill request package=$requester answer=locked")
-                callback.onSuccess(lockedResponse(fields))
+                Log.i(TAG, "fill request package=$requester match=$match answer=locked")
+                callback.onSuccess(lockedResponse(fields, requester.orEmpty()))
                 return
             }
 
-            VaultaAutofillBridge.query(fields.host, requester.orEmpty()) { answer ->
+            VaultaAutofillBridge.query(host, requester.orEmpty()) { answer ->
                 if (!answered.compareAndSet(false, true)) return@query
                 try {
                     if (answer == null || answer.isLocked) {
-                        Log.i(TAG, "fill request package=$requester answer=locked")
-                        callback.onSuccess(lockedResponse(fields))
+                        Log.i(TAG, "fill request package=$requester match=$match answer=locked")
+                        callback.onSuccess(lockedResponse(fields, requester.orEmpty()))
                     } else if (answer.isSearchOnly || !fields.hasWritableFields) {
                         // Open vault, no host match — or a screen with nothing
                         // to write a credential into. Both end in the same
                         // honest affordance: one marker, no item.
-                        Log.i(TAG, "fill request package=$requester answer=search-only")
-                        callback.onSuccess(searchResponse(fields))
+                        Log.i(TAG, "fill request package=$requester match=$match answer=search-only")
+                        callback.onSuccess(searchResponse(fields, requester.orEmpty()))
                     } else {
-                        Log.i(TAG, "fill request package=$requester answer=matched")
-                        callback.onSuccess(matchedResponse(fields, answer.candidates))
+                        Log.i(TAG, "fill request package=$requester match=$match answer=matched")
+                        callback.onSuccess(
+                            matchedResponse(fields, answer.candidates, requester.orEmpty()),
+                        )
                     }
                 } catch (e: Throwable) {
                     Log.w(TAG, "fill request package=$requester answer=failed ${e.javaClass.simpleName}")
@@ -145,11 +170,11 @@ class VaultaAutofillService : AutofillService() {
      * while the vault is locked, and it is also the answer to any failure: the
      * user sees the unlock affordance, nothing about the vault.
      */
-    private fun lockedResponse(fields: FillFields): FillResponse =
+    private fun lockedResponse(fields: FillFields, requester: String): FillResponse =
         FillResponse.Builder()
             .setAuthentication(
                 fields.autofillIds.toTypedArray(),
-                unlockIntentSender(),
+                unlockIntentSender(requester),
                 unlockPresentation(),
             )
             .build()
@@ -164,11 +189,11 @@ class VaultaAutofillService : AutofillService() {
      * launch an activity from a fill response, so both answers use it and only
      * the label differs.
      */
-    private fun searchResponse(fields: FillFields): FillResponse =
+    private fun searchResponse(fields: FillFields, requester: String): FillResponse =
         FillResponse.Builder()
             .setAuthentication(
                 fields.autofillIds.toTypedArray(),
-                unlockIntentSender(),
+                unlockIntentSender(requester),
                 searchPresentation(),
             )
             .build()
@@ -177,6 +202,7 @@ class VaultaAutofillService : AutofillService() {
     private fun matchedResponse(
         fields: FillFields,
         candidates: List<AutofillCandidate>,
+        requester: String,
     ): FillResponse {
         val builder = FillResponse.Builder()
         var built = 0
@@ -187,7 +213,7 @@ class VaultaAutofillService : AutofillService() {
         }
         // An empty response shows no affordance at all, so a match that turned
         // out to carry nothing writable falls back to the marker.
-        if (built == 0) return searchResponse(fields)
+        if (built == 0) return searchResponse(fields, requester)
         return builder.build()
     }
 
@@ -231,13 +257,16 @@ class VaultaAutofillService : AutofillService() {
      * authentication arguments (dataset id, client state) into this intent
      * before launching it, and an immutable PendingIntent would drop them.
      * The intent is explicit and the activity is not exported, so only the
-     * PendingIntent holder (the autofill framework) can start it. The
-     * activity reads none of the filled-in extras, so nothing the requesting
-     * app supplies can influence what is shown.
+     * PendingIntent holder (the autofill framework) can start it. The activity
+     * reads no vault-shaped extra and nothing the requesting app supplies can
+     * influence what is shown: [AutofillUnlockActivity.EXTRA_REQUESTER_PACKAGE]
+     * is the requester's own package name, filled in here, and it is used for
+     * one log line and for nothing else (ADR-008 §6).
      */
-    private fun unlockIntentSender(): IntentSender {
+    private fun unlockIntentSender(requester: String): IntentSender {
         val intent = Intent(this, AutofillUnlockActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .putExtra(AutofillUnlockActivity.EXTRA_REQUESTER_PACKAGE, requester)
         return PendingIntent.getActivity(
             this,
             REQUEST_CODE_UNLOCK,
@@ -350,12 +379,8 @@ class VaultaAutofillService : AutofillService() {
     /**
      * The web domain the platform reported for this request, taken from the web
      * views in the structure (the activity itself only carries the requester
-     * package). `null` for a native app with no web view, which the fill
-     * handler answers with the search marker.
-     *
-     * Package matching is deliberately absent: it is a later slice, and an
-     * unverified package-to-domain guess would be exactly the kind of guess
-     * ADR-008 §3 rejects.
+     * package). `null` for a native app with no web view, which is where
+     * [verifiedHostFor] gets its turn and the search marker is the floor.
      */
     private fun requestedHost(structure: AssistStructure): String? {
         for (i in 0 until structure.windowNodeCount) {
@@ -375,8 +400,76 @@ class VaultaAutofillService : AutofillService() {
         return null
     }
 
+    /**
+     * The host of [requestingPackage]'s **verified** web domain, or `null`.
+     *
+     * This is ADR-008 §3's second matching step and the only package→host
+     * mapping this service accepts. It is deliberately narrow:
+     *
+     *   * The platform API that owns the mapping, `DomainVerificationManager`
+     *     (API 31+), is asked for the requesting package's state, and only hosts
+     *     in [DomainVerificationUserState.DOMAIN_STATE_VERIFIED] come back. A
+     *     host that is merely *declared* in a manifest proves nothing: any app
+     *     can declare `bank.com`, and handing it the bank credential is exactly
+     *     the phishing assist ADR-008 §3 rejects.
+     *   * Below API 31 the platform exposes no verified mapping, so the answer is
+     *     `null` and the flow degrades to the search marker. It does not fall
+     *     back to declared hosts, intent filters or the package name.
+     *   * No substring, no suffix, no similarity on the item's website and no
+     *     comparison between a package name and a domain. A miss costs a tap; a
+     *     wrong suggestion costs a credential.
+     *
+     * A package may verify several domains, and the bridge takes one host, so
+     * the first in sort order is used: the choice is deterministic instead of
+     * depending on map order, and an item indexed under another of those domains
+     * still degrades to the search marker rather than to a guess.
+     *
+     * The system is free to refuse the query — this is an ordinary app, not the
+     * domain verifier, and package visibility can hide the requester — so every
+     * failure becomes `null`, the honest "we do not know". The requester package
+     * and the outcome are logged; the host never is (ADR-008 §6).
+     */
+    private fun verifiedHostFor(requestingPackage: String?): String? {
+        if (requestingPackage.isNullOrBlank()) return null
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+        return verifiedHostsOf(requestingPackage).firstOrNull()
+    }
+
+    @RequiresApi(Build.VERSION_CODES.S)
+    private fun verifiedHostsOf(requestingPackage: String): List<String> =
+        try {
+            val state = getSystemService(DomainVerificationManager::class.java)
+                ?.getDomainVerificationUserState(requestingPackage)
+            val hostToState = state?.hostToStateMap
+            if (hostToState == null) {
+                // The package declares no HTTP/HTTPS domain at all.
+                emptyList()
+            } else {
+                hostToState.entries
+                    .filter { it.value == DomainVerificationUserState.DOMAIN_STATE_VERIFIED }
+                    .map { it.key }
+                    .filter { it.isNotBlank() }
+                    .sorted()
+            }
+        } catch (e: Throwable) {
+            // NameNotFoundException, SecurityException, a package the platform
+            // will not show us: all of them mean "no verified host known", and
+            // the exception text is not worth a log line.
+            Log.i(
+                TAG,
+                "package match package=$requestingPackage answer=unavailable " +
+                    e.javaClass.simpleName,
+            )
+            emptyList()
+        }
+
     private companion object {
         const val TAG = "Vaulta/Autofill"
+
+        /** Where the queried host came from, logged and nothing more. */
+        const val MATCH_HOST = "host"
+        const val MATCH_PACKAGE = "package"
+        const val MATCH_NONE = "none"
 
         /**
          * The only text the locked path ever shows in the system's fill UI.

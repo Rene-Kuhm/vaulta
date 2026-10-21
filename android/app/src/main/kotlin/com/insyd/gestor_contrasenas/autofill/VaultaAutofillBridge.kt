@@ -24,6 +24,10 @@ import io.flutter.plugin.common.MethodChannel
  * activity was destroyed, or the engine is gone — every query answers "not
  * available" and the caller keeps the slice A response: zero datasets plus the
  * authentication intent. Nothing is queued, retried or cached in that state.
+ *
+ * Two questions are answered here, both from the live vault on every call:
+ * [query] for one fill request, and [requestStatus] for the unlock flow, which
+ * needs to know whether a fill could return anything at all.
  */
 object VaultaAutofillBridge {
 
@@ -111,6 +115,62 @@ object VaultaAutofillBridge {
     }
 
     /**
+     * Asks the app whether a session is open right now.
+     *
+     * This is the only question [AutofillUnlockActivity] asks while it waits:
+     * a fill request cannot return data until Dart reports `unlocked`, and the
+     * answer is read fresh from the live vault on every call, so nothing about
+     * the session is stored on this side of the channel (ADR-008 §4).
+     *
+     * [onStatus] receives `true` for unlocked, `false` for locked, and `null`
+     * for every "no answer" outcome — no engine handle, channel error, a reply
+     * this side does not understand. The caller has to keep those three apart:
+     * `null` never means locked, so a broken channel is not mistaken for a
+     * vault the user failed to unlock. Called exactly once, on the main thread.
+     */
+    fun requestStatus(onStatus: (Boolean?) -> Unit) {
+        val current = channel
+        if (current == null) {
+            onStatus(null)
+            return
+        }
+        try {
+            current.invokeMethod(
+                "status",
+                null,
+                object : MethodChannel.Result {
+                    override fun success(result: Any?) {
+                        onStatus(parseStatus(result))
+                    }
+
+                    override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+                        onStatus(null)
+                    }
+
+                    override fun notImplemented() {
+                        onStatus(null)
+                    }
+                },
+            )
+        } catch (e: Throwable) {
+            // A destroyed engine throws here; "no answer" is the correct
+            // outcome and the exception text has no business leaving this
+            // method.
+            onStatus(null)
+        }
+    }
+
+    /**
+     * Reads the Dart `status` reply. `null` for anything this side does not
+     * recognise, so an unknown state is never treated as unlocked.
+     */
+    private fun parseStatus(result: Any?): Boolean? = when (result) {
+        "unlocked" -> true
+        "locked" -> false
+        else -> null
+    }
+
+    /**
      * Turns the Dart map into [AutofillAnswer], or `null` when it is not an
      * answer this service understands. A status it does not know is treated as
      * "not available" rather than guessed at, so a protocol change fails closed.
@@ -149,8 +209,8 @@ object VaultaAutofillBridge {
  * One credential the fill UI may offer.
  *
  * Deliberately not a `data class`: the generated `toString()` of a data class
- * would include the title, the username and the secret, and one
- * `Log.d(TAG, "$candidate")` during debugging would put a password in logcat.
+ * would include the title, the username and the secret, and one debug log line
+ * interpolating the whole candidate would put a password in logcat.
  * The override below keeps that mistake cheap.
  */
 class AutofillCandidate(
