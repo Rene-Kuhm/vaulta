@@ -300,11 +300,19 @@ Not done until all of these pass:
    justifies the change.
 5. **Performance gate** with 5,000 synthetic items: open < 300 ms, search < 50 ms,
    single save < 20 ms.
-6. **Confidentiality gate**: `strings` over the database, `-wal` and `-shm` files
-   must not contain any secret, title or username from the test vault.
-7. **Real vault test on device**: export an encrypted `.vaulta` backup first,
-   migrate, restart, unlock, verify count and a sample of secrets, confirm the
-   backup still restores.
+6. ~~**Confidentiality gate**: `strings` over the database, `-wal` and `-shm` files
+   must not contain any secret, title or username from the test vault.~~
+   **Done on device** (`integration_test/sqlite_storage_migration_test.dart`,
+   Android 10 emulator): `.db` 4096 B, `-wal` 70072 B, `-shm` 32768 B, and none of
+   the secret, the title, the username or the host appears in clear in any of
+   them.
+7. **Real vault test on device**: the migration itself is now proven on a device
+   with a real legacy blob, real secure storage and the real filesystem. Still
+   pending before a release default: the full sequence on a vault created through
+   the UI (backup `.vaulta`, install, migrate, restart, unlock, verify, restore).
+   The app sets `FLAG_SECURE`, so this step needs a manual run by a person, not
+   automation: screenshots are black and the accessibility tree exposes no
+   widgets by design.
 8. **Existing suite green**: 445 tests, plus the new ones.
 9. **Desktop builds compile** for Windows and Linux with native assets, and the
    Android build ships the encrypted SQLite, not the plain one.
