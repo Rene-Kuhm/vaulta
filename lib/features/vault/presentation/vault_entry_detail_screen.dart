@@ -9,6 +9,7 @@ import '../../../app/localization/l10n.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../core/security/sensitive_clipboard_service.dart';
+import '../../totp/presentation/totp_code_panel.dart';
 import '../domain/vault_item.dart';
 
 /// Read-only detail view for a single [VaultItem].
@@ -226,6 +227,13 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
                 ],
               ),
             ),
+            if (item.otpAuthUri != null) ...[
+              const SizedBox(height: AppSpacing.lg),
+              TotpCodePanel(
+                uri: item.otpAuthUri!,
+                clipboardService: _clipboard,
+              ),
+            ],
             if (item.notes != null) ...[
               const SizedBox(height: AppSpacing.lg),
               AppPanel(

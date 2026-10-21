@@ -162,6 +162,17 @@
   "copySecret": "Copy secret",
   "secretCopiedLocally": "Secret copied. The clipboard will be cleared in 30 seconds if unchanged.",
   "clipboardCleared": "Clipboard cleared.",
+  "totpTitle": "One-time code",
+  "totpCopyCode": "Copy code",
+  "totpSecondsRemaining": "{seconds}s remaining",
+  "@totpSecondsRemaining": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "totpUnavailable": "This entry's one-time code could not be read.",
   "entryNotesTitle": "Notes",
   "entryDeleteDialogTitle": "Delete entry?",
   "entryDeleteDialogBody": "This removes the encrypted record from the local vault. Remote recovery is not available in offline mode.",

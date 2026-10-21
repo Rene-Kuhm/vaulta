@@ -52,6 +52,7 @@ class VaultItem {
     this.website,
     this.notes,
     this.updatedAt,
+    this.otpAuthUri,
   });
 
   /// Stable identifier (UUID v4) used to reference the entry across
@@ -90,6 +91,15 @@ class VaultItem {
   /// versions of the app.
   final DateTime? updatedAt;
 
+  /// Optional `otpauth://totp/...` key URI that lets the detail
+  /// screen render the entry's one-time code.
+  ///
+  /// `null` for the vast majority of entries. It is serialized only
+  /// when present, so a payload written before this field existed
+  /// keeps its exact shape, and the encrypted item format needs no
+  /// version bump.
+  final String? otpAuthUri;
+
   /// Material icon that represents [category] in the dashboard tile.
   IconData get icon => switch (category) {
     VaultCategory.work => Icons.design_services_rounded,
@@ -122,6 +132,7 @@ class VaultItem {
       'website': website,
       'notes': notes,
       'updatedAt': updatedAt?.toIso8601String(),
+      if (otpAuthUri != null) 'otpAuthUri': otpAuthUri,
     };
   }
 
@@ -143,6 +154,7 @@ class VaultItem {
       updatedAt: json['updatedAt'] == null
           ? null
           : DateTime.parse(json['updatedAt'] as String),
+      otpAuthUri: json['otpAuthUri'] as String?,
     );
   }
 
@@ -159,6 +171,7 @@ class VaultItem {
     String? website,
     String? notes,
     DateTime? updatedAt,
+    String? otpAuthUri,
   }) {
     return VaultItem(
       id: id ?? this.id,
@@ -171,6 +184,7 @@ class VaultItem {
       website: website ?? this.website,
       notes: notes ?? this.notes,
       updatedAt: updatedAt ?? this.updatedAt,
+      otpAuthUri: otpAuthUri ?? this.otpAuthUri,
     );
   }
 }

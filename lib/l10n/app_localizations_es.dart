@@ -405,6 +405,20 @@ class AppLocalizationsEs extends AppLocalizations {
   String get clipboardCleared => 'Portapapeles limpiado.';
 
   @override
+  String get totpTitle => 'Código de un solo uso';
+
+  @override
+  String get totpCopyCode => 'Copiar código';
+
+  @override
+  String totpSecondsRemaining(int seconds) {
+    return '${seconds}s restantes';
+  }
+
+  @override
+  String get totpUnavailable => 'No se pudo leer el código de un solo uso de esta entrada.';
+
+  @override
   String get entryNotesTitle => 'Notas';
 
   @override
