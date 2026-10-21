@@ -9,7 +9,6 @@ import '../../../app/localization/app_locale_controller.dart';
 import '../../../app/localization/l10n.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
-import '../../../core/security/local_encrypted_vault_repository.dart';
 import '../../../core/security/native_biometric_auth_service.dart';
 import '../../../core/security/secure_storage_service.dart';
 import '../../../core/security/vault_repository.dart';
@@ -21,6 +20,7 @@ import '../../../core/sync/device_session_revocation_service.dart';
 import '../../../core/update/update_service.dart';
 import '../../backup/application/vault_backup_coordinator.dart';
 import '../../backup/presentation/backup_section.dart';
+import '../../security/presentation/security_capabilities_panel.dart';
 import '../../security/presentation/unlock_throttle_text.dart';
 import 'update_section.dart';
 
@@ -833,29 +833,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
-                _CapabilityRow(
-                  title: l10n.settingsSecureStorage,
-                  enabled:
-                      LocalEncryptedVaultRepository.securityPlan.secureStorage,
-                ),
-                _CapabilityRow(
-                  title: l10n.settingsBiometricUnlock,
-                  enabled: LocalEncryptedVaultRepository
-                      .securityPlan
-                      .biometricUnlock,
-                ),
-                _CapabilityRow(
-                  title: l10n.settingsHardwareBackedKeys,
-                  enabled: LocalEncryptedVaultRepository
-                      .securityPlan
-                      .hardwareBackedKeys,
-                ),
-                _CapabilityRow(
-                  title: l10n.settingsVaultEncryptionReady,
-                  enabled: LocalEncryptedVaultRepository
-                      .securityPlan
-                      .vaultEncryptionReady,
-                ),
+                SecurityCapabilitiesPanel(controller: widget.securityController),
               ],
             ),
           ),

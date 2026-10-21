@@ -49,6 +49,7 @@ What security controls Vaulta actually ships, what is being built on a branch, a
 | Android bypasses `local_auth` so the capability gate and the prompt read the same `BiometricManager` state | Shipped | `lib/app/bootstrap/password_manager_app.dart:182-188` (`resolveBiometricStack`) |
 | Biometric unlock on Windows (Windows Hello), iOS, macOS, Linux | Not shipped | Non-Android targets get the inert `_NullEnvelopeKeyProvider` (`password_manager_app.dart:163`), and `_isBiometricCapableTarget` returns `_isMobileTarget` (`lib/core/security/biometric_unlock_service.dart:311`), so `unlock` returns `BiometricUnlockUnavailable` (`:217-219`). `local_auth` only names "Windows Hello" in a label (`lib/core/security/biometric_auth_service.dart:53-54`). |
 | Master password attempt throttling: persisted exponential lockout, 4 free failures, 30 s doubling to a 15 min cap | Shipped | `lib/core/security/unlock_attempt_limiter.dart:103` (`freeAttempts = 4`), `:106` (`baseLockout`), `:109` (`maxLockout = 15 min`), `:140-148`. Merged in `5fd0c30`. The `64b2260` snapshot still listed this as "In progress (branch)". |
+| The in-app security screen reports device capabilities by **asking the services that perform them**, with three states (available / not available / could not determine) | In progress (branch `swarm/make-the-security-screen-report-real-hardw`) | `VaultSecurityController.probeSecurityPlan` in `lib/core/security/vault_security_controller.dart` answers each row from the wired service: secure storage from a real read, the biometric gate from `NativeBiometricAuthService.probeCapability`, the platform key from `AndroidKeystoreEnvelopeKeyProvider.probeHardwareBackedKeyAvailability` (`lib/core/security/android_keystore_envelope_key_provider.dart`). The states are `SecurityCapabilityState` in `lib/core/security/platform_security_plan.dart`, and `lib/features/security/presentation/security_capabilities_panel.dart` renders an unknown state with its own word and icon, never as "not available". Covered by `test/core/security/vault_security_controller_test.dart` (real yes, real no, unknown) and `test/features/security/presentation/security_capabilities_panel_test.dart` (en + es). Replaces the static `PlatformSecurityPlan` table, which is gone. |
 
 ### Session and screen
 
@@ -160,13 +161,29 @@ which claims were checked and which were not.
   Postgres.** `supabase/migrations/20261021120000_add_vault_item_key_salt.sql`
   (`51517c2`) is verified by reading only; no workflow in
   `.github/workflows/` applies it. The Dart side of that wire is tested.
-- **The in-app security screen's capability flags are probably wrong.** It
-  reads a static `PlatformSecurityPlan`
-  (`lib/core/security/local_encrypted_vault_repository.dart:58-65`) that
-  reports `biometricUnlock: false` and `hardwareBackedKeys: false`, which
-  contradicts the Android KeyStore path above. Carried over from the
-  `64b2260` snapshot and **not re-checked** in this pass; it is a code
-  issue, not covered by this page.
+- **The in-app security screen's capability flags were wrong, in both
+  directions, and are fixed on the branch named below.** The `64b2260`
+  snapshot reported a hardcoded `PlatformSecurityPlan` that said
+  `biometricUnlock: false` and `hardwareBackedKeys: false` on every
+  platform. `f951146` made it platform-aware, so this page's previous
+  claim (that it "reports `false`" at `e0de33c`) was already wrong by
+  then — but the replacement was still a static table, which cannot
+  answer "I don't know" and answers `true` on an Android device whose
+  KeyStore path refuses (API < 30, no enrolled strong biometric). Both
+  directions are a security screen stating an untruth about the device.
+  On branch `swarm/make-the-security-screen-report-real-hardw` the table
+  is gone: `VaultSecurityController.probeSecurityPlan` asks the wired
+  services and returns `SecurityCapabilityState.supported`,
+  `.unsupported` or `.unknown`, and a failed probe is reported as
+  unknown, never as a `false`.
+- **"Hardware-backed" cannot be proven from the Dart side.** The row of
+  that name reports that the KeyStore-held key exists and is usable
+  (`KeystoreChannel.isAvailable`); it does **not** report
+  `KeyInfo.isInsideSecureHardware`, which the channel does not expose.
+  On a device where AndroidKeyStore keys are software-backed the label
+  is therefore optimistic, which is why the row's copy says
+  "KeyStore-held key" rather than "hardware-backed". Reading the
+  TEE/StrongBox flag would need a new native call and was not added here.
 - **User-facing copy does not name the API 30 floor.** On Android 6-10
   `canOfferBiometricToggle` is false
   (`lib/core/security/vault_security_controller.dart:256-258`), so the
