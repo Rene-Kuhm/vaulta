@@ -8,7 +8,9 @@
 ///
 /// Nothing human-readable lives in a clear column: the payload and the title are
 /// ciphertext (ADR-001 per-item envelope), and only opaque identifiers, the
-/// category enum and timestamps are readable. Those are already metadata the
+/// category enum and timestamps are readable. Both are `TEXT` because the crypto
+/// service produces and consumes the envelope as a JSON string; storing bytes
+/// would add a second codec next to the one sync already uses. Those are already metadata the
 /// sync server sees today (`20260323100000_initial_vault_schema.sql:35-40`).
 library;
 
@@ -32,8 +34,8 @@ CREATE TABLE vault_items (
   record_id   TEXT PRIMARY KEY,
   key_id      TEXT NOT NULL,
   key_version INTEGER NOT NULL,
-  payload     BLOB NOT NULL,
-  title_ct    BLOB NOT NULL,
+  payload     TEXT NOT NULL,
+  title_ct    TEXT NOT NULL,
   category    TEXT NOT NULL,
   updated_at  INTEGER NOT NULL,
   deleted_at  INTEGER
