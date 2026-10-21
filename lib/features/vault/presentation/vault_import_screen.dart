@@ -2,6 +2,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -17,6 +18,15 @@ import '../application/vault_import_models.dart';
 import '../application/vault_import_parser.dart';
 import '../domain/vault_item.dart';
 
+/// Signature of the file picker the import screen uses, shaped after
+/// `FilePicker.pickFiles` so tests can inject a fake instead of
+/// opening the system dialog.
+typedef VaultImportFilePicker =
+    Future<FilePickerResult?> Function({
+      required FileType type,
+      List<String>? allowedExtensions,
+    });
+
 /// Modal screen that lets the user pick a CSV/JSON export from disk
 /// and review the parsed [VaultImportPreview] before persisting the
 /// new entries to the [VaultRepository].
@@ -25,10 +35,12 @@ import '../domain/vault_item.dart';
 /// new entries to the [VaultRepository].
 class VaultImportScreen extends StatefulWidget {
   /// Builds the import screen. [repository] and [existingItems] are
-  /// required; [parser], [initialPreview], and [securityController]
-  /// are optional. The default [parser] is a stock [VaultImportParser];
-  /// [securityController] is needed to keep the auto-lock from
-  /// firing while the system file picker holds the foreground.
+  /// required; [parser], [initialPreview], [securityController], and
+  /// [pickFiles] are optional. The default [parser] is a stock
+  /// [VaultImportParser]; [securityController] is needed to keep the
+  /// auto-lock from firing while the system file picker holds the
+  /// foreground; [pickFiles] defaults to the platform picker and is
+  /// overridable so widget tests do not need the real dialog.
   const VaultImportScreen({
     super.key,
     required this.repository,
@@ -36,6 +48,7 @@ class VaultImportScreen extends StatefulWidget {
     VaultImportParser? parser,
     this.initialPreview,
     this.securityController,
+    this.pickFiles,
   }) : parser = parser ?? const _DefaultVaultImportParser._();
 
   /// Vault repository used to persist confirmed candidates.
@@ -56,6 +69,11 @@ class VaultImportScreen extends StatefulWidget {
   /// The pause is released when the import finishes or the user
   /// backs out of the screen.
   final VaultSecurityController? securityController;
+
+  /// Optional replacement for the platform file picker. `null` means
+  /// the real one is used; tests inject a fake so they can drive the
+  /// `.kdbx` unlock dialog without a native dialog.
+  final VaultImportFilePicker? pickFiles;
 
   @override
   State<VaultImportScreen> createState() => _VaultImportScreenState();
@@ -119,7 +137,7 @@ class _VaultImportScreenState extends State<VaultImportScreen> {
                       eyebrow: 'IMPORTACION LOCAL',
                       title: 'Trae tus passwords a Vaulta',
                       subtitle:
-                          'Carga CSV o JSON desde Notion, Chrome, Bitwarden, 1Password, LastPass, KeePass, Excel o Google Sheets. Vaulta procesa el archivo localmente y cifra cada entrada al guardar.',
+                          'Carga CSV o JSON desde Notion, Chrome, Bitwarden, 1Password, LastPass, KeePass, Excel o Google Sheets, o una base KeePass .kdbx cifrada. Vaulta procesa el archivo localmente y cifra cada entrada al guardar.',
                     ),
                     const SizedBox(height: AppSpacing.md),
                     Wrap(
@@ -133,7 +151,8 @@ class _VaultImportScreenState extends State<VaultImportScreen> {
                         _ImportChip(label: 'Bitwarden'),
                         _ImportChip(label: '1Password'),
                         _ImportChip(label: 'LastPass'),
-                        _ImportChip(label: 'KeePass'),
+                        _ImportChip(label: 'KeePass CSV'),
+                        _ImportChip(label: 'KeePass KDBX'),
                       ],
                     ),
                     const SizedBox(height: AppSpacing.lg),
@@ -225,10 +244,9 @@ class _VaultImportScreenState extends State<VaultImportScreen> {
 
     FilePickerResult? result;
     try {
-      result = await FilePicker.pickFiles(
+      result = await _pickFiles(
         type: FileType.custom,
-        allowedExtensions: const ['csv', 'json'],
-        withData: true,
+        allowedExtensions: const ['csv', 'json', 'kdbx'],
       );
     } catch (error) {
       if (!mounted) return;
@@ -266,12 +284,55 @@ class _VaultImportScreenState extends State<VaultImportScreen> {
       return;
     }
 
-    final content = utf8.decode(bytes, allowMalformed: true);
-    final preview = widget.parser.parse(
-      fileName: file.name,
-      content: content,
-      existingItems: widget.existingItems,
-    );
+    // A KeePass database is encrypted binary: it cannot be decoded as
+    // text, so it needs the master password (and optionally a key file)
+    // before the parser can produce a preview.
+    final isKdbx = widget.parser.isKdbxFile(fileName: file.name, bytes: bytes);
+    final VaultImportPreview preview;
+    if (isKdbx) {
+      final credentials = await _askKdbxCredentials(file.name);
+      if (credentials == null) {
+        if (!mounted) return;
+        setState(() {
+          _isPicking = false;
+        });
+        return;
+      }
+      try {
+        preview = await widget.parser.parseBytes(
+          fileName: file.name,
+          bytes: bytes,
+          existingItems: widget.existingItems,
+          masterPassword: credentials.password,
+          keyFileBytes: credentials.keyFileBytes,
+        );
+      } on VaultImportException catch (error) {
+        if (!mounted) return;
+        setState(() {
+          _isPicking = false;
+          _fileName = file.name;
+          // Drop the previous preview: importing it after a failed
+          // unlock would attach the wrong file to the user's choice.
+          _preview = null;
+          _error = error.message;
+        });
+        // The password and the key file never leave this scope; they
+        // are not logged, stored, or kept in state after the attempt.
+        debugPrint(
+          '[Vaulta/Import] kdbx unlock failed file=${file.name} '
+          'bytes=${bytes.length} keyFile=${credentials.hasKeyFile}',
+        );
+        return;
+      }
+    } else {
+      preview = widget.parser.parse(
+        fileName: file.name,
+        content: utf8.decode(bytes, allowMalformed: true),
+        existingItems: widget.existingItems,
+      );
+    }
+    if (!mounted) return;
+
     debugPrint(
       '[Vaulta/Import] preview file=${file.name} bytes=${bytes.length} '
       'source=${preview.source.name} candidates=${preview.candidates.length} '
@@ -297,7 +358,22 @@ class _VaultImportScreenState extends State<VaultImportScreen> {
     }
   }
 
-  Future<List<int>> _readPickedFileBytes(PlatformFile file) async {
+  Future<FilePickerResult?> _pickFiles({
+    required FileType type,
+    List<String>? allowedExtensions,
+  }) {
+    final injected = widget.pickFiles;
+    if (injected != null) {
+      return injected(type: type, allowedExtensions: allowedExtensions);
+    }
+    return FilePicker.pickFiles(
+      type: type,
+      allowedExtensions: allowedExtensions,
+      withData: true,
+    );
+  }
+
+  Future<Uint8List> _readPickedFileBytes(PlatformFile file) async {
     final inMemoryBytes = file.bytes;
     if (inMemoryBytes != null && inMemoryBytes.isNotEmpty) {
       return inMemoryBytes;
@@ -312,7 +388,42 @@ class _VaultImportScreenState extends State<VaultImportScreen> {
       }
     }
 
-    return const [];
+    return Uint8List(0);
+  }
+
+  /// Asks for the master password (and an optional key file) of a
+  /// KeePass `.kdbx` database. Returns `null` when the user cancels.
+  Future<_KdbxCredentials?> _askKdbxCredentials(String fileName) {
+    return showDialog<_KdbxCredentials>(
+      context: context,
+      // The password field is the only way forward: tapping outside
+      // would leave the pick flow half done.
+      barrierDismissible: false,
+      builder: (dialogContext) => _KdbxCredentialsDialog(
+        fileName: fileName,
+        pickKeyFile: _pickKdbxKeyFile,
+      ),
+    );
+  }
+
+  /// Opens the system picker for the optional KeePass key file. The
+  /// picker steals the foreground, so the auto-lock is paused exactly
+  /// like it is around [_pickFile].
+  Future<_PickedKeyFile?> _pickKdbxKeyFile() async {
+    widget.securityController?.beginLongRunningFlow();
+    try {
+      final result = await _pickFiles(type: FileType.any);
+      if (result == null || result.files.isEmpty) return null;
+      final picked = result.files.single;
+      final bytes = await _readPickedFileBytes(picked);
+      if (bytes.isEmpty) return null;
+      return _PickedKeyFile(name: picked.name, bytes: bytes);
+    } catch (error) {
+      debugPrint('[Vaulta/Import] key file pick failed: $error');
+      return null;
+    } finally {
+      widget.securityController?.endLongRunningFlow();
+    }
   }
 
   Future<void> _confirmImport() async {
@@ -401,6 +512,193 @@ class _VaultImportScreenState extends State<VaultImportScreen> {
 
 class _DefaultVaultImportParser extends VaultImportParser {
   const _DefaultVaultImportParser._();
+}
+
+/// Key file picked by the user for a KeePass database.
+class _PickedKeyFile {
+  /// Creates the value. [bytes] stay in memory for the single unlock
+  /// attempt and are never written anywhere.
+  const _PickedKeyFile({required this.name, required this.bytes});
+
+  /// File name, shown in the dialog so the user can check it.
+  final String name;
+
+  /// Raw key file contents.
+  final Uint8List bytes;
+}
+
+/// Master password plus optional key file collected for a `.kdbx`
+/// import. Deliberately not stored outside the unlock attempt: the
+/// dialog clears the text field and this object is dropped as soon as
+/// the parser returns.
+class _KdbxCredentials {
+  const _KdbxCredentials({
+    required this.password,
+    this.keyFileBytes,
+  });
+
+  final String password;
+  final Uint8List? keyFileBytes;
+
+  bool get hasKeyFile => keyFileBytes != null;
+}
+
+/// Dialog that asks for the master password (and optional key file) of
+/// a KeePass `.kdbx` database before the import preview is built.
+///
+/// Pops with a [_KdbxCredentials] when the user confirms, and `null`
+/// when the user cancels.
+class _KdbxCredentialsDialog extends StatefulWidget {
+  const _KdbxCredentialsDialog({
+    required this.fileName,
+    required this.pickKeyFile,
+  });
+
+  final String fileName;
+  final Future<_PickedKeyFile?> Function() pickKeyFile;
+
+  @override
+  State<_KdbxCredentialsDialog> createState() => _KdbxCredentialsDialogState();
+}
+
+class _KdbxCredentialsDialogState extends State<_KdbxCredentialsDialog> {
+  final _passwordController = TextEditingController();
+  _PickedKeyFile? _keyFile;
+  bool _obscure = true;
+  bool _pickingKeyFile = false;
+  String? _feedback;
+
+  @override
+  void dispose() {
+    // The typed password does not survive the dialog.
+    _passwordController.clear();
+    _passwordController.dispose();
+    _keyFile = null;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return AlertDialog(
+      title: const Text('Base KeePass .kdbx'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'La base ${widget.fileName} esta cifrada. Escribí su '
+              'contraseña maestra para leerla: Vaulta la usa solo en '
+              'memoria y no la guarda.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            TextField(
+              key: const Key('import.kdbx.masterPassword'),
+              controller: _passwordController,
+              obscureText: _obscure,
+              autofocus: true,
+              autocorrect: false,
+              enableSuggestions: false,
+              enableIMEPersonalizedLearning: false,
+              onSubmitted: (_) => _confirm(),
+              decoration: InputDecoration(
+                labelText: 'Contraseña maestra',
+                suffixIcon: IconButton(
+                  onPressed: () => setState(() => _obscure = !_obscure),
+                  icon: Icon(
+                    _obscure
+                        ? Icons.visibility_off_rounded
+                        : Icons.visibility_rounded,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _keyFile == null
+                        ? 'Archivo de llave (opcional)'
+                        : _keyFile!.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                if (_keyFile != null)
+                  IconButton(
+                    tooltip: 'Quitar archivo de llave',
+                    onPressed: _pickingKeyFile
+                        ? null
+                        : () => setState(() => _keyFile = null),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                TextButton.icon(
+                  key: const Key('import.kdbx.pickKeyFile'),
+                  onPressed: _pickingKeyFile ? null : _pickKeyFile,
+                  icon: const Icon(Icons.key_rounded, size: 18),
+                  label: Text(_keyFile == null ? 'Elegir' : 'Cambiar'),
+                ),
+              ],
+            ),
+            if (_feedback case final feedback?) ...[
+              const SizedBox(height: AppSpacing.sm),
+              AppBanner(
+                message: feedback,
+                icon: Icons.error_outline_rounded,
+                tone: AppBannerTone.danger,
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          key: const Key('import.kdbx.confirm'),
+          onPressed: _confirm,
+          child: const Text('Abrir base'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickKeyFile() async {
+    setState(() {
+      _pickingKeyFile = true;
+      _feedback = null;
+    });
+    final picked = await widget.pickKeyFile();
+    if (!mounted) return;
+    setState(() {
+      _pickingKeyFile = false;
+      if (picked != null) _keyFile = picked;
+    });
+  }
+
+  void _confirm() {
+    final password = _passwordController.text;
+    if (password.isEmpty) {
+      setState(() {
+        _feedback = 'Escribí la contraseña maestra del archivo .kdbx.';
+      });
+      return;
+    }
+    final credentials = _KdbxCredentials(
+      password: password,
+      keyFileBytes: _keyFile?.bytes,
+    );
+    Navigator.of(context).pop(credentials);
+  }
 }
 
 class _ImportChip extends StatelessWidget {

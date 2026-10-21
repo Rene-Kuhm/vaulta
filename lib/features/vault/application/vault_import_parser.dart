@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:kdbx/kdbx.dart';
 import 'package:uuid/uuid.dart';
 
 import '../domain/vault_item.dart';
@@ -35,6 +37,33 @@ class VaultImportParser {
   final Uuid _uuid;
   final VaultDuplicateDetector _duplicates;
 
+  static const _kdbxExtension = '.kdbx';
+
+  /// First four bytes of every KeePass 1.x/2.x database
+  /// (`0x9AA2D903` little-endian). Enough to recognise a `.kdbx` file
+  /// whose name was changed on the way to the picker.
+  static const _kdbxMagic = <int>[0x03, 0xD9, 0xA2, 0x9A];
+
+  /// Separator used to join the KeePass group hierarchy into a single
+  /// path, matching how the import screen shows folders.
+  static const _kdbxGroupSeparator = ' / ';
+
+  /// Standard KeePass field holding an entry's free-form notes.
+  static final _kdbxNotesKey = KdbxKey('Notes');
+
+  static const _kdbxNeedsPasswordMessage =
+      'Este archivo .kdbx esta protegido con una contrasena maestra. '
+      'Escribila para poder importarlo.';
+  static const _kdbxKeyFileOnlyMessage =
+      'Las bases .kdbx que solo abren con archivo de llave todavia no se '
+      'pueden importar. Agrega tambien la contrasena maestra del archivo.';
+  static const _kdbxWrongCredentialsMessage =
+      'La contrasena maestra o el archivo de llave no coinciden con esta base '
+      '.kdbx. Revisalos y proba de nuevo.';
+  static const _kdbxCorruptMessage =
+      'No pudimos abrir el archivo .kdbx: esta danado o no es una base '
+      'KeePass valida.';
+
   /// Parses [content] as a [fileName]-keyed export.
   ///
   /// Steps:
@@ -46,11 +75,20 @@ class VaultImportParser {
   ///    with a previously-accepted candidate in the same preview.
   ///
   /// Returns a [VaultImportPreview] the UI can summarize.
+  ///
+  /// Throws a [VaultImportException] when [fileName] is a KeePass
+  /// `.kdbx` database: that format is encrypted binary and must go
+  /// through [parseBytes] with a master password instead of being
+  /// decoded as text, so the call fails loudly instead of producing
+  /// an empty preview.
   VaultImportPreview parse({
     required String fileName,
     required String content,
     required List<VaultItem> existingItems,
   }) {
+    if (fileName.toLowerCase().endsWith(_kdbxExtension)) {
+      throw const VaultImportException(_kdbxNeedsPasswordMessage);
+    }
     final trimmed = content.trimLeft();
     final source = _detectSource(fileName, trimmed);
     final parsed =
@@ -59,6 +97,62 @@ class VaultImportParser {
         ? _parseJson(trimmed, source)
         : _parseCsv(content, source);
 
+    return _withDuplicateDetection(parsed, existingItems);
+  }
+
+  /// Parses a picked file from its raw [bytes].
+  ///
+  /// This is the entry point the import screen uses: a KeePass
+  /// `.kdbx` database is encrypted binary, so it cannot travel through
+  /// [parse] as text. Every other format keeps the exact behaviour of
+  /// [parse]: the bytes are decoded as UTF-8 and handed to the CSV or
+  /// JSON parser unchanged.
+  ///
+  /// [masterPassword] and [keyFileBytes] are only used for `.kdbx`
+  /// files. They are consumed in memory to derive the database key and
+  /// are never persisted or logged. A missing password, a wrong
+  /// password, an unsupported key combination, or a corrupt file
+  /// throws a [VaultImportException] with user-facing copy.
+  Future<VaultImportPreview> parseBytes({
+    required String fileName,
+    required Uint8List bytes,
+    required List<VaultItem> existingItems,
+    String? masterPassword,
+    Uint8List? keyFileBytes,
+  }) {
+    if (isKdbxFile(fileName: fileName, bytes: bytes)) {
+      return _parseKdbx(
+        bytes: bytes,
+        existingItems: existingItems,
+        masterPassword: masterPassword,
+        keyFileBytes: keyFileBytes,
+      );
+    }
+    return Future<VaultImportPreview>.value(
+      parse(
+        fileName: fileName,
+        content: utf8.decode(bytes, allowMalformed: true),
+        existingItems: existingItems,
+      ),
+    );
+  }
+
+  /// `true` when [fileName] or the first bytes of [bytes] identify a
+  /// KeePass `.kdbx` database, so the UI knows it has to ask for a
+  /// master password before parsing.
+  bool isKdbxFile({required String fileName, Uint8List? bytes}) {
+    if (fileName.toLowerCase().endsWith(_kdbxExtension)) return true;
+    if (bytes == null || bytes.length < _kdbxMagic.length) return false;
+    for (var index = 0; index < _kdbxMagic.length; index++) {
+      if (bytes[index] != _kdbxMagic[index]) return false;
+    }
+    return true;
+  }
+
+  VaultImportPreview _withDuplicateDetection(
+    VaultImportPreview parsed,
+    List<VaultItem> existingItems,
+  ) {
     final candidates = <VaultImportCandidate>[];
     final knownItems = List<VaultItem>.of(existingItems);
 
@@ -78,6 +172,151 @@ class VaultImportParser {
       source: parsed.source,
       candidates: candidates,
       rejected: parsed.rejected,
+    );
+  }
+
+  Future<VaultImportPreview> _parseKdbx({
+    required Uint8List bytes,
+    required List<VaultItem> existingItems,
+    String? masterPassword,
+    Uint8List? keyFileBytes,
+  }) async {
+    final password = masterPassword ?? '';
+    final hasKeyFile = keyFileBytes != null && keyFileBytes.isNotEmpty;
+    if (password.isEmpty) {
+      throw VaultImportException(
+        hasKeyFile ? _kdbxKeyFileOnlyMessage : _kdbxNeedsPasswordMessage,
+      );
+    }
+
+    final KdbxFile file;
+    try {
+      file = await KdbxFormat().read(
+        bytes,
+        Credentials.composite(
+          ProtectedValue.fromString(password),
+          hasKeyFile ? keyFileBytes : null,
+        ),
+      );
+    } on KdbxInvalidKeyException {
+      throw const VaultImportException(_kdbxWrongCredentialsMessage);
+    } on KdbxException {
+      throw const VaultImportException(_kdbxCorruptMessage);
+    } catch (_) {
+      // The package surfaces malformed input as plain errors from its
+      // binary readers too, so anything else is treated as corruption.
+      throw const VaultImportException(_kdbxCorruptMessage);
+    }
+
+    final candidates = <VaultImportCandidate>[];
+    final rejected = <VaultImportIssue>[];
+    final now = DateTime.now();
+    var row = 0;
+
+    void visit(KdbxGroup group, List<String> path) {
+      for (final entry in group.entries) {
+        if (entry.isInRecycleBin()) continue;
+        row++;
+        final candidate = _kdbxCandidate(
+          entry: entry,
+          groupPath: path.join(_kdbxGroupSeparator),
+          rowNumber: row,
+          now: now,
+        );
+        if (candidate == null) {
+          rejected.add(
+            VaultImportIssue(
+              row: row,
+              severity: VaultImportIssueSeverity.error,
+              message: 'La entrada de KeePass no tiene datos para importar.',
+            ),
+          );
+        } else {
+          candidates.add(candidate);
+        }
+      }
+      for (final child in group.groups) {
+        visit(child, [...path, child.name.get()?.trim() ?? '']);
+      }
+    }
+
+    visit(file.body.rootGroup, const []);
+
+    return _withDuplicateDetection(
+      VaultImportPreview(
+        source: VaultImportSource.kdbx,
+        candidates: candidates,
+        rejected: rejected,
+      ),
+      existingItems,
+    );
+  }
+
+  VaultImportCandidate? _kdbxCandidate({
+    required KdbxEntry entry,
+    required String groupPath,
+    required int rowNumber,
+    required DateTime now,
+  }) {
+    String read(KdbxKey key) {
+      final value = entry.getString(key)?.getText()?.trim();
+      return value ?? '';
+    }
+
+    final title = read(KdbxKeyCommon.TITLE);
+    final username = read(KdbxKeyCommon.USER_NAME);
+    // KeePass allows entries without a password (notes, TOTP-only,
+    // recovery codes): they are valid and must survive the import.
+    final secret = read(KdbxKeyCommon.PASSWORD);
+    final website = read(KdbxKeyCommon.URL);
+    final notes = read(_kdbxNotesKey);
+
+    if (title.isEmpty &&
+        username.isEmpty &&
+        secret.isEmpty &&
+        website.isEmpty &&
+        notes.isEmpty) {
+      return null;
+    }
+
+    final issues = <VaultImportIssue>[];
+    // The group path is the closest thing KeePass has to a category.
+    // When it does not map to one of ours it stays visible inside the
+    // title so the user does not lose where the entry came from.
+    final category = _categoryOrNull(groupPath);
+    var displayTitle = title.isNotEmpty
+        ? title
+        : (website.isNotEmpty
+              ? website
+              : (username.isNotEmpty ? username : 'Entrada importada'));
+    if (title.isEmpty) {
+      issues.add(
+        const VaultImportIssue(
+          severity: VaultImportIssueSeverity.warning,
+          message: 'No habia titulo; Vaulta uso el sitio o usuario.',
+        ),
+      );
+    }
+    if (category == null && groupPath.isNotEmpty) {
+      displayTitle = '$displayTitle ($groupPath)';
+    }
+
+    return VaultImportCandidate(
+      item: VaultItem(
+        id: _uuid.v4(),
+        title: displayTitle,
+        username: username,
+        secret: secret,
+        category: category ?? VaultCategory.personal,
+        strengthScore: estimatePasswordStrength(secret),
+        lastUpdatedLabel: formatVaultUpdatedLabel(now),
+        website: website.isEmpty ? null : website,
+        notes: notes.isEmpty ? null : notes,
+        updatedAt: now,
+      ),
+      source: VaultImportSource.kdbx,
+      row: rowNumber,
+      issues: issues,
     );
   }
 
@@ -355,6 +594,15 @@ class VaultImportParser {
   }
 
   VaultCategory _categoryFromImport(String value) {
+    return _categoryOrNull(value) ?? VaultCategory.personal;
+  }
+
+  /// Maps an arbitrary folder or group name to one of the app's
+  /// categories, or `null` when nothing matches. The CSV/JSON path
+  /// keeps its historical default of [VaultCategory.personal]; the
+  /// `.kdbx` path uses the `null` to keep the group path in the title
+  /// instead of silently flattening it.
+  VaultCategory? _categoryOrNull(String value) {
     final normalized = value.toLowerCase().trim();
     if (normalized.contains('work') ||
         normalized.contains('trabajo') ||
@@ -373,7 +621,7 @@ class VaultImportParser {
         normalized.contains('ssh')) {
       return VaultCategory.infrastructure;
     }
-    return VaultCategory.personal;
+    return null;
   }
 
   String _first(Map<String, String> row, List<String> keys) {
