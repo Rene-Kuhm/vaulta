@@ -55,7 +55,7 @@ Después de esta ola, en orden y no en paralelo:
 
 | Ola | Contenido | Por qué ese orden |
 |-----|-----------|-------------------|
-| 2 | Migración a base local cifrada | Techo arquitectónico: hoy todo el vault es un blob JSON en secure storage. Bloquea autofill, adjuntos y búsqueda con 5.000 ítems |
+| 2 | Migración a base local cifrada — **diseño en `docs/architecture/ADR-007-encrypted-local-database.md` (Proposed)** | Techo arquitectónico: hoy todo el vault es un blob JSON en secure storage. Bloquea autofill, adjuntos y búsqueda con 5.000 ítems |
 | 3 | AutofillService Android + Quick Settings tile | Depende de la ola 2 para responder en milisegundos |
 | 4 | Tipos de ítem, carpetas, favoritos, papelera, historial, TOTP | Tocan el modelo de datos: un solo dueño, secuencial |
 | 5 | Sync real: correr el SQL contra Postgres, encenderlo en build de test, conflictos automáticos | Hoy el SQL nunca corrió contra un Postgres real |
@@ -116,3 +116,17 @@ pc:swarm-make-the-security-screen-report-real-hardw` y `No lancé nada (y solté
 reservado)`. Es la prueba en vivo de S5, no una afirmación de diseño.
 
 L10 (costo medido): T1 US$0,3416 en 9m50s; T2 US$0,2222 en 8m15s. Total ola 1: **US$0,5638**.
+
+L11 (cierre de ola 1): `orq/20261021-090429` mergeada a `feat/enterprise-closure` en `7a46090`, con
+**445 tests verdes** y `flutter analyze` sin issues en la rama. Reservas del run 2 liberadas.
+
+L12 (ola 2, diseño): `docs/architecture/ADR-007-encrypted-local-database.md`, estado **Proposed**.
+Decisión: SQLite vía `drift` + SQLCipher para el archivo, conservando el payload cifrado por ítem
+de ADR-001 como unidad de almacenamiento, con la clave de la base derivada por HKDF del DEK
+(`vaulta:db:v1`). El formato de sync no cambia: la migración es local. Migración en una
+transacción, verificada, con el blob legacy conservado hasta el próximo desbloqueo exitoso y
+downgrade rechazado por versión de esquema. Criterio que justifica todo: la amplificación de
+escritura de un `saveItem` pasa de O(N) a O(1), y eso se mide, no se afirma.
+
+L13 (pendiente de decisión): el ADR queda en Proposed. No se implementa hasta que el dueño lo
+acepte, porque la migración corre sobre vaults reales.
