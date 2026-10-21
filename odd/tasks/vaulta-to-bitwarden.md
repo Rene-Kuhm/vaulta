@@ -243,3 +243,16 @@ rama quedó en **575 tests**.
 L29 (pendiente): el round trip real entre dos dispositivos sobre el storage SQLite, y la secuencia
 manual completa sobre un vault creado por la UI (backup `.vaulta`, migrar, reiniciar, desbloquear,
 verificar, restaurar), que por `FLAG_SECURE` es genuinamente manual.
+
+L30 (corrección de prioridad): el pedido fue "vaulta es un gestor de contraseñas". Es un hecho, no
+una pregunta, y reordena el trabajo: lo que define a un gestor es **llenar** credenciales, y Vaulta
+no lo hace. El bloqueo real no era el flag de storage sino que **cuando Android pide la credencial el
+vault está bloqueado**. Diseño en `docs/architecture/ADR-008-autofill.md`: `AutofillService` con
+respuesta en dos fases (bloqueado → sin datasets, sólo intent de autenticación; desbloqueado →
+datasets), reusando `BiometricUnlockService` para no tener un segundo camino de desbloqueo, matching
+por host exacto y después por paquete y por último búsqueda — **nunca por coincidencia difusa**,
+porque sugerir el ítem equivocado al lado de un login bancario es asistir un phishing.
+
+L31 (consecuencia de L30): autofill pasa delante de historial y salud del vault en la prioridad. Las
+olas 5 en curso se dejan terminar porque ya están pagadas y son trabajo válido, pero la próxima ola
+es autofill, con un solo dueño, porque es superficie de exposición de secretos (riesgo item 2).
