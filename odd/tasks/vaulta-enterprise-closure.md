@@ -83,7 +83,11 @@ Las specs provienen de dos fuentes, citadas literalmente:
 
 - **T1** (S6) — Verificar el gate de instalación por adb y correr los 7
   integration tests en el POCO, incluido el de cancelación. Route: inline
-  (requiere hardware). Commit: ninguno hasta cerrar S1-S5.
+  (requiere hardware). **CERRADO 2026-10-21 sobre emulador, no POCO:**
+  `vphone vaulta-a16` (API 36) → **7/7 verdes en una sola corrida de 20 s**.
+- **T9** (derivada de T5, reportada por el usuario) — Los botones de mostrar
+  contraseña no tenían etiqueta para el lector de pantalla. Route: inline.
+  Commit: `8feb8c6`.
 - **T2** (S8) — Revisar `feat/release-engineering`: correctness, seguridad del
   canal de update, `./gradlew test`, y decidir. Route: subagente read-only +
   veredicto propio. Commit: `chore(release): ...` sólo si entra.
@@ -193,7 +197,7 @@ diferencial contra el árbol base y el umbral de cobertura.
   el harness porque las tareas nunca se cerraron con línea `Risk:`; no se
   reintentó.
 
-- **L14 (2026-10-21, T1 sigue bloqueado, y ahora se sabe por qué):**
+- **L14 (2026-10-21, T1 bloqueado en el POCO — y destrabado en emulador):**
   `adb install` falla con `INSTALL_FAILED_USER_RESTRICTED`. El logcat con
   timestamps muestra el mecanismo: MIUI lanza
   `com.miui.permcenter.install.AdbInstallActivity` en el `install-commit`,
@@ -204,6 +208,22 @@ diferencial contra el árbol base y el umbral de cobertura.
   `SecurityException: WRITE_SECURE_SETTINGS` incluso sobre `global`, y no hay
   root ni `su`. Las 14 tentativas de la sesión anterior fallaban por esto
   mismo, sin haberlo aislado. Sólo una persona en el teléfono lo abre.
+  **L16 lo destraba por otro lado**: el emulador `vaulta-a16` no tiene ninguno
+  de estos gates.
+
+- **L18 (2026-10-21, API < 30 SIGUE sin verificar — el límite de L10 no
+  cambió):** `vaulta-a10` (API 29) levanta y **el APK instala en 454 ms**, pero
+  `flutter test integration_test` no puede establecer conexión de debug
+  (`No tests ran` / `Error waiting for a debug connection: The log reader
+  stopped unexpectedly`). Aparte, `am start` y `monkey` no resuelven el
+  launcher de la app en esa AVD, y el harness **desinstala el paquete al
+  finalizar** (`deletePackageX` / `pkg removed`), así que después de una
+  corrida no hay nada que lanzar. Dos candidatos a explicar, ninguno
+  verificado: que el `activity-alias` `.VaultaLauncherActivity` no resuelva
+  en Android 10, o que sea un artefacto de la imagen del emulador. Si fuera
+  lo primero, Vaulta no arrancaría en Android 10 — y `minSdk` es 23. **Vale
+  investigarlo: no es la misma pregunta que la del rechazo biométrico, y es
+  más grave si es real.**
 
 - **L15 (2026-10-21, T8, derivado de T5):** el subagente de docs reportó
   que T5 dejaba dos textos de UI mintiendo y lo verifiqué: a un usuario con
@@ -213,6 +233,25 @@ diferencial contra el árbol base y el umbral de cobertura.
   motivos con precisión ("nada enrolado" vs "el SO es muy viejo"): ambos
   llegan a Dart como `canUseStrong = false`, así que hace falta un canal de
   motivo a través del controller, no un ajuste de texto.
+
+- **L16 (2026-10-21, T1 CERRADO — 7/7 en API 36):** con el emulador
+  `vaulta-a16` el gate de MIUI deja de aplicar. Huella enrolada, y los dos
+  tests que necesitan un dedo se automatizanDetectando la ventana del prompt
+  por `dumpsys window | grep "mCurrentFocus=.*BiometricPrompt"` — NO por
+  `debugPrint`, que en `flutter test` lo captura el runner y no llega a
+  logcat; y NO por texto de UI, que produce falsos positivos (el launcher
+  de Settings decía "fingerprint"). Con un contador, 1er prompt → `vphone
+  finger`, 2º → `input keyevent 4`. Resultado: 7/7, y el de cancelación
+  **de verdad** — `rsaDecrypt returned null (user cancelled)`, con el
+  ciphertext almacenado intacto, que es la premisa que el test queria.
+
+- **L17 (2026-10-21, T9, defecto de accesibilidad):** reportado por el
+  usuario al leer el árbol de accesibilidad del onboarding: el botón de
+  mostrar contraseña es un `IconButton` cuyo único hijo es un `Icon`, que no
+  tiene nombre accesible — un lector de pantalla anuncia «botón» y nada más.
+  Los SIETE toggles de visibilidad de contraseña (alta, desbloqueo, re-bloqueo
+  y los tres de cambiar master password) llevan ahora `tooltip`. Test RED que
+  falla si se saca una etiqueta. Commit `8feb8c6`.
 
 - **L4 (2026-10-21, observación al abrir G2):** `e12e71a` ya corrigió el
   lockout de v2, pero ADR-001 G2 lo sigue describiendo como defecto vigente.
