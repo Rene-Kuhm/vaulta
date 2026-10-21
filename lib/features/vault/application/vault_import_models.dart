@@ -26,6 +26,10 @@ enum VaultImportSource {
   /// CSV exported from KeePass.
   keepassCsv('KeePass CSV'),
 
+  /// Encrypted KeePass database (.kdbx), opened with the master password
+  /// and optionally a key file.
+  kdbx('KeePass KDBX'),
+
   /// Generic JSON object or array of credentials.
   json('JSON');
 
@@ -33,6 +37,24 @@ enum VaultImportSource {
 
   /// Human-readable label for the source (Spanish UI copy).
   final String label;
+}
+
+/// Raised when an import file cannot be decoded at all, for example a
+/// KeePass `.kdbx` database whose master password is wrong or whose
+/// bytes are corrupt.
+///
+/// The preview shows [message] as-is, so it must be user-facing
+/// Spanish copy that says what to fix instead of leaving an empty
+/// candidate list on screen.
+class VaultImportException implements Exception {
+  /// Creates an exception carrying a user-facing [message].
+  const VaultImportException(this.message);
+
+  /// Spanish explanation of why the file could not be imported.
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 /// Severity level for a [VaultImportIssue] surfaced during a preview.
