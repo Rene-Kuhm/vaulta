@@ -404,7 +404,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsHardwareBackedKeys.
   ///
   /// In en, this message translates to:
-  /// **'Hardware-backed keys'**
+  /// **'KeyStore-held key'**
   String get settingsHardwareBackedKeys;
 
   /// No description provided for @settingsVaultEncryptionReady.
@@ -412,6 +412,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Vault item encryption wired end-to-end'**
   String get settingsVaultEncryptionReady;
+
+  /// No description provided for @settingsCapabilitySupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Available'**
+  String get settingsCapabilitySupported;
+
+  /// No description provided for @settingsCapabilityUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Not available'**
+  String get settingsCapabilityUnsupported;
+
+  /// No description provided for @settingsCapabilityUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not determine'**
+  String get settingsCapabilityUnknown;
 
   /// No description provided for @settingsConflictsTitle.
   ///

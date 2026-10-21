@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_auth/local_auth.dart';
@@ -406,11 +405,10 @@ void main() {
   });
 
   group('SettingsScreen platform capabilities', () {
-    Future<Map<String, bool>> renderCapabilities(
+    Future<Map<String, String>> renderCapabilities(
       WidgetTester tester,
-      TargetPlatform platform,
+      AppLocalizations l10n,
     ) async {
-      debugDefaultTargetPlatformOverride = platform;
       final controller = await _buildUnlockedController();
       final localeController = AppLocaleController(
         storage: _InMemorySecureStorageService(),
@@ -432,52 +430,50 @@ void main() {
       );
       await _pumpUi(tester);
 
-      bool enabled(String title) {
+      // The state a capability row renders, read from the row itself so the
+      // assertion is about that line and not about any other copy on the
+      // screen that happens to share a word.
+      String stateFor(String title) {
         final row = find
             .ancestor(of: find.text(title), matching: find.byType(Row))
             .first;
-        return find
-            .descendant(
-              of: row,
-              matching: find.byIcon(Icons.verified_user_rounded),
-            )
+        final labels = find
+            .descendant(of: row, matching: find.byType(Text))
             .evaluate()
-            .isNotEmpty;
+            .map((element) => (element.widget as Text).data)
+            .whereType<String>()
+            .toList();
+        return labels.last;
       }
 
-      final result = {
-        'biometric': enabled('Biometric key recovery'),
-        'hardware': enabled('Hardware-backed keys'),
-        'storage': enabled('Secure storage'),
+      return {
+        'biometric': stateFor(l10n.settingsBiometricUnlock),
+        'hardware': stateFor(l10n.settingsHardwareBackedKeys),
+        'storage': stateFor(l10n.settingsSecureStorage),
+        'encryption': stateFor(l10n.settingsVaultEncryptionReady),
       };
-      debugDefaultTargetPlatformOverride = null;
-      return result;
     }
 
-    testWidgets('Android reports KeyStore-backed biometric unlock', (
-      tester,
-    ) async {
-      final capabilities = await renderCapabilities(
-        tester,
-        TargetPlatform.android,
-      );
-      expect(capabilities, {
-        'biometric': true,
-        'hardware': true,
-        'storage': true,
-      });
-    });
+    testWidgets('reports what the wired services answer, not a platform table',
+        (tester) async {
+      // This controller has no biometric unlock service and no KeyStore
+      // provider wired, so "not available" is the correct, *confirmed*
+      // answer for those two rows — and it is deliberately not "unknown".
+      // The states themselves are covered in
+      // test/features/security/presentation/security_capabilities_panel_test.dart;
+      // what this test pins is that the settings screen asks the controller
+      // instead of printing a static platform table.
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
 
-    testWidgets('Windows reports master password only', (tester) async {
-      final capabilities = await renderCapabilities(
-        tester,
-        TargetPlatform.windows,
-      );
+      final capabilities = await renderCapabilities(tester, l10n);
+
       expect(capabilities, {
-        'biometric': false,
-        'hardware': false,
-        'storage': true,
+        'biometric': l10n.settingsCapabilityUnsupported,
+        'hardware': l10n.settingsCapabilityUnsupported,
+        'storage': l10n.settingsCapabilitySupported,
+        'encryption': l10n.settingsCapabilitySupported,
       });
+      expect(find.text(l10n.settingsCapabilityUnknown), findsNothing);
     });
   });
 }

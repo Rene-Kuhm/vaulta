@@ -164,10 +164,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsBiometricUnlock => 'Biometric key recovery';
 
   @override
-  String get settingsHardwareBackedKeys => 'Hardware-backed keys';
+  String get settingsHardwareBackedKeys => 'KeyStore-held key';
 
   @override
   String get settingsVaultEncryptionReady => 'Vault item encryption wired end-to-end';
+
+  @override
+  String get settingsCapabilitySupported => 'Available';
+
+  @override
+  String get settingsCapabilityUnsupported => 'Not available';
+
+  @override
+  String get settingsCapabilityUnknown => 'Could not determine';
 
   @override
   String get settingsConflictsTitle => 'Sync conflicts';
