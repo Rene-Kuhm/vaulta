@@ -64,11 +64,12 @@ Future<void> runPasswordManagerApp() async {
   final VaultRepository repository;
   final VaultRekeyEntries rekeyHook;
   final VaultMigrateEntries migrateHook;
-  // Sync's pull path applies snapshots through this port. The SQLite storage does
-  // not implement it yet (ADR-007), and `buildDeviceSyncLifecycle` documents
-  // `null` as "pull advances sync state, vault unchanged" — an explicit
-  // degradation instead of a silently half-working sync.
-  RemoteSnapshotApplier? snapshotApplier;
+  // Sync's pull path applies snapshots through this narrow port, and both
+  // storages implement it, so a pulled change reaches the vault whichever one
+  // the flag selects. `buildDeviceSyncLifecycle` still documents `null` as
+  // "pull advances sync state, vault unchanged", but nothing here passes it any
+  // more.
+  late final RemoteSnapshotApplier snapshotApplier;
   if (vaultSqliteStorageEnabled) {
     final sqlite = LazySqliteVaultRepository(
       storage: storage,
@@ -83,7 +84,7 @@ Future<void> runPasswordManagerApp() async {
     repository = sqlite;
     rekeyHook = sqlite.rekeyEntries;
     migrateHook = sqlite.migrateItemsToCurrentVersion;
-    snapshotApplier = null;
+    snapshotApplier = sqlite;
   } else {
     final blob = LocalEncryptedVaultRepository(
       storage: storage,

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 import '../../features/vault/domain/vault_item.dart';
@@ -7,14 +8,16 @@ import '../../features/vault/domain/vault_summary.dart';
 import '../security/vault_crypto_service.dart';
 import '../security/vault_repository.dart';
 import '../security/vault_session.dart';
+import '../sync/remote_snapshot_applier.dart';
+import '../sync/remote_snapshot_envelope.dart';
+import '../sync/remote_vault_blob_change.dart';
 import 'vault_host.dart';
 import 'vault_schema.dart';
 
 /// SQLite-backed [VaultRepository] (ADR-007).
 ///
-/// Not wired: no production path constructs this yet, and the composition root
-/// still uses the encrypted blob. It exists so the migration (task C) and the
-/// swap (task D) can be built against a real implementation.
+/// Reached in production through [LazySqliteVaultRepository], which the
+/// composition root wires when `VAULTA_SQLITE_STORAGE` is on.
 ///
 /// Differences from `LocalEncryptedVaultRepository` that are intentional:
 /// - a save touches one row, not the whole vault, so write cost does not grow
@@ -25,7 +28,7 @@ import 'vault_schema.dart';
 ///
 /// The crypto contract is unchanged: every payload is the ADR-001 v4 envelope
 /// bound to its `record_id`, produced by the same [VaultCryptoService].
-class SqliteVaultRepository implements VaultRepository {
+class SqliteVaultRepository implements VaultRepository, RemoteSnapshotApplier {
   /// Builds the repository over an already-opened, already-keyed [db].
   ///
   /// [readSession] is called on every operation rather than captured, so locking
@@ -137,13 +140,138 @@ class SqliteVaultRepository implements VaultRepository {
 
   @override
   Future<void> deleteItem(String id) async {
-    // Soft delete: the row and its ciphertext stay, the UI stops seeing it. A
-    // hard delete is a purge operation and belongs behind its own confirmation.
-    _db.execute(
-      'UPDATE vault_items SET deleted_at = ? WHERE record_id = ?',
-      [DateTime.now().millisecondsSinceEpoch, id],
+    _softDelete(id, atMillis: DateTime.now().millisecondsSinceEpoch);
+  }
+
+  /// Soft delete: the row and its ciphertext stay, the UI stops seeing it. A
+  /// hard delete is a purge operation and belongs behind its own confirmation.
+  ///
+  /// Shared with the pull path so a tombstone pulled from another device leaves
+  /// the vault in exactly the state a local delete would.
+  void _softDelete(String id, {required int atMillis}) {
+    _db.execute('UPDATE vault_items SET deleted_at = ? WHERE record_id = ?', [
+      atMillis,
+      id,
+    ]);
+    _db.execute(vaultHostsDeleteSql, [id]);
+  }
+
+  /// Applies a batch of pulled remote snapshots to the database.
+  ///
+  /// The semantics are the blob repository's, restated on rows instead of on a
+  /// single blob: a tombstone soft-deletes the record and drops its autofill
+  /// index rows (exactly like [deleteItem]), a valid payload is decrypted with
+  /// the same binding checks ([decryptSnapshotItem]) and upserted, and a
+  /// payload that is refused, bound elsewhere or fails authentication adds its
+  /// record id to the returned list without touching a row.
+  ///
+  /// Everything runs inside one transaction: a batch is applied whole or not at
+  /// all, so an interruption cannot leave half a pull written. Rejected
+  /// snapshots are the per-record skip and never roll the batch back.
+  @override
+  Future<List<String>> applyRemoteSnapshots({
+    required Iterable<RemoteVaultBlobSnapshot> snapshots,
+  }) async {
+    final session = _requireSession();
+    final minimumVersion = _readMinimumVersion();
+    final rejected = <String>[];
+
+    _db.execute('BEGIN IMMEDIATE');
+    try {
+      for (final snapshot in snapshots) {
+        final localId = snapshot.recordId;
+        if (snapshot.isTombstone) {
+          _softDelete(
+            localId,
+            atMillis: DateTime.now().millisecondsSinceEpoch,
+          );
+          continue;
+        }
+
+        final envelope = RemoteSnapshotEnvelope.fromSnapshot(
+          snapshot: snapshot,
+          session: session,
+        );
+        final encrypted = envelope.encrypted;
+        if (encrypted == null) {
+          if (envelope.isRejected) {
+            rejected.add(localId);
+          }
+          continue;
+        }
+
+        final DecryptedSnapshotItem decrypted;
+        try {
+          decrypted = await decryptSnapshotItem(
+            cryptoService: _cryptoService,
+            encrypted: encrypted,
+            session: session,
+            minimumVersion: minimumVersion,
+            expectedRecordId: envelope.isRecordBound ? localId : null,
+          );
+        } on VaultPayloadRejectedError {
+          rejected.add(localId);
+          continue;
+        } on SecretBoxAuthenticationError {
+          rejected.add(localId);
+          continue;
+        }
+
+        await _upsertPulledItem(
+          item: decrypted.item,
+          session: session,
+          remoteUpdatedAt: snapshot.updatedAt,
+        );
+      }
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
+
+    return rejected;
+  }
+
+  /// Writes one pulled item as a row, with the same title envelope, key version
+  /// and autofill index a local [saveItem] writes, so a row pulled from another
+  /// device is indistinguishable from one saved here.
+  Future<void> _upsertPulledItem({
+    required VaultItem item,
+    required VaultSession session,
+    required DateTime remoteUpdatedAt,
+  }) async {
+    final payload = await _cryptoService.encrypt(
+      plaintext: jsonEncode(item.toJson()),
+      secretKey: session,
+      keyId: session.keyId,
+      recordId: item.id,
     );
-    _db.execute('DELETE FROM vault_hosts WHERE record_id = ?', [id]);
+    final title = await _cryptoService.encrypt(
+      plaintext: jsonEncode(<String, String>{_titleKind: item.title}),
+      secretKey: session,
+      keyId: session.keyId,
+      recordId: item.id,
+    );
+
+    // The payload's own timestamp is what the blob storage would have shown for
+    // this item; the backend timestamp is the fallback when the sender did not
+    // set one.
+    final updatedAt = item.updatedAt ?? remoteUpdatedAt;
+
+    _db.execute(vaultItemsUpsertSql, [
+      item.id,
+      session.keyId,
+      _readMinimumVersion(),
+      payload,
+      title,
+      item.category.name,
+      updatedAt.millisecondsSinceEpoch,
+    ]);
+    _db.execute(vaultHostsDeleteSql, [item.id]);
+    final host = vaultHostOfWebsite(item.website);
+    if (host != null) {
+      _db.execute(vaultHostsInsertSql, [item.id, host]);
+    }
   }
 
   /// Items whose title contains [query], case-insensitive, newest first.

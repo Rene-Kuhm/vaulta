@@ -7,10 +7,9 @@ import 'remote_vault_blob_change.dart';
 /// thing sync needs, so a second storage can implement it without sync knowing
 /// what it is.
 ///
-/// Still unimplemented by the SQLite storage (ADR-007): until it is, the bootstrap
-/// passes `null`, which is a documented mode of `buildDeviceSyncLifecycle` — pull
-/// runs and only the local sync state advances, no vault item changes. That gap is
-/// recorded in the ADR rather than hidden behind a silently half-working sync.
+/// Both storages implement it: `LocalEncryptedVaultRepository` over the encrypted
+/// blob and `LazySqliteVaultRepository` over the database (ADR-007), so a pulled
+/// change reaches the vault whichever storage the build flag selects.
 abstract interface class RemoteSnapshotApplier {
   /// Applies [snapshots] locally and returns the record ids that were rejected,
   /// typically because a payload failed its binding check.

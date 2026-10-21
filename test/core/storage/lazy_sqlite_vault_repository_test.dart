@@ -9,6 +9,8 @@ import 'package:gestor_contrasenas/core/security/vault_crypto_service.dart';
 import 'package:gestor_contrasenas/core/security/vault_session.dart';
 import 'package:gestor_contrasenas/core/storage/lazy_sqlite_vault_repository.dart';
 import 'package:gestor_contrasenas/core/storage/vault_blob_migration.dart';
+import 'package:gestor_contrasenas/core/sync/remote_snapshot_applier.dart';
+import 'package:gestor_contrasenas/core/sync/remote_vault_blob_change.dart';
 import 'package:gestor_contrasenas/features/vault/domain/vault_item.dart';
 
 class _MemoryStorage implements SecureStorageService {
@@ -151,6 +153,32 @@ void main() {
       isNotNull,
       reason: 'the legacy blob is kept as the rollback',
     );
+    repo.close();
+  });
+
+  test('applies a pulled tombstone through the sync port', () async {
+    final repo = build();
+    await repo.saveItem(item('r1'));
+    expect(await repo.fetchItems(), hasLength(1));
+
+    // The composition root hands this object to sync as a RemoteSnapshotApplier,
+    // so the port has to reach the opened database instead of degrading to a
+    // no-op that advances the cursor with the vault unchanged.
+    expect(repo, isA<RemoteSnapshotApplier>());
+    final rejected = await repo.applyRemoteSnapshots(
+      snapshots: [
+        RemoteVaultBlobSnapshot(
+          recordId: 'r1',
+          version: 2,
+          keyVersion: 3,
+          deletedAt: DateTime.utc(2026, 5, 2),
+          updatedAt: DateTime.utc(2026, 5, 2),
+        ),
+      ],
+    );
+
+    expect(rejected, isEmpty);
+    expect(await repo.fetchItems(), isEmpty);
     repo.close();
   });
 
