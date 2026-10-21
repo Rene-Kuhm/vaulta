@@ -381,6 +381,18 @@ class _VaultEntryEditorScreenState extends State<VaultEntryEditorScreen> {
     final baseItem = widget.initialItem;
     final now = DateTime.now();
     final secret = _secretController.text.trim();
+    // Rotating the secret keeps the old one recoverable from the detail
+    // screen. The helper is a no-op when nothing changed, and it owns the
+    // no-duplicates and size-cap rules. The history is never editable
+    // here: the user only edits the current secret.
+    final passwordHistory = baseItem == null
+        ? const <PasswordHistoryEntry>[]
+        : vaultPasswordHistoryAfterRotation(
+            baseItem.passwordHistory,
+            previousSecret: baseItem.secret,
+            nextSecret: secret,
+            replacedAt: now,
+          );
     final item = VaultItem(
       id: baseItem?.id ?? 'entry-${now.microsecondsSinceEpoch}',
       title: _titleController.text.trim(),
@@ -392,6 +404,7 @@ class _VaultEntryEditorScreenState extends State<VaultEntryEditorScreen> {
       website: _normalizeOptional(_websiteController.text),
       notes: _normalizeOptional(_notesController.text),
       updatedAt: now,
+      passwordHistory: passwordHistory,
     );
 
     Navigator.of(context).pop(item);

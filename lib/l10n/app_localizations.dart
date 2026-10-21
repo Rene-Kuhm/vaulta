@@ -863,6 +863,36 @@ abstract class AppLocalizations {
   /// **'Clipboard cleared.'**
   String get clipboardCleared;
 
+  /// No description provided for @entryPasswordHistoryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous passwords'**
+  String get entryPasswordHistoryTitle;
+
+  /// No description provided for @entryPasswordHistoryHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Older passwords kept when you change the secret. Newest first.'**
+  String get entryPasswordHistoryHint;
+
+  /// No description provided for @entryPasswordHistoryCopyTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy previous password'**
+  String get entryPasswordHistoryCopyTooltip;
+
+  /// No description provided for @entryPasswordHistoryRevealTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Show previous password'**
+  String get entryPasswordHistoryRevealTooltip;
+
+  /// No description provided for @entryPasswordHistoryHideTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide previous password'**
+  String get entryPasswordHistoryHideTooltip;
+
   /// No description provided for @totpTitle.
   ///
   /// In en, this message translates to:
