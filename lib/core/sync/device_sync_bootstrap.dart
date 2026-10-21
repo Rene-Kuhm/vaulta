@@ -1,6 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../security/local_encrypted_vault_repository.dart';
 import '../security/secure_storage_service.dart';
 import 'bidirectional_sync_service.dart';
 import 'device_registration_repository.dart';
@@ -11,6 +10,7 @@ import 'local_vault_mutation.dart';
 import 'supabase_device_registration_repository.dart';
 import 'supabase_remote_vault_sync_repository.dart';
 import 'sync_conflict_resolver.dart';
+import 'remote_snapshot_applier.dart';
 
 /// Builds a fully-wired [DeviceSyncLifecycle] for the Supabase
 /// backend. Returns `null` when the `SUPABASE_URL` or
@@ -30,7 +30,7 @@ Future<DeviceSyncLifecycle?> buildDeviceSyncLifecycle({
   /// Vault repository the pull path forwards decrypted snapshots to.
   /// When `null`, pull still runs but only updates the local sync
   /// state (no vault items changed).
-  LocalEncryptedVaultRepository? vaultRepository,
+  RemoteSnapshotApplier? vaultRepository,
 
   /// Local sink that the controller attaches to the sync service so
   /// local mutations get drained. Pass-through is intentional: the

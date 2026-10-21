@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:gestor_contrasenas/l10n/app_localizations.dart';
 
 import '../localization/app_locale_controller.dart';
+import '../../core/sync/remote_snapshot_applier.dart';
+import '../../core/storage/lazy_sqlite_vault_repository.dart';
+import '../../core/storage/vault_storage_flags.dart';
 import '../../core/security/aes_gcm_vault_crypto_service.dart';
 import '../../core/security/android_keystore_envelope_key_provider.dart';
 import '../../core/security/biometric_auth_service.dart';
@@ -38,12 +42,61 @@ Future<void> runPasswordManagerApp() async {
   final localeController = AppLocaleController(storage: storage);
   final mutationSink = RelayLocalVaultMutationSink();
   late final VaultSecurityController securityController;
-  final repository = LocalEncryptedVaultRepository(
-    storage: storage,
-    cryptoService: AesGcmVaultCryptoService(),
-    readSession: () => securityController.vaultSession,
-    mutationSink: mutationSink,
-  );
+  final cryptoService = AesGcmVaultCryptoService();
+
+  // The payload floor lives in secure storage and the SQLite repository needs it
+  // through a synchronous getter, so it is read once during bootstrap.
+  var payloadFloor = 1;
+  Future<void> readPayloadFloor() async {
+    final raw = await storage.read(
+      LocalEncryptedVaultRepository.itemPayloadMinVersionKey,
+    );
+    payloadFloor = (raw == null || raw.isEmpty)
+        ? 1
+        : int.tryParse(raw) ??
+              LocalEncryptedVaultRepository.currentItemPayloadVersion;
+  }
+
+  // ADR-007: the encrypted database is behind a compile-time flag, off by
+  // default. Both paths are [VaultRepository]; only the rekey and payload-upgrade
+  // hooks differ, because the database re-keys a file instead of re-encrypting a
+  // blob.
+  final VaultRepository repository;
+  final VaultRekeyEntries rekeyHook;
+  final VaultMigrateEntries migrateHook;
+  // Sync's pull path applies snapshots through this port. The SQLite storage does
+  // not implement it yet (ADR-007), and `buildDeviceSyncLifecycle` documents
+  // `null` as "pull advances sync state, vault unchanged" — an explicit
+  // degradation instead of a silently half-working sync.
+  RemoteSnapshotApplier? snapshotApplier;
+  if (vaultSqliteStorageEnabled) {
+    final sqlite = LazySqliteVaultRepository(
+      storage: storage,
+      cryptoService: cryptoService,
+      readSession: () => securityController.vaultSession,
+      readMinimumVersion: () => payloadFloor,
+      databasePath: () async {
+        final directory = await getApplicationSupportDirectory();
+        return '${directory.path}/vault.db';
+      },
+    );
+    repository = sqlite;
+    rekeyHook = sqlite.rekeyEntries;
+    migrateHook = sqlite.migrateItemsToCurrentVersion;
+    snapshotApplier = null;
+  } else {
+    final blob = LocalEncryptedVaultRepository(
+      storage: storage,
+      cryptoService: cryptoService,
+      readSession: () => securityController.vaultSession,
+      mutationSink: mutationSink,
+    );
+    repository = blob;
+    rekeyHook = blob.rekeyEntries;
+    migrateHook = blob.migrateItemsToCurrentVersion;
+    snapshotApplier = blob;
+  }
+  await readPayloadFloor();
   final envelopeService = BiometricKeyEnvelopeService(storage: storage);
   // The biometric stack is resolved in ONE place. It used to be two
   // independent `defaultTargetPlatform` branches — one for the envelope
@@ -64,8 +117,8 @@ Future<void> runPasswordManagerApp() async {
     storage: storage,
     masterPasswordService: MasterPasswordService(),
     biometricAuthService: biometricAuthService,
-    rekeyEntries: repository.rekeyEntries,
-    migrateEntries: repository.migrateItemsToCurrentVersion,
+    rekeyEntries: rekeyHook,
+    migrateEntries: migrateHook,
     biometricEnvelopeService: envelopeService,
     biometricUnlockService: biometricUnlockService,
   );
@@ -75,7 +128,7 @@ Future<void> runPasswordManagerApp() async {
 
   final deviceSyncLifecycle = await buildDeviceSyncLifecycle(
     storage: storage,
-    vaultRepository: repository,
+    vaultRepository: snapshotApplier,
     mutationSink: mutationSink,
     onCurrentDeviceRevoked: (DeviceAccessStatus status) {
       return securityController.lock(reason: status.userFacingReason());

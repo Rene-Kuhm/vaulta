@@ -6,6 +6,7 @@ import 'package:cryptography/cryptography.dart';
 import '../../features/vault/domain/vault_item.dart';
 import '../../features/vault/domain/vault_summary.dart';
 import '../sync/local_vault_mutation.dart';
+import '../sync/remote_snapshot_applier.dart';
 import '../sync/remote_vault_blob_change.dart';
 import '../sync/sync_item_payload_codec.dart';
 import 'aes_gcm_vault_crypto_service.dart';
@@ -32,7 +33,8 @@ typedef VaultSessionReader = VaultSession? Function();
 /// encrypted blob in a separate key and only swap the live key when
 /// the rewrite completes, so an interrupted rewrite never leaves the
 /// vault half-encrypted.
-class LocalEncryptedVaultRepository implements VaultRepository {
+class LocalEncryptedVaultRepository
+    implements VaultRepository, RemoteSnapshotApplier {
   /// Builds a [LocalEncryptedVaultRepository]. The [readSession] is
   /// called on every read/write to get the current DEK; the optional
   /// [mutationSink] receives local upsert/delete notifications so the
@@ -470,6 +472,7 @@ class LocalEncryptedVaultRepository implements VaultRepository {
   /// payload that did not bring its item key salt and version, a
   /// decrypted item whose `id` differs from the bound record id, or a
   /// GCM authentication failure.
+  @override
   Future<List<String>> applyRemoteSnapshots({
     required Iterable<RemoteVaultBlobSnapshot> snapshots,
   }) async {
