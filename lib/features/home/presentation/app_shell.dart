@@ -182,7 +182,6 @@ class _AppShellState extends State<AppShell> {
       key: _scaffoldMessengerKey,
       child: Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
-        extendBody: true,
         body: AnimatedSwitcher(
           duration: AppMotion.medium,
           switchInCurve: AppMotion.enter,
