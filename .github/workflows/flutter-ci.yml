@@ -42,7 +42,12 @@ jobs:
     # Build-only smoke test so Windows-specific breakage (plugins,
     # CMake, runner) is caught on the PR instead of at release time.
     if: github.event_name == 'pull_request'
-    runs-on: windows-latest
+    # windows-latest now ships VS 18 (MSVC 14.51), where <experimental/coroutine>
+    # — still used by local_auth_windows — is a hard C2338 error instead of a
+    # warning. Pin the image so the smoke test keeps catching Vaulta breakage
+    # instead of failing on an upstream toolchain deprecation; the real fix is
+    # bumping local_auth_windows when it drops experimental/<coroutine>.
+    runs-on: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
