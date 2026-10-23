@@ -838,34 +838,34 @@ class AppLocalizationsEs extends AppLocalizations {
   String get accessEyebrow => 'Autofill y acceso';
 
   @override
-  String get accessTitle => 'El autofill está en camino';
+  String get accessTitle => 'El autofill está listo';
 
   @override
-  String get accessSubtitle => 'Vaulta todavía no puede completar contraseñas en otras apps. Esta pantalla te va a guiar en la configuración apenas salga el servicio de autofill para Android.';
+  String get accessSubtitle => 'El servicio de autofill de Android de Vaulta está registrado en este dispositivo. Completa inicios de sesión en el navegador y en apps que verifican su sitio web en Android 12 o superior.';
 
   @override
-  String get accessHeroTitle => 'Autofill: próximamente';
+  String get accessHeroTitle => 'Completa inicios de sesión sin copiar y pegar';
 
   @override
-  String get accessHeroBody => 'Mientras tanto, abrí la entrada en Vaulta y copiá el secreto. Los secretos copiados se borran del portapapeles automáticamente.';
+  String get accessHeroBody => 'Elegí Vaulta como servicio de autofill en los ajustes de Android y desbloqueá cuando un inicio de sesión pida una contraseña.';
 
   @override
-  String get accessPlatformAndroid => 'Primero en Android';
+  String get accessPlatformAndroid => 'Android';
 
   @override
-  String get accessComingSoon => 'Próximamente';
+  String get accessComingSoon => 'Disponible ahora';
 
   @override
-  String get accessStatusTitle => 'No disponible en esta versión';
+  String get accessStatusTitle => 'Servicio de autofill registrado';
 
   @override
-  String get accessStatusBody => 'Esta versión no registra un servicio de autofill de Android, así que Vaulta todavía no aparece en Ajustes → Servicio de Autofill. Nada en esta pantalla cambia los ajustes del sistema.';
+  String get accessStatusBody => 'El servicio de autofill de Vaulta está activo en este dispositivo. Nada en esta pantalla cambia los ajustes del sistema: elegí Vaulta en Ajustes → Servicio de autofill para empezar a completar.';
 
   @override
   String get accessUnlockPostureTitle => 'Postura de desbloqueo';
 
   @override
-  String get accessUnlockPostureBody => 'Cuando salga el autofill, sus solicitudes van a usar el mismo estado de desbloqueo que el resto de la app.';
+  String get accessUnlockPostureBody => 'Las solicitudes de autofill van a usar el mismo estado de desbloqueo que el resto de la app.';
 
   @override
   String get accessUnlocked => 'Vault desbloqueado';
@@ -880,7 +880,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get accessRoadmapTitle => 'Lo que viene';
 
   @override
-  String get accessRoadmapBody => 'Lo próximo: un servicio nativo de autofill para Android que reutiliza esta pantalla. El autofill de iOS y desktop viene después.';
+  String get accessRoadmapBody => 'El autofill de iOS y desktop todavía está pendiente. El llenado en apps de Android (más allá de sitios web verificados) está limitado por las reglas de verificación de dominio de la plataforma.';
 
   @override
   String get accessPlatformBiometrics => 'Desbloqueo biométrico';

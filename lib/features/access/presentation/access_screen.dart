@@ -10,12 +10,12 @@ import '../../../core/security/vault_security_controller.dart';
 
 /// Access & Autofill section.
 ///
-/// System autofill is not implemented yet: no Android
-/// `AutofillService` is registered in the manifest, so Vaulta cannot
-/// be picked as the system autofill provider. Until it is, this screen
-/// says so plainly ("coming soon"), explains the interim copy flow,
-/// and shows the unlock state. The native Android autofill service is
-/// the next feature and will reuse this screen for its setup steps.
+/// The native Android autofill service is registered and answers fill
+/// requests (ADR-008). This screen explains what it fills today — browser
+/// logins, plus apps with a verified website on Android 12+ — and shows the
+/// unlock posture that gates every request. It deliberately changes no
+/// system settings on its own: picking Vaulta as the autofill provider is a
+/// user action in Android's own settings.
 class AccessScreen extends StatelessWidget {
   /// Creates the "Access & Autofill" tab. Both [securityController]
   /// and [repository] are required so this tab never silently

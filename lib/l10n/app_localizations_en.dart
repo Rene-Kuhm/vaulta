@@ -832,34 +832,34 @@ class AppLocalizationsEn extends AppLocalizations {
   String get accessEyebrow => 'Autofill & access';
 
   @override
-  String get accessTitle => 'Autofill is on the way';
+  String get accessTitle => 'Autofill is ready';
 
   @override
-  String get accessSubtitle => 'Vaulta cannot fill passwords in other apps yet. This screen will walk you through the setup as soon as the Android autofill service ships.';
+  String get accessSubtitle => 'Vaulta\'s Android autofill service is registered on this device. It fills logins in your browser, and in apps that verify their website on Android 12 and above.';
 
   @override
-  String get accessHeroTitle => 'Autofill: coming soon';
+  String get accessHeroTitle => 'Fill logins without copy-paste';
 
   @override
-  String get accessHeroBody => 'Until then, open the entry in Vaulta and copy the secret. Copied secrets are cleared from the clipboard automatically.';
+  String get accessHeroBody => 'Pick Vaulta as your autofill service in Android settings, then unlock when a login asks for a password.';
 
   @override
-  String get accessPlatformAndroid => 'Android first';
+  String get accessPlatformAndroid => 'Android';
 
   @override
-  String get accessComingSoon => 'Coming soon';
+  String get accessComingSoon => 'Available now';
 
   @override
-  String get accessStatusTitle => 'Not available in this version';
+  String get accessStatusTitle => 'Autofill service registered';
 
   @override
-  String get accessStatusBody => 'This build does not register an Android autofill service, so Vaulta will not appear under Settings → Autofill service yet. Nothing on this screen changes your system settings.';
+  String get accessStatusBody => 'Vaulta\'s autofill service is active on this device. Nothing on this screen changes your system settings: pick Vaulta under Settings → Autofill service to start filling.';
 
   @override
   String get accessUnlockPostureTitle => 'Unlock posture';
 
   @override
-  String get accessUnlockPostureBody => 'When autofill ships, its requests will be gated by the same unlock state as the rest of the app.';
+  String get accessUnlockPostureBody => 'Autofill requests are gated by the same unlock state as the rest of the app.';
 
   @override
   String get accessUnlocked => 'Vault is unlocked';
@@ -874,7 +874,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get accessRoadmapTitle => 'What\'s next';
 
   @override
-  String get accessRoadmapBody => 'Next up: a native Android autofill service that reuses this screen. iOS and desktop autofill come after it.';
+  String get accessRoadmapBody => 'iOS and desktop autofill are still ahead. Android app filling (beyond verified websites) is limited by the platform\'s domain-verification rules.';
 
   @override
   String get accessPlatformBiometrics => 'Biometric unlock';

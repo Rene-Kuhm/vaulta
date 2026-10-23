@@ -1664,49 +1664,49 @@ abstract class AppLocalizations {
   /// No description provided for @accessTitle.
   ///
   /// In en, this message translates to:
-  /// **'Autofill is on the way'**
+  /// **'Autofill is ready'**
   String get accessTitle;
 
   /// No description provided for @accessSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Vaulta cannot fill passwords in other apps yet. This screen will walk you through the setup as soon as the Android autofill service ships.'**
+  /// **'Vaulta\'s Android autofill service is registered on this device. It fills logins in your browser, and in apps that verify their website on Android 12 and above.'**
   String get accessSubtitle;
 
   /// No description provided for @accessHeroTitle.
   ///
   /// In en, this message translates to:
-  /// **'Autofill: coming soon'**
+  /// **'Fill logins without copy-paste'**
   String get accessHeroTitle;
 
   /// No description provided for @accessHeroBody.
   ///
   /// In en, this message translates to:
-  /// **'Until then, open the entry in Vaulta and copy the secret. Copied secrets are cleared from the clipboard automatically.'**
+  /// **'Pick Vaulta as your autofill service in Android settings, then unlock when a login asks for a password.'**
   String get accessHeroBody;
 
   /// No description provided for @accessPlatformAndroid.
   ///
   /// In en, this message translates to:
-  /// **'Android first'**
+  /// **'Android'**
   String get accessPlatformAndroid;
 
   /// No description provided for @accessComingSoon.
   ///
   /// In en, this message translates to:
-  /// **'Coming soon'**
+  /// **'Available now'**
   String get accessComingSoon;
 
   /// No description provided for @accessStatusTitle.
   ///
   /// In en, this message translates to:
-  /// **'Not available in this version'**
+  /// **'Autofill service registered'**
   String get accessStatusTitle;
 
   /// No description provided for @accessStatusBody.
   ///
   /// In en, this message translates to:
-  /// **'This build does not register an Android autofill service, so Vaulta will not appear under Settings → Autofill service yet. Nothing on this screen changes your system settings.'**
+  /// **'Vaulta\'s autofill service is active on this device. Nothing on this screen changes your system settings: pick Vaulta under Settings → Autofill service to start filling.'**
   String get accessStatusBody;
 
   /// No description provided for @accessUnlockPostureTitle.
@@ -1718,7 +1718,7 @@ abstract class AppLocalizations {
   /// No description provided for @accessUnlockPostureBody.
   ///
   /// In en, this message translates to:
-  /// **'When autofill ships, its requests will be gated by the same unlock state as the rest of the app.'**
+  /// **'Autofill requests are gated by the same unlock state as the rest of the app.'**
   String get accessUnlockPostureBody;
 
   /// No description provided for @accessUnlocked.
@@ -1748,7 +1748,7 @@ abstract class AppLocalizations {
   /// No description provided for @accessRoadmapBody.
   ///
   /// In en, this message translates to:
-  /// **'Next up: a native Android autofill service that reuses this screen. iOS and desktop autofill come after it.'**
+  /// **'iOS and desktop autofill are still ahead. Android app filling (beyond verified websites) is limited by the platform\'s domain-verification rules.'**
   String get accessRoadmapBody;
 
   /// No description provided for @accessPlatformBiometrics.

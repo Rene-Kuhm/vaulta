@@ -94,7 +94,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('AUTOFILL & ACCESS'), findsOneWidget);
-    expect(find.text('Autofill is on the way'), findsOneWidget);
+    expect(find.text('Autofill is ready'), findsOneWidget);
 
     expect(find.text('Lock vault now'), findsOneWidget);
 
@@ -104,19 +104,19 @@ void main() {
   for (final (locale, comingSoon, statusTitle, forbidden) in [
     (
       const Locale('en'),
-      'Coming soon',
-      'Not available in this version',
+      'Available now',
+      'Autofill service registered',
       ['Pick Vaulta', 'Setup in three steps', 'One-tap autofill'],
     ),
     (
       const Locale('es'),
-      'Próximamente',
-      'No disponible en esta versión',
+      'Disponible ahora',
+      'Servicio de autofill registrado',
       ['Elegí Vaulta', 'Configuracion en tres pasos', 'Autofill en un toque'],
     ),
   ]) {
     testWidgets(
-      'AccessScreen shows an honest coming-soon state (${locale.languageCode})',
+      'AccessScreen shows the registered service state (${locale.languageCode})',
       (tester) async {
         tester.view.physicalSize = const Size(1080, 4000);
         tester.view.devicePixelRatio = 1.0;
@@ -149,8 +149,8 @@ void main() {
           find.byKey(const ValueKey('access-autofill-status')),
           findsOneWidget,
         );
-        // No instructions to pick Vaulta as the system autofill
-        // service: that service does not exist in this build.
+        // No three-step setup walkthrough is rendered on this screen:
+        // picking Vaulta is a user action in Android's own settings.
         for (final text in forbidden) {
           expect(find.text(text), findsNothing, reason: text);
         }
