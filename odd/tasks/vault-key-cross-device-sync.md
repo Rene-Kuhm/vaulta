@@ -49,3 +49,16 @@ L1 (2026-10-23, decisión del usuario): ante la pregunta de cómo distribuir la 
 de vault, eligió «Sincronizar la DEK envuelta» (sync_wrapped_dek): push de la DEK
 envuelta —ya cifrada con la KEK de la master password— como blob de metadata de
 vault, conservando el modelo cripto actual.
+
+L2 (2026-10-23, S5 verificado en dispositivo): device A creó el ítem «SyncTest» y
+pusheó a `vault_blobs` solo ciphertext (key_version 4 + salt) y a `vault_keys` la
+DEK envuelta (key_id `tuW1VCEXSUWm1i-n`). Un segundo dispositivo (mismo usuario,
+simulado con `pm clear` + re-sign-in) adoptó la clave remota: la pantalla pasó de
+onboarding a «Unlock», la master password `masterpass1234` abrió el vault y el ítem
+apareció (Vault entries 1, score 70). Confirmado: el mismo DEK se reconstruye en el
+segundo dispositivo.
+
+L3 (2026-10-23, gap de UX pendiente): tras el pull, el dashboard no se refresca solo:
+un dispositivo recién adoptado muestra «Vault entries 0» hasta un pull-to-refresh o
+un reinicio. El ítem sí está descifrado y guardado; solo falta re-leer la lista. Queda
+como seguimiento menor, no bloquea S5.
