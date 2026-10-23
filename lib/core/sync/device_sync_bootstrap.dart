@@ -1,5 +1,3 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
-
 import '../security/secure_storage_service.dart';
 import 'bidirectional_sync_service.dart';
 import 'device_registration_repository.dart';
@@ -11,6 +9,7 @@ import 'supabase_device_registration_repository.dart';
 import 'supabase_remote_vault_sync_repository.dart';
 import 'sync_conflict_resolver.dart';
 import 'remote_snapshot_applier.dart';
+import 'supabase_client_resolver.dart';
 
 /// Builds a fully-wired [DeviceSyncLifecycle] for the Supabase
 /// backend. Returns `null` when the `SUPABASE_URL` or
@@ -43,21 +42,16 @@ Future<DeviceSyncLifecycle?> buildDeviceSyncLifecycle({
   /// and surface a "device revoked, sign in again" message.
   Future<void> Function(DeviceAccessStatus status)? onCurrentDeviceRevoked,
 }) async {
-  const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
-  const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
-
-  if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
+  final client = await resolveSupabaseClient(
+    url: const String.fromEnvironment('SUPABASE_URL'),
+    anonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
+  );
+  if (client == null) {
     return null;
   }
 
-  await Supabase.initialize(url: supabaseUrl, anonKey: supabaseAnonKey);
-
-  final repository = SupabaseDeviceRegistrationRepository(
-    client: Supabase.instance.client,
-  );
-  final pullRepository = SupabaseRemoteVaultSyncRepository(
-    client: Supabase.instance.client,
-  );
+  final repository = SupabaseDeviceRegistrationRepository(client: client);
+  final pullRepository = SupabaseRemoteVaultSyncRepository(client: client);
   final identityService = LocalDeviceIdentityService(storage: storage);
   final localStore = LocalRemoteVaultStore(storage: storage);
   final service = DeviceRegistrationService(

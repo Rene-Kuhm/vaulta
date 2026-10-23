@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/sync/device_registration_service.dart';
+import '../../../core/sync/supabase_client_resolver.dart';
 import 'sync_sign_in_form.dart';
 
 /// Whether this build was compiled with the sync backend configured.
@@ -13,9 +16,6 @@ const String supabaseUrl = String.fromEnvironment('SUPABASE_URL');
 
 /// The public anon key this build was compiled with, or an empty string.
 const String supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
-
-/// True when both values are present, so a sign-in can even be attempted.
-bool get syncConfigured => supabaseUrl.isNotEmpty && supabaseAnonKey.isNotEmpty;
 
 /// Gates [child] behind a Supabase sign-in, but only when sync is configured.
 ///
@@ -75,18 +75,29 @@ class _SyncSignInGateState extends State<SyncSignInGate> {
       _ready = true;
       return;
     }
-    if (!syncConfigured) {
-      _ready = true;
-      return;
-    }
+    unawaited(_initializeAndResolve());
+  }
+
+  Future<void> _initializeAndResolve() async {
     try {
-      _client = Supabase.instance.client;
+      final resolved = await resolveSupabaseClient(
+        url: supabaseUrl,
+        anonKey: supabaseAnonKey,
+      );
+      if (!mounted) return;
+      setState(() {
+        _client = resolved;
+        _ready = true;
+      });
     } on Object {
-      // Configured but not initialised (the server was unreachable when the
-      // lifecycle was built). Local access must keep working.
-      _client = null;
+      // The server was unreachable during initialisation. Local access must
+      // keep working, so the gate degrades to pass-through.
+      if (!mounted) return;
+      setState(() {
+        _client = null;
+        _ready = true;
+      });
     }
-    _ready = true;
   }
 
   @override
