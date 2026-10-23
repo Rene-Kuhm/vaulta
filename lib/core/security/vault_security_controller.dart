@@ -1476,6 +1476,39 @@ class VaultSecurityController extends ChangeNotifier {
     return MasterPasswordRecord.decode(raw);
   }
 
+  /// Returns the persisted master-password record as its serialized JSON,
+  /// or `null` when this device has not created or adopted a vault.
+  ///
+  /// This is what the vault-key sync pushes to the backend: the wrapped DEK
+  /// plus the KDF parameters, verifier and key id. None of it reveals the
+  /// master password or the DEK.
+  Future<String?> readRecordJson() async {
+    final raw = await _storage.read(masterPasswordRecordKey);
+    return (raw == null || raw.isEmpty) ? null : raw;
+  }
+
+  /// Adopts a remote vault key as the local master-password record.
+  ///
+  /// Used when a signed-in device has no local vault but the backend already
+  /// has one: the remote `record_json` is persisted and the stage moves from
+  /// onboarding to locked, so the user unlocks their existing vault with the
+  /// same master password instead of creating a new one. Returns false when
+  /// [recordJson] does not decode as a [MasterPasswordRecord]; the local
+  /// record is left untouched in that case.
+  Future<bool> adoptRemoteVaultRecord(String recordJson) async {
+    try {
+      final record = MasterPasswordRecord.decode(recordJson);
+      await _storage.save(masterPasswordRecordKey, record.encode());
+      if (_stage == VaultSecurityStage.onboarding) {
+        _stage = VaultSecurityStage.locked;
+        notifyListeners();
+      }
+      return true;
+    } on Object {
+      return false;
+    }
+  }
+
   Future<bool> _runBusy(Future<bool> Function() action) async {
     _setBusy(true);
     try {

@@ -161,6 +161,10 @@ Future<void> runPasswordManagerApp() async {
     onCurrentDeviceRevoked: (DeviceAccessStatus status) {
       return securityController.lock(reason: status.userFacingReason());
     },
+    readLocalVaultKeyRecord: securityController.readRecordJson,
+    adoptRemoteVaultKeyRecord: (recordJson) async {
+      await securityController.adoptRemoteVaultRecord(recordJson);
+    },
   );
 
   runApp(

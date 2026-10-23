@@ -58,6 +58,16 @@ class _SecurityGateState extends State<SecurityGate>
     widget.controller.addListener(_handleSecurityStageChange);
     WidgetsBinding.instance.addObserver(this);
     unawaited(_refreshBiometricUnlockAvailability());
+
+    // A signed-in device with no local vault may already have one on the
+    // backend (second device): adopt the remote wrapped DEK so the gate shows
+    // the unlock screen instead of creating a brand new vault. Fire-and-forget;
+    // the controller's stage change re-renders this gate when it lands.
+    final lifecycle = widget.deviceSyncLifecycle;
+    if (lifecycle != null &&
+        _lastStage == VaultSecurityStage.onboarding) {
+      _runLifecycleAction(lifecycle.syncVaultKey());
+    }
   }
 
   @override

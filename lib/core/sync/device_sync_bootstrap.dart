@@ -10,6 +10,8 @@ import 'supabase_remote_vault_sync_repository.dart';
 import 'sync_conflict_resolver.dart';
 import 'remote_snapshot_applier.dart';
 import 'supabase_client_resolver.dart';
+import 'supabase_vault_key_sync_repository.dart';
+import 'vault_key_sync_service.dart';
 
 /// Builds a fully-wired [DeviceSyncLifecycle] for the Supabase
 /// backend. Returns `null` when the `SUPABASE_URL` or
@@ -41,6 +43,17 @@ Future<DeviceSyncLifecycle?> buildDeviceSyncLifecycle({
   /// revoked. The controller typically uses this to lock the vault
   /// and surface a "device revoked, sign in again" message.
   Future<void> Function(DeviceAccessStatus status)? onCurrentDeviceRevoked,
+
+  /// Reads the locally persisted master-password record JSON (the wrapped
+  /// DEK + KDF + verifier), or `null` when this device has no vault. Used
+  /// by the vault-key sync to push the key after a fresh vault or a rekey.
+  Future<String?> Function()? readLocalVaultKeyRecord,
+
+  /// Persists a remote vault-key record JSON as the local master-password
+  /// record. Used by the vault-key sync to adopt an existing vault on a
+  /// second device. When either of the two vault-key callbacks is missing,
+  /// vault-key sync is disabled (degrading to the pre-sync behaviour).
+  Future<void> Function(String recordJson)? adoptRemoteVaultKeyRecord,
 }) async {
   final client = await resolveSupabaseClient(
     url: const String.fromEnvironment('SUPABASE_URL'),
@@ -84,6 +97,16 @@ Future<DeviceSyncLifecycle?> buildDeviceSyncLifecycle({
   );
   mutationSink?.attach(syncService);
 
+  final readLocalVaultKey = readLocalVaultKeyRecord;
+  final adoptRemoteVaultKey = adoptRemoteVaultKeyRecord;
+  final vaultKeySync = readLocalVaultKey != null && adoptRemoteVaultKey != null
+      ? VaultKeySyncService(
+          repository: SupabaseVaultKeySyncRepository(client: client),
+          readLocalRecordJson: readLocalVaultKey,
+          adoptRemoteRecord: adoptRemoteVaultKey,
+        )
+      : null;
+
   return DeviceSyncLifecycle(
     service: service,
     revocationService: revocationService,
@@ -91,5 +114,6 @@ Future<DeviceSyncLifecycle?> buildDeviceSyncLifecycle({
     conflictResolver: conflictResolver,
     mutationSink: mutationSink,
     onCurrentDeviceRevoked: onCurrentDeviceRevoked,
+    vaultKeySync: vaultKeySync,
   );
 }
