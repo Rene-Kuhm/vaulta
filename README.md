@@ -24,7 +24,7 @@ Vaulta es una aplicacion desarrollada por [TecnoDespegue](https://www.tecnodespe
 
 Vaulta nace como una solucion de seguridad personal construida con el enfoque de TecnoDespegue: codigo real, arquitectura limpia, automatizacion confiable y decisiones tecnicas transparentes.
 
-El objetivo es ofrecer un vault local para guardar, buscar y gestionar credenciales sin depender de una conexion permanente, manteniendo una base preparada para evolucionar hacia sincronizacion segura, auditorias de seguridad y distribucion publica.
+El objetivo es ofrecer un vault local para guardar, buscar y gestionar credenciales sin depender de una conexion permanente, sobre una base de sincronizacion entre dispositivos ya implementada pero apagada en los builds publicados, y abierta a auditorias de seguridad y distribucion publica.
 
 ## Funcionalidades principales
 
@@ -34,6 +34,7 @@ El objetivo es ofrecer un vault local para guardar, buscar y gestionar credencia
 - DEK aleatoria por vault y envelope protegido.
 - Desbloqueo con master password en todas las plataformas.
 - Desbloqueo biometrico real en Android: una clave RSA-2048 del Android KeyStore, atada a biometria fuerte, protege el envelope de la DEK y solo se libera tras un `BiometricPrompt` con `CryptoObject`.
+- Autofill nativo de Android: el servicio del sistema (`android/app/src/main/kotlin/com/insyd/gestor_contrasenas/autofill/VaultaAutofillService.kt`) responde a las solicitudes de llenado a traves del bridge al motor unico de la app (`VaultaAutofillBridge.kt`) y de una actividad de desbloqueo propia (`AutofillUnlockActivity.kt`), con la configuracion del servicio en `android/app/src/main/res/xml/autofill_service.xml` y el lado Dart en `lib/features/autofill/`. Llena inicios de sesion del navegador y de apps con sitio web verificado en Android 12 o superior, y cuando no hay coincidencia ofrece una busqueda dentro de Vaulta en vez de adivinar (ver [ADR-008](docs/architecture/ADR-008-autofill.md)).
 - CRUD de credenciales con busqueda interna.
 - Importacion local desde CSV y JSON con vista previa antes de guardar.
 - Importacion desde bases KeePass (`.kdbx` 3.1 y 4.x), con master password y key file opcionales.
@@ -84,7 +85,7 @@ Vaulta esta en etapa MVP release-ready para Android y Windows desktop. La app ya
 
 Plataformas soportadas:
 
-- **Android**: experiencia completa, incluye desbloqueo biometrico y canal de actualizaciones dentro de la app. La pestana "Acceso" explica como configurar el autofill del sistema, pero el servicio de autofill todavia no esta implementado (ver [Hoja de ruta](#hoja-de-ruta--roadmap)).
+- **Android**: experiencia completa, incluye autofill del sistema, desbloqueo biometrico y canal de actualizaciones dentro de la app. El autofill esta implementado: el servicio, el bridge, la actividad de desbloqueo y el lado Dart existen y responden a las solicitudes de Android (ver la lista de funcionalidades y [ADR-008](docs/architecture/ADR-008-autofill.md)). La pestana "Acceso" (`lib/features/access/presentation/access_screen.dart`) muestra el estado del servicio en el dispositivo, la postura de desbloqueo que condiciona cada llenado y donde se elige Vaulta como servicio de autofill en los ajustes de Android; no cambia ajustes del sistema por su cuenta. Fuera de Android no hay autofill: no hay Credential Provider de iOS, ni llenado en el build de Windows, ni extension de navegador, ni passkeys.
 - **Windows desktop**: build nativo x64 (`vaulta.exe`) que reutiliza el mismo vault cifrado, persistencia local segura (Windows Credential Manager) y todas las funciones de gestion de credenciales. El desbloqueo es solo con master password: `local_auth` puede detectar Windows Hello, pero el desbloqueo biometrico del vault no esta conectado fuera de Android.
 
 El desbloqueo biometrico esta implementado solo para Android. En Windows, iOS, macOS, Linux y web se usa la master password hasta implementar bindings equivalentes por plataforma.
@@ -95,8 +96,8 @@ El desbloqueo biometrico esta implementado solo para Android. En Windows, iOS, m
 
 Lo siguiente **todavia no esta disponible** en ninguna version publicada:
 
-- Autofill nativo de Android (no hay `AutofillService` declarado en la app).
-- Sincronizacion con cuenta entre dispositivos (la base tecnica existe, ver [Seguridad](#seguridad)).
+- Autofill fuera de Android: no hay Credential Provider de iOS, ni autofill en el build de Windows, ni extension de navegador, ni passkeys.
+- Sincronizacion con cuenta entre dispositivos en los builds publicados: la base ya existe y funciona (la DEK envuelta viaja en la tabla `vault_keys` con `rpc_vault_get_key` / `rpc_vault_put_key`, ver [Seguridad](#seguridad)), pero esta apagada porque el pipeline de CI no define `SUPABASE_URL` ni `SUPABASE_ANON_KEY`.
 - Firma de codigo para el binario de Windows.
 - Auditoria criptografica externa.
 
@@ -126,14 +127,20 @@ lib/
     theme/           Tokens, colores y tema Material
   core/
     security/        Master password, cifrado, biometria y storage seguro
+    storage/         Persistencia del vault en SQLite y migracion desde el blob cifrado
     sync/            Contratos y servicios de sincronizacion opcional
     update/          Verificacion de actualizaciones
   features/
+    access/          Pestana "Acceso": estado del autofill y postura de desbloqueo
+    autofill/        Lado Dart del autofill: canal con el servicio nativo y armado de candidatos
+    backup/          Backup cifrado `.vaulta`
+    health/          Reporte de salud del vault
     home/            Shell principal y navegacion
     security/        Gate de bloqueo y desbloqueo
     vault/           Dashboard, busqueda, detalle y editor de credenciales
     settings/        Configuracion, biometria, sync y actualizaciones
-    access/          Pantalla informativa de acceso y autofill (sin servicio de autofill todavia)
+    sync/            Formularios de la sync opcional con Supabase
+    totp/            Codigos TOTP (RFC 6238)
 ```
 
 ## Seguridad
@@ -152,6 +159,8 @@ Vaulta implementa una postura de seguridad local basada en:
 - Manejo explicito de estados de error y sesiones revocadas.
 
 La sincronizacion remota con Supabase existe como base tecnica experimental y esta apagada en los builds publicados: solo se activa si el build define `SUPABASE_URL` y `SUPABASE_ANON_KEY` con `--dart-define`, y el pipeline de CI no los define.
+
+Esa base incluye la parte que hace falta para que el mismo vault se abra en dos dispositivos: la DEK envuelta se guarda como metadata en la tabla `vault_keys`, con RLS por dueno y las RPC `rpc_vault_get_key` / `rpc_vault_put_key` ([migracion](supabase/migrations/20261023140000_add_vault_key_sync.sql), cliente en `lib/core/sync/supabase_vault_key_sync_repository.dart`), de modo que un segundo dispositivo con la misma master password reconstruye la misma DEK. Quedo verificado entre dos emuladores el 2026-10-23 ([odd/tasks/vault-key-cross-device-sync.md](odd/tasks/vault-key-cross-device-sync.md)). En los builds publicados sigue apagada porque el pipeline no define las claves de Supabase.
 
 ## Instalacion Android
 
@@ -242,6 +251,7 @@ Ningun workflow compila ni firma el build de Windows. El bundle de Windows se su
 ## Documentacion relacionada
 
 - [Estado del hardening de seguridad](docs/security/hardening-status.md)
+- [ADR-008: autofill en Android](docs/architecture/ADR-008-autofill.md)
 - [Modelo de amenaza](docs/architecture/THREAT_MODEL.md)
 - [Contrato criptografico](docs/architecture/CRYPTO.md)
 - [Firma y release Android](docs/android-release-signing.md)
