@@ -17,6 +17,7 @@ import 'package:gestor_contrasenas/core/security/platform_security_plan.dart';
 import 'package:gestor_contrasenas/core/security/secure_storage_service.dart';
 import 'package:gestor_contrasenas/core/security/unlock_attempt_limiter.dart';
 import 'package:gestor_contrasenas/core/security/vault_security_controller.dart';
+import 'package:gestor_contrasenas/core/security/vault_security_message.dart';
 import 'package:gestor_contrasenas/core/security/vault_session.dart';
 
 void main() {
@@ -112,7 +113,10 @@ void main() {
       expect(unlocked, isFalse);
       expect(controller.stage, VaultSecurityStage.locked);
       expect(controller.vaultSession, isNull);
-      expect(controller.message, contains('cifrado'));
+      expect(
+        controller.message?.code,
+        VaultSecurityMessageCode.itemsMigrationFailed,
+      );
 
       failMigration = false;
       expect(await controller.unlockWithPassword('StrongPass!2026'), isTrue);
@@ -141,7 +145,10 @@ void main() {
         expect(unlocked, isFalse);
         expect(controller.stage, VaultSecurityStage.locked);
         expect(controller.vaultSession, isNull);
-        expect(controller.message, contains('biometr'));
+        expect(
+          controller.message?.code,
+          VaultSecurityMessageCode.biometricUnlockNotWired,
+        );
       },
     );
 
@@ -201,7 +208,11 @@ void main() {
 
       expect(created, isFalse);
       expect(controller.stage, VaultSecurityStage.onboarding);
-      expect(controller.message, contains('12'));
+      expect(
+        controller.message?.code,
+        VaultSecurityMessageCode.masterPasswordTooShort,
+      );
+      expect(controller.message?.detail, '12');
     });
 
     test('locks on lifecycle background states when enabled', () async {
@@ -225,8 +236,8 @@ void main() {
 
       expect(controller.stage, VaultSecurityStage.locked);
       expect(
-        controller.message,
-        contains('bloqueada automaticamente al salir de primer plano'),
+        controller.message?.code,
+        VaultSecurityMessageCode.vaultLockedOnBackground,
       );
     });
 
@@ -279,7 +290,10 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 600));
 
       expect(controller.stage, VaultSecurityStage.locked);
-      expect(controller.message, contains('inactividad'));
+      expect(
+        controller.message?.code,
+        VaultSecurityMessageCode.vaultLockedOnIdle,
+      );
     });
 
     test('does not lock on idle when idle auto-lock is disabled', () async {
@@ -378,7 +392,10 @@ void main() {
 
       expect(changed, isFalse);
       expect(rekeyCalls, 0);
-      expect(controller.message, contains('actual no coincide'));
+      expect(
+        controller.message?.code,
+        VaultSecurityMessageCode.currentPasswordMismatch,
+      );
     });
 
     // The three failure branches below share [_rekeyThenPersistRecord]
@@ -438,7 +455,10 @@ void main() {
         expect(changed, isFalse);
         expect(controller.isUnlocked, isTrue);
         expect(controller.vaultSession!.keyId, keyIdBefore);
-        expect(controller.message, contains('Se mantuvo tu clave actual'));
+        expect(
+          controller.message?.code,
+          VaultSecurityMessageCode.rekeyFailed,
+        );
         // Nothing was persisted, so the old password still opens it.
         expect(await controller.unlockWithPassword(current), isTrue);
       });
@@ -466,7 +486,10 @@ void main() {
         expect(changed, isFalse);
         expect(controller.isUnlocked, isTrue);
         expect(controller.vaultSession!.keyId, keyIdBefore);
-        expect(controller.message, contains('Se mantuvo tu clave actual'));
+        expect(
+          controller.message?.code,
+          VaultSecurityMessageCode.recordSaveFailed,
+        );
         expect(rekeyed, hasLength(2));
         expect(rekeyed.last, keyIdBefore, reason: 'the undo targets the old key');
         store.failRecordSaves = false;
@@ -502,7 +525,10 @@ void main() {
         expect(changed, isFalse);
         expect(controller.stage, VaultSecurityStage.locked);
         expect(controller.vaultSession, isNull);
-        expect(controller.message, contains('bloqueada por seguridad'));
+        expect(
+          controller.message?.code,
+          VaultSecurityMessageCode.rekeyRollbackFailed,
+        );
       });
     });
 
@@ -532,8 +558,152 @@ void main() {
 
       expect(rekeyCalls, 0, reason: 'a v3 record has nothing to migrate');
       expect(controller.vaultSession!.keyId, keyId);
-      expect(controller.message, 'Vaulta desbloqueada.');
+      expect(
+        controller.message?.code,
+        VaultSecurityMessageCode.vaultUnlocked,
+      );
       expect(controller.messageIsError, isFalse);
+    });
+  });
+
+
+  group('VaultSecurityController cannot-open-vault reporting', () {
+    const password = 'StrongPass!2026';
+
+    /// Creates a vault and leaves the controller locked, returning the stored
+    /// record so a test can damage one field of it.
+    Future<(VaultSecurityController, _InMemorySecureStorageService)>
+    buildLockedVault() async {
+      final storage = _InMemorySecureStorageService();
+      final controller = VaultSecurityController(
+        storage: storage,
+        masterPasswordService: MasterPasswordService.test(),
+        biometricAuthService: const _FakeBiometricAuthService(),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.initialize();
+      await controller.createMasterPassword(
+        password: password,
+        confirmation: password,
+        enableBiometrics: false,
+      );
+      await controller.lock();
+      return (controller, storage);
+    }
+
+    Future<MasterPasswordRecord> storedRecord(
+      _InMemorySecureStorageService storage,
+    ) async {
+      final raw = await storage.read(
+        VaultSecurityController.masterPasswordRecordKey,
+      );
+      return MasterPasswordRecord.decode(raw!);
+    }
+
+    /// Rewrites the stored record, keeping the verifier intact so the
+    /// password check still passes and only the DEK wrap is damaged.
+    Future<void> damageStoredRecord(
+      _InMemorySecureStorageService storage,
+      Map<String, dynamic> Function(Map<String, dynamic> wrap) damage,
+    ) async {
+      final record = await storedRecord(storage);
+      final damaged = MasterPasswordRecord(
+        version: record.version,
+        verifierIterations: record.verifierIterations,
+        verifierSalt: record.verifierSalt,
+        verifier: record.verifier,
+        encryptionIterations: record.encryptionIterations,
+        encryptionSalt: record.encryptionSalt,
+        keyId: record.keyId,
+        createdAt: record.createdAt,
+        kdf: record.kdf,
+        dekWrap: damage(Map<String, dynamic>.from(record.dekWrap!)),
+        pwNorm: record.pwNorm,
+      );
+      await storage.save(
+        VaultSecurityController.masterPasswordRecordKey,
+        damaged.encode(),
+      );
+    }
+
+    test(
+      'a corrupt wrapped DEK reports a typed error instead of throwing',
+      () async {
+        final (controller, storage) = await buildLockedVault();
+        // The tag is the AEAD authenticator: replacing it makes the unwrap
+        // fail the way a tampered or truncated record does on a real device.
+        await damageStoredRecord(
+          storage,
+          (wrap) => {...wrap, 'tag_b64': base64Encode(List<int>.filled(16, 7))},
+        );
+
+        // The whole point: the old code threw out of unlockWithPassword here,
+        // so the widget layer rendered a raw crypto exception.
+        final unlocked = await controller.unlockWithPassword(password);
+
+        expect(unlocked, isFalse);
+        expect(controller.stage, VaultSecurityStage.locked);
+        expect(controller.vaultSession, isNull);
+        expect(
+          controller.message?.code,
+          VaultSecurityMessageCode.vaultCannotBeOpened,
+        );
+        expect(controller.messageIsError, isTrue);
+      },
+    );
+
+    test(
+      'a record with no wrapped DEK at all reports the same typed error',
+      () async {
+        final (controller, storage) = await buildLockedVault();
+        final record = await storedRecord(storage);
+        final stripped = MasterPasswordRecord(
+          version: record.version,
+          verifierIterations: record.verifierIterations,
+          verifierSalt: record.verifierSalt,
+          verifier: record.verifier,
+          encryptionIterations: record.encryptionIterations,
+          encryptionSalt: record.encryptionSalt,
+          keyId: record.keyId,
+          createdAt: record.createdAt,
+          kdf: record.kdf,
+          pwNorm: record.pwNorm,
+        );
+        await storage.save(
+          VaultSecurityController.masterPasswordRecordKey,
+          stripped.encode(),
+        );
+
+        final unlocked = await controller.unlockWithPassword(password);
+
+        expect(unlocked, isFalse);
+        expect(controller.stage, VaultSecurityStage.locked);
+        expect(
+          controller.message?.code,
+          VaultSecurityMessageCode.vaultCannotBeOpened,
+        );
+      },
+    );
+
+    test('a damaged record still refuses a wrong password as a mismatch',
+        () async {
+      // The corruption must not turn every attempt into "cannot be opened":
+      // a wrong password has to keep being reported as a wrong password, or
+      // the throttled path would stop distinguishing them.
+      final (controller, storage) = await buildLockedVault();
+      await damageStoredRecord(
+        storage,
+        (wrap) => {...wrap, 'tag_b64': base64Encode(List<int>.filled(16, 7))},
+      );
+
+      final unlocked = await controller.unlockWithPassword('WrongPass!2026');
+
+      expect(unlocked, isFalse);
+      expect(
+        controller.message?.code,
+        VaultSecurityMessageCode.passwordMismatch,
+      );
     });
   });
 
@@ -935,7 +1105,10 @@ void main() {
       expect(vault.controller.vaultSession!.keyId, 'legacy-v2-key');
       // The unlock succeeded on the legacy scheme, so the message must
       // not render in the error tone even though a rewrite was skipped.
-      expect(vault.controller.message, contains('reintentara'));
+      expect(
+        vault.controller.message?.code,
+        VaultSecurityMessageCode.vaultUnlockedMigrationDeferred,
+      );
       expect(vault.controller.messageIsError, isFalse);
     });
 

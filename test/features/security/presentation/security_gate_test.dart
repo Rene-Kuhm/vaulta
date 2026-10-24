@@ -7,6 +7,7 @@ import 'package:gestor_contrasenas/core/security/master_password_service.dart';
 import 'package:gestor_contrasenas/core/security/secure_storage_service.dart';
 import 'package:gestor_contrasenas/core/security/unlock_attempt_limiter.dart';
 import 'package:gestor_contrasenas/core/security/vault_security_controller.dart';
+import 'package:gestor_contrasenas/core/security/vault_security_message.dart';
 import 'package:gestor_contrasenas/core/sync/device_registration_repository.dart';
 import 'package:gestor_contrasenas/core/sync/device_registration_service.dart';
 import 'package:gestor_contrasenas/core/sync/device_session_revocation_service.dart';
@@ -204,6 +205,83 @@ void main() {
 
     expect(find.text('Unlock vault'), findsOneWidget);
     expect(find.text('Unlocked vault'), findsNothing);
+  });
+
+
+  testWidgets('shows the unlock failure in the language the app is set to', (
+    tester,
+  ) async {
+    // The controller used to carry the copy, hardcoded in Spanish, so an
+    // English device read Spanish on the most sensitive screen of the app.
+    final controller = VaultSecurityController(
+      storage: _InMemorySecureStorageService(),
+      masterPasswordService: MasterPasswordService.test(),
+      biometricAuthService: const _FakeBiometricAuthService(),
+    );
+    addTearDown(() async {
+      controller.dispose();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    });
+
+    await controller.initialize();
+    await controller.createMasterPassword(
+      password: 'StrongPass!2026',
+      confirmation: 'StrongPass!2026',
+      enableBiometrics: false,
+    );
+    await controller.lock();
+
+    Future<void> pumpGate(Locale locale) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: locale,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: SecurityGate(
+            controller: controller,
+            child: const Scaffold(body: Center(child: Text('Unlocked vault'))),
+          ),
+        ),
+      );
+      await _pumpUi(tester);
+    }
+
+    Future<void> submitWrongPassword() async {
+      // The keyboard "go" action is the same submit path as the button and
+      // does not depend on the button's position in the viewport.
+      await tester.enterText(find.byType(TextField).first, 'WrongPass!2026');
+      await tester.testTextInput.receiveAction(TextInputAction.go);
+      // The KDF runs on real async work; let it finish outside the fake
+      // clock before reading the banner.
+      for (var i = 0; i < 50; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+        if (controller.message?.code ==
+            VaultSecurityMessageCode.passwordMismatch) {
+          break;
+        }
+      }
+      await _pumpUi(tester);
+    }
+
+    await pumpGate(const Locale('en'));
+    await submitWrongPassword();
+
+    expect(controller.isUnlocked, isFalse);
+    expect(find.text('The master password does not match.'), findsOneWidget);
+    expect(find.text('La master password no coincide.'), findsNothing);
+
+    // Same failure, Spanish device: the same code reads in Spanish.
+    await pumpGate(const Locale('es'));
+    await submitWrongPassword();
+
+    expect(find.text('La master password no coincide.'), findsOneWidget);
+
+    // Drop the idle auto-lock timer so the test leaves no timers behind.
+    await controller.lock(reason: 'test cleanup');
   });
 
   testWidgets('shows lockout countdown and disables unlock after failures', (

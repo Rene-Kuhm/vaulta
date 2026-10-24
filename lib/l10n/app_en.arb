@@ -508,5 +508,101 @@
   "syncSignInAction": "Sign in",
   "syncSignInInvalid": "Wrong email or password.",
   "syncSignInOffline": "Could not reach the server. Check your connection.",
-  "syncSignInRequired": "Sign in to sync this vault."
+  "syncSignInRequired": "Sign in to sync this vault.",
+  "securityMessageStateUnreadable": "Vaulta could not read the secure state of this device. Restart the setup.",
+  "securityMessagePasswordConfirmationMismatch": "The confirmation does not match the master password.",
+  "securityMessageNewPasswordConfirmationMismatch": "The confirmation does not match the new master password.",
+  "securityMessageNewPasswordMustDifferFromCurrent": "The new master password must be different from the current one.",
+  "securityMessageMasterPasswordTooShort": "Use at least {minimum} characters.",
+  "@securityMessageMasterPasswordTooShort": {
+    "description": "Lower bound of the password policy, as a number.",
+    "placeholders": {
+      "minimum": {
+        "type": "String"
+      }
+    }
+  },
+  "securityMessageMasterPasswordTooLong": "Use at most {maximum} characters.",
+  "@securityMessageMasterPasswordTooLong": {
+    "description": "Upper bound of the password policy, as a number.",
+    "placeholders": {
+      "maximum": {
+        "type": "String"
+      }
+    }
+  },
+  "securityMessageMasterPasswordBreached": "That password appears in breached-password lists. Pick another one.",
+  "securityMessageBiometricNotAvailableOnDevice": "Biometric unlock is not available on this device.",
+  "securityMessageBiometricNotEnrolled": "No biometrics are enrolled on this device. Set up the fingerprint or face unlock in the system settings and try again.",
+  "securityMessageNoMasterPasswordConfigured": "No master password has been set up yet.",
+  "securityMessagePasswordMismatch": "The master password does not match.",
+  "securityMessageCurrentPasswordMismatch": "The current master password does not match.",
+  "securityMessageBiometricUnlockNotWired": "Biometric unlock is not connected on this device.",
+  "securityMessageBiometricIdentityRejected": "We could not verify your identity. Enter the master password.",
+  "securityMessageBiometricKeyRejected": "The platform rejected the biometric key ({reason}). Re-enroll biometrics or use the master password.",
+  "@securityMessageBiometricKeyRejected": {
+    "description": "Diagnostic token reported by the platform key provider.",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "securityMessageBiometricKeyInconsistent": "The platform returned an inconsistent key. Enter the master password and re-enroll biometrics.",
+  "securityMessageBiometricSessionRecoveryFailed": "We could not recover your session with biometrics. Re-enroll biometrics or use the master password.",
+  "securityMessageVaultCannotBeOpened": "This vault cannot be opened: the stored key is damaged. Restore a backup or import the vault again.",
+  "securityMessageMasterPasswordNeedsMigration": "Your master password uses an older format. Unlock once with it so Vaulta can re-encrypt the vault, then try again.",
+  "securityMessageBiometricEnrollmentFailed": "We could not prepare the fingerprint on this device. Retry or use the master password. [{reason}]",
+  "@securityMessageBiometricEnrollmentFailed": {
+    "description": "Diagnostic token reported by the platform key provider.",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "securityMessageUnlockBeforeChangingMasterPassword": "Unlock Vaulta before changing the master password.",
+  "securityMessageSessionNotInMemory": "There is no valid vault session in memory. Unlock again.",
+  "securityMessageSessionRecordKeyMismatch": "The active session does not match the current master key. Unlock again before retrying.",
+  "securityMessageRekeyFailed": "We could not re-encrypt the vault. Your current key was kept to avoid inconsistencies.",
+  "securityMessageRecordSaveFailed": "We could not save the new master password. Your current key was kept to avoid inconsistencies.",
+  "securityMessageRekeyRollbackFailed": "Saving the new master password failed and we could not confirm a complete rollback. Vaulta stays locked for safety.",
+  "securityMessageRecordMigrationRollbackFailed": "We could not upgrade the vault encryption and the rollback did not complete either. Vaulta stays locked for safety.",
+  "securityMessageItemsMigrationFailed": "We could not upgrade the vault encryption. Your data is intact; unlock again to retry.",
+  "securityMessageMasterPasswordCreated": "Master password created. Your local session is protected by the system.",
+  "securityMessageMasterPasswordChanged": "Master password updated and the vault re-encrypted with a new key.",
+  "securityMessageVaultUnlocked": "Vaulta unlocked.",
+  "securityMessageVaultUnlockedAndMigrated": "Vaulta unlocked and migrated to v3 encryption.",
+  "securityMessageVaultUnlockedMigrationDeferred": "Vaulta unlocked. The encryption upgrade will be retried on the next unlock.",
+  "securityMessageVaultUnlockedWithBiometrics": "Vaulta unlocked with biometrics.",
+  "securityMessageBiometricNeedsPasswordFirst": "Tap \"Enable biometric unlock\" below to prepare your fingerprint. The master password is never stored or sent to any server.",
+  "securityMessageBiometricEnabled": "Biometrics enabled. Next time you can unlock Vaulta with your biometrics.",
+  "securityMessageBiometricDisabled": "Biometrics disabled. Only the master password is left.",
+  "securityMessageBiometricEnrollmentReady": "Done. Next time you can unlock Vaulta with your fingerprint.",
+  "securityMessageVaultLocked": "Vaulta locked.",
+  "securityMessageVaultLockedWithReason": "Vaulta locked. {reason}",
+  "@securityMessageVaultLockedWithReason": {
+    "description": "Pre-formatted explanation supplied by the caller that locked the vault.",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "securityMessageVaultLockedOnBackground": "Vaulta locked automatically when the app left the foreground.",
+  "securityMessageVaultLockedOnIdle": "Vaulta locked automatically after the idle timeout.",
+  "securityMessageVaultLockedSessionRevoked": "This device's session was revoked. Vaulta locked for safety.",
+  "securityMessageVaultLockedAllSessionsRevoked": "Your account access was revoked for all sessions. Vaulta locked for safety.",
+  "securityMessageAutoLockBackgroundEnabled": "Auto-lock on background enabled.",
+  "securityMessageAutoLockBackgroundDisabled": "Auto-lock on background disabled.",
+  "securityMessageIdleTimeoutEnabled": "Idle auto-lock enabled ({duration}).",
+  "@securityMessageIdleTimeoutEnabled": {
+    "description": "The configured idle timeout, formatted as a number plus a unit.",
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "securityMessageIdleTimeoutDisabled": "Idle auto-lock disabled."
 }

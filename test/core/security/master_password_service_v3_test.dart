@@ -150,6 +150,70 @@ void main() {
       );
       expect(await again.extractBytes(), bytes);
     });
+
+    test('a record with no wrapped DEK fails with the typed error', () async {
+      final record = await service.createRecord(password);
+      final stripped = MasterPasswordRecord(
+        version: record.version,
+        verifierIterations: record.verifierIterations,
+        verifierSalt: record.verifierSalt,
+        verifier: record.verifier,
+        encryptionIterations: record.encryptionIterations,
+        encryptionSalt: record.encryptionSalt,
+        keyId: record.keyId,
+        createdAt: record.createdAt,
+        kdf: record.kdf,
+        pwNorm: record.pwNorm,
+      );
+
+      // The password still verifies: only the wrap is gone.
+      expect(await service.verify(record: stripped, password: password),
+          isTrue);
+      await expectLater(
+        service.deriveVaultKey(record: stripped, password: password),
+        throwsA(
+          isA<VaultKeyUnavailableException>().having(
+            (error) => error.reason,
+            'reason',
+            'missing_dek_wrap',
+          ),
+        ),
+      );
+    });
+
+    test('a corrupt wrapped DEK fails with the typed error', () async {
+      final record = await service.createRecord(password);
+      final damagedWrap = {
+        ...record.dekWrap!,
+        'tag_b64': base64Encode(List<int>.filled(16, 7)),
+      };
+      final damaged = MasterPasswordRecord(
+        version: record.version,
+        verifierIterations: record.verifierIterations,
+        verifierSalt: record.verifierSalt,
+        verifier: record.verifier,
+        encryptionIterations: record.encryptionIterations,
+        encryptionSalt: record.encryptionSalt,
+        keyId: record.keyId,
+        createdAt: record.createdAt,
+        kdf: record.kdf,
+        dekWrap: damagedWrap,
+        pwNorm: record.pwNorm,
+      );
+
+      // The old code let SecretBoxAuthenticationError out of here, which
+      // reached the widget layer as a raw crypto string.
+      await expectLater(
+        service.deriveVaultKey(record: damaged, password: password),
+        throwsA(
+          isA<VaultKeyUnavailableException>().having(
+            (error) => error.reason,
+            'reason',
+            contains('SecretBoxAuthenticationError'),
+          ),
+        ),
+      );
+    });
   });
 
   group('NFC normalization', () {
