@@ -11,6 +11,7 @@ import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../core/security/vault_repository.dart';
 import '../../../core/sync/sync_conflict_resolver.dart';
+import '../../../core/sync/vault_change_signal.dart';
 import '../../health/presentation/vault_health_copy.dart';
 import '../../health/presentation/vault_health_report_screen.dart';
 import '../../sync/presentation/sync_conflicts_sheet.dart';
@@ -21,6 +22,9 @@ import '../domain/vault_summary.dart';
 import 'vault_entry_detail_screen.dart';
 import 'vault_entry_editor_screen.dart';
 import 'vault_import_screen.dart';
+
+/// Everything the dashboard renders, loaded in one repository round trip.
+typedef _DashboardData = ({VaultSummary summary, List<VaultItem> items});
 
 /// Top-level "Vault" tab: shows the [VaultSummary] hero, the metric
 /// grid, quick actions, and the searchable/filterable entry list.
@@ -44,6 +48,7 @@ class VaultDashboardScreen extends StatefulWidget {
     required this.repository,
     this.conflictResolver,
     this.securityController,
+    this.vaultChanges,
   });
 
   /// Vault repository used to load the summary, entries, and
@@ -58,12 +63,28 @@ class VaultDashboardScreen extends StatefulWidget {
   /// flow (import, biometric prompt) is in progress.
   final VaultSecurityController? securityController;
 
+  /// Optional signal the sync layer publishes when it changed the vault
+  /// without the user acting here (a pull applied remote snapshots, or a
+  /// remote vault-key was adopted). The dashboard re-reads the repository on
+  /// every event, which is what makes a pulled entry appear without a
+  /// pull-to-refresh or a restart.
+  ///
+  /// The event carries no vault content (see [VaultChangeSignal]), so the
+  /// reload is an unconditional repository read and never a per-item patch.
+  /// When this is `null` the dashboard keeps working exactly as before —
+  /// explicit refresh only. It never polls: there is no timer anywhere in
+  /// this path.
+  final VaultChangeSignal? vaultChanges;
+
   @override
   State<VaultDashboardScreen> createState() => _VaultDashboardScreenState();
 }
 
 class _VaultDashboardScreenState extends State<VaultDashboardScreen> {
-  late Future<({VaultSummary summary, List<VaultItem> items})> _future;
+  late Future<_DashboardData> _future;
+  // Last successfully loaded vault. Kept so a background reload (triggered by
+  // a sync change) does not flash a spinner over data the user is reading.
+  _DashboardData? _lastData;
   late final TextEditingController _searchController;
   String _searchQuery = '';
   _VaultFilter _activeFilter = _VaultFilter.all;
@@ -75,6 +96,31 @@ class _VaultDashboardScreenState extends State<VaultDashboardScreen> {
     _searchController = TextEditingController();
     _future = _load();
     _loadConflictCount();
+    widget.vaultChanges?.addListener(_onVaultChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant VaultDashboardScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.vaultChanges != widget.vaultChanges) {
+      oldWidget.vaultChanges?.removeListener(_onVaultChanged);
+      widget.vaultChanges?.addListener(_onVaultChanged);
+    }
+  }
+
+  /// Re-reads the repository because the vault changed behind the UI. The
+  /// signal only says "something changed", so the whole dashboard state is
+  /// re-derived from the repository — no per-item patching, no secrets in
+  /// flight.
+  ///
+  /// Re-reading a locked vault would only produce a decrypt error, so the
+  /// event is dropped in that case; the unlock path loads the dashboard
+  /// from scratch anyway.
+  void _onVaultChanged() {
+    if (!mounted) return;
+    final controller = widget.securityController;
+    if (controller != null && !controller.isUnlocked) return;
+    _refresh();
   }
 
   Future<void> _loadConflictCount() async {
@@ -95,6 +141,7 @@ class _VaultDashboardScreenState extends State<VaultDashboardScreen> {
 
   @override
   void dispose() {
+    widget.vaultChanges?.removeListener(_onVaultChanged);
     _searchController.dispose();
     super.dispose();
   }
@@ -103,10 +150,12 @@ class _VaultDashboardScreenState extends State<VaultDashboardScreen> {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    return FutureBuilder<({VaultSummary summary, List<VaultItem> items})>(
+    return FutureBuilder<_DashboardData>(
       future: _future,
+      initialData: _lastData,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
+        if (snapshot.connectionState != ConnectionState.done &&
+            !snapshot.hasData) {
           return Scaffold(
             backgroundColor: theme.scaffoldBackgroundColor,
             body: const Center(
@@ -210,10 +259,12 @@ class _VaultDashboardScreenState extends State<VaultDashboardScreen> {
     );
   }
 
-  Future<({VaultSummary summary, List<VaultItem> items})> _load() async {
+  Future<_DashboardData> _load() async {
     final summary = await widget.repository.fetchSummary();
     final items = await widget.repository.fetchItems();
-    return (summary: summary, items: items);
+    final data = (summary: summary, items: items);
+    _lastData = data;
+    return data;
   }
 
   void _refresh() {

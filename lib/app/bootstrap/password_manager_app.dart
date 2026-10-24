@@ -27,6 +27,7 @@ import '../../core/sync/device_registration_repository.dart';
 import '../../core/sync/device_registration_service.dart';
 import '../../core/sync/device_sync_bootstrap.dart';
 import '../../core/sync/local_vault_mutation.dart';
+import '../../core/sync/vault_change_signal.dart';
 import '../../features/autofill/autofill_channel.dart';
 import '../../features/autofill/autofill_fill_handler.dart';
 import '../../features/home/presentation/app_shell.dart';
@@ -44,6 +45,13 @@ Future<void> runPasswordManagerApp() async {
   final storage = FlutterSecureStorageService();
   final localeController = AppLocaleController(storage: storage);
   final mutationSink = RelayLocalVaultMutationSink();
+  // One signal for the whole app: the sync layer publishes when it changes the
+  // local vault on its own, and the dashboard subscribes to re-read the
+  // repository. Created here, before the sync lifecycle exists, so the UI can
+  // subscribe even on builds where sync never gets wired (no Supabase defines)
+  // — in that case nothing ever publishes and the UI simply never reloads by
+  // itself, which is the correct offline-only behaviour.
+  final vaultChanges = VaultChangeSignal();
   late final VaultSecurityController securityController;
   final cryptoService = AesGcmVaultCryptoService();
 
@@ -158,6 +166,7 @@ Future<void> runPasswordManagerApp() async {
     storage: storage,
     vaultRepository: snapshotApplier,
     mutationSink: mutationSink,
+    vaultChanges: vaultChanges,
     onCurrentDeviceRevoked: (DeviceAccessStatus status) {
       return securityController.lock(reason: status.userFacingReason());
     },
@@ -173,6 +182,7 @@ Future<void> runPasswordManagerApp() async {
       securityController: securityController,
       localeController: localeController,
       secureStorage: storage,
+      vaultChanges: vaultChanges,
       buildSyncLifecycle: buildSyncLifecycle,
     ),
   );
@@ -302,6 +312,7 @@ class PasswordManagerApp extends StatelessWidget {
     required this.secureStorage,
     this.deviceSyncLifecycle,
     this.buildSyncLifecycle,
+    this.vaultChanges,
   });
 
   /// Encrypted vault repository. Injected so the [AppShell] can
@@ -330,6 +341,12 @@ class PasswordManagerApp extends StatelessWidget {
   /// `auth.currentUser`, and at bootstrap there is no user yet. Building it there
   /// produced a sync that registered no device and pushed nothing, silently.
   final Future<DeviceSyncLifecycle?> Function()? buildSyncLifecycle;
+
+  /// Optional signal the sync layer publishes when it changed the local vault
+  /// behind the UI's back. Forwarded to the dashboard, which re-reads the
+  /// repository on every event. `null` means "nothing to observe", and the
+  /// dashboard falls back to explicit refreshes only — never to polling.
+  final VaultChangeSignal? vaultChanges;
 
   @override
   Widget build(BuildContext context) {
@@ -369,6 +386,7 @@ class PasswordManagerApp extends StatelessWidget {
                 conflictResolver: lifecycle?.conflictResolver,
                 revocationService: lifecycle?.revocationService,
                 secureStorage: secureStorage,
+                vaultChanges: vaultChanges,
               ),
             ),
           ),

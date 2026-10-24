@@ -1,4 +1,5 @@
 import '../security/master_password_record.dart';
+import 'vault_change_signal.dart';
 import 'vault_key_sync_repository.dart';
 
 /// Reconciles the local vault key with the remote one.
@@ -20,17 +21,28 @@ class VaultKeySyncService {
   /// Builds the service. [readLocalRecordJson] returns the locally persisted
   /// `record_json`, or `null` when this device has not created or adopted a
   /// vault. [adoptRemoteRecord] persists a remote `record_json` locally.
+  ///
+  /// [vaultChanges] is the optional signal published when this device adopts
+  /// a remote record, because that is the moment its vault becomes the synced
+  /// one; the UI re-reads the repository on that event instead of waiting for
+  /// a pull or a restart.
   VaultKeySyncService({
     required VaultKeySyncRepository repository,
     required Future<String?> Function() readLocalRecordJson,
     required Future<void> Function(String recordJson) adoptRemoteRecord,
+    VaultChangeSignal? vaultChanges,
   }) : _repository = repository,
        _readLocalRecordJson = readLocalRecordJson,
-       _adoptRemoteRecord = adoptRemoteRecord;
+       _adoptRemoteRecord = adoptRemoteRecord,
+       _vaultChanges = vaultChanges;
 
   final VaultKeySyncRepository _repository;
   final Future<String?> Function() _readLocalRecordJson;
   final Future<void> Function(String recordJson) _adoptRemoteRecord;
+
+  /// Optional signal published after a remote key record is adopted. It
+  /// carries no key material: see [VaultChangeSignal].
+  final VaultChangeSignal? _vaultChanges;
 
   /// Runs one reconcile cycle. Safe to call repeatedly: both branches are
   /// idempotent, and neither throws for a null local/remote state.
@@ -48,6 +60,11 @@ class VaultKeySyncService {
 
     if (remote != null && remote.isNotEmpty) {
       await _adoptRemoteRecord(remote);
+      // Adoption changes which vault this device reads from, so the dashboard
+      // must reload even when no snapshot arrives in this same cycle.
+      _vaultChanges?.notifyVaultChanged(
+        origin: VaultChangeOrigin.vaultKeyAdoption,
+      );
     }
   }
 
