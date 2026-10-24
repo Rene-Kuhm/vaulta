@@ -9,6 +9,7 @@ import 'remote_vault_sync_repository.dart';
 import 'sync_conflict.dart';
 import 'sync_item_payload_codec.dart';
 import 'sync_runtime_hardening.dart';
+import 'vault_change_signal.dart';
 
 /// Callback that hands resolved remote snapshots to the vault writer.
 /// Returns the record ids the writer refused (invalid, downgraded or
@@ -53,6 +54,7 @@ class BidirectionalSyncService implements LocalVaultMutationSink {
     Duration pushBaseBackoff = const Duration(seconds: 2),
     Duration pushMaxBackoff = const Duration(minutes: 2),
     this.diagnosticsHook,
+    VaultChangeSignal? vaultChanges,
     ApplyLocalSnapshots? applyLocalSnapshots,
     Future<void> Function(Duration delay)? delay,
     DateTime Function()? now,
@@ -68,6 +70,7 @@ class BidirectionalSyncService implements LocalVaultMutationSink {
        _pushBaseBackoff = pushBaseBackoff,
        _pushMaxBackoff = pushMaxBackoff,
        _applyLocalSnapshots = applyLocalSnapshots,
+       _vaultChanges = vaultChanges,
        _delay = delay ?? Future<void>.delayed,
        _now = now ?? DateTime.now;
 
@@ -90,6 +93,18 @@ class BidirectionalSyncService implements LocalVaultMutationSink {
   /// pull/push failure. Wired by the lifecycle to surface sync
   /// issues in the settings screen.
   final SyncDiagnosticsHook? diagnosticsHook;
+
+  /// Optional signal published after a pull actually wrote remote
+  /// snapshots into the local vault, so the UI can re-read the
+  /// repository without any user gesture. `null` keeps the service
+  /// silent (tests, builds without a UI).
+  ///
+  /// Publishing is deliberately coarse — one event per pull cycle, no
+  /// item data — and never happens for an empty or fully refused batch,
+  /// so a no-op pull cannot trigger a UI reload. Private on purpose: it
+  /// is an outbound notification, not part of the service's read
+  /// surface, so fakes implementing this class do not have to model it.
+  final VaultChangeSignal? _vaultChanges;
 
   bool _pushRunning = false;
   bool _pushRerunRequested = false;
@@ -178,6 +193,7 @@ class BidirectionalSyncService implements LocalVaultMutationSink {
       userId: userId,
       deviceId: deviceId,
     );
+    var appliedAnyChange = false;
 
     while (true) {
       final changes = await _fetchWithRetry(afterOpId: cursor);
@@ -202,12 +218,19 @@ class BidirectionalSyncService implements LocalVaultMutationSink {
           userId: userId,
           changes: changes,
         );
-        final refused = await applyLocalSnapshots(snapshots);
-        for (final recordId in refused ?? const <String>[]) {
+        final refused =
+            (await applyLocalSnapshots(snapshots))?.toList(growable: false) ??
+            const <String>[];
+        for (final recordId in refused) {
           _reportRejectedPayload(
             recordId: recordId,
             reason: 'refused_by_vault',
           );
+        }
+        // Only a batch that left something written counts as a change: an
+        // empty pull or one the vault refused entirely did not touch it.
+        if (snapshots.length > refused.length) {
+          appliedAnyChange = true;
         }
       }
 
@@ -221,6 +244,12 @@ class BidirectionalSyncService implements LocalVaultMutationSink {
       deviceId: deviceId,
       lastPullAt: _now().toUtc(),
     );
+
+    // Published last, so a listener that re-reads the repository sees both
+    // the applied snapshots and the advanced cursor.
+    if (appliedAnyChange) {
+      _vaultChanges?.notifyVaultChanged(origin: VaultChangeOrigin.pull);
+    }
   }
 
   /// Maps each pulled change to the local record id the vault writer
