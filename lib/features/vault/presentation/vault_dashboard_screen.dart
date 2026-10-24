@@ -288,6 +288,7 @@ class _VaultDashboardScreenState extends State<VaultDashboardScreen> {
           final matchesFilter = switch (_activeFilter) {
             _VaultFilter.all => true,
             _VaultFilter.weak => item.strengthScore < 60,
+            _VaultFilter.favorites => item.isFavorite,
             _VaultFilter.withNotes =>
               item.notes != null && item.notes!.trim().isNotEmpty,
           };
@@ -352,31 +353,55 @@ class _VaultDashboardScreenState extends State<VaultDashboardScreen> {
   }
 
   Future<void> _openEntry(VaultItem item) async {
+    // The detail screen owns the entry while it is open (a favorite
+    // toggle changes it), so both callbacks below work from the value
+    // the detail screen hands back instead of the one captured here.
+    // Otherwise editing right after marking a favorite would reopen the
+    // stale entry and save the favorite away again.
+    var current = item;
+    // A favorite toggle persists through this callback, so the return
+    // value of the pushed route is not enough to know whether the vault
+    // changed: the dashboard re-reads the repository when either one
+    // reports a change.
+    var favoriteChanged = false;
     final changed = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => VaultEntryDetailScreen(
           item: item,
-          onEdit: () async {
+          onEdit: (VaultItem editBase) async {
+            current = editBase;
             final updated = await Navigator.of(context).push<VaultItem>(
               MaterialPageRoute(
-                builder: (_) => VaultEntryEditorScreen(initialItem: item),
+                builder: (_) =>
+                    VaultEntryEditorScreen(initialItem: editBase),
               ),
             );
             if (updated == null) {
               return false;
             }
             await widget.repository.saveItem(updated);
+            current = updated;
             return true;
           },
-          onDelete: () => widget.repository.deleteItem(item.id),
+          onDelete: () => widget.repository.deleteItem(current.id),
+          onToggleFavorite: (isFavorite) async {
+            current = current.copyWith(isFavorite: isFavorite);
+            await widget.repository.saveItem(current);
+            favoriteChanged = true;
+          },
         ),
       ),
     );
 
-    if (changed == true && mounted) {
+    if (!mounted) {
+      return;
+    }
+    if (changed == true) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(context.l10n.vaultUpdatedMessage)));
+    }
+    if (changed == true || favoriteChanged) {
       _refresh();
     }
   }
@@ -977,7 +1002,7 @@ class _EmptyVaultState extends StatelessWidget {
   }
 }
 
-enum _VaultFilter { all, weak, withNotes }
+enum _VaultFilter { all, weak, favorites, withNotes }
 
 extension on _VaultFilter {
   String label(BuildContext context) {
@@ -985,6 +1010,7 @@ extension on _VaultFilter {
     return switch (this) {
       _VaultFilter.all => l10n.filterAllEntries,
       _VaultFilter.weak => l10n.filterWeakOnly,
+      _VaultFilter.favorites => l10n.filterFavorites,
       _VaultFilter.withNotes => l10n.filterWithNotes,
     };
   }

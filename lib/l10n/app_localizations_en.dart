@@ -375,6 +375,15 @@ class AppLocalizationsEn extends AppLocalizations {
   String get entryDeleteTooltip => 'Delete entry';
 
   @override
+  String get entryFavoriteLabel => 'Favorite';
+
+  @override
+  String get entryMarkFavoriteTooltip => 'Mark as favorite';
+
+  @override
+  String get entryUnmarkFavoriteTooltip => 'Remove from favorites';
+
+  @override
   String get entryUsernameLabel => 'Username';
 
   @override
@@ -540,6 +549,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get filterWithNotes => 'Entries with notes';
 
   @override
+  String get filterFavorites => 'Favorites';
+
+  @override
   String get resetFilters => 'Reset filters';
 
   @override
@@ -605,6 +617,12 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get editorCategoryInfrastructure => 'Infrastructure';
+
+  @override
+  String get editorFavoriteLabel => 'Favorite entry';
+
+  @override
+  String get editorFavoriteHint => 'Favorites appear under the Favorites filter on the dashboard.';
 
   @override
   String get editorSecretTitle => 'Secret';
