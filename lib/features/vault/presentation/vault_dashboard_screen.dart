@@ -353,6 +353,12 @@ class _VaultDashboardScreenState extends State<VaultDashboardScreen> {
   }
 
   Future<void> _openEntry(VaultItem item) async {
+    // The detail screen owns the entry while it is open (a favorite
+    // toggle changes it), so both callbacks below work from the value
+    // the detail screen hands back instead of the one captured here.
+    // Otherwise editing right after marking a favorite would reopen the
+    // stale entry and save the favorite away again.
+    var current = item;
     // A favorite toggle persists through this callback, so the return
     // value of the pushed route is not enough to know whether the vault
     // changed: the dashboard re-reads the repository when either one
@@ -362,23 +368,25 @@ class _VaultDashboardScreenState extends State<VaultDashboardScreen> {
       MaterialPageRoute(
         builder: (_) => VaultEntryDetailScreen(
           item: item,
-          onEdit: () async {
+          onEdit: (VaultItem editBase) async {
+            current = editBase;
             final updated = await Navigator.of(context).push<VaultItem>(
               MaterialPageRoute(
-                builder: (_) => VaultEntryEditorScreen(initialItem: item),
+                builder: (_) =>
+                    VaultEntryEditorScreen(initialItem: editBase),
               ),
             );
             if (updated == null) {
               return false;
             }
             await widget.repository.saveItem(updated);
+            current = updated;
             return true;
           },
-          onDelete: () => widget.repository.deleteItem(item.id),
+          onDelete: () => widget.repository.deleteItem(current.id),
           onToggleFavorite: (isFavorite) async {
-            await widget.repository.saveItem(
-              item.copyWith(isFavorite: isFavorite),
-            );
+            current = current.copyWith(isFavorite: isFavorite);
+            await widget.repository.saveItem(current);
             favoriteChanged = true;
           },
         ),

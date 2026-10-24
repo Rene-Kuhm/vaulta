@@ -203,6 +203,42 @@ void main() {
       expect(find.byIcon(Icons.star_rounded), findsOneWidget);
     });
 
+    testWidgets('hands the toggled entry to the edit action', (tester) async {
+      // Editing right after marking a favorite must not reopen the
+      // entry the screen was built with: the editor would be seeded from
+      // the stale copy and save the favorite away again.
+      final requested = <bool>[];
+      final edited = <VaultItem>[];
+      setTallViewport(tester);
+
+      await tester.pumpWidget(
+        testApp(
+          VaultEntryDetailScreen(
+            item: itemWith(),
+            onEdit: (VaultItem currentItem) async {
+              edited.add(currentItem);
+              return false;
+            },
+            onToggleFavorite: (isFavorite) async {
+              requested.add(isFavorite);
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.star_border_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.edit_rounded));
+      await tester.pumpAndSettle();
+
+      expect(requested, [true]);
+      expect(edited, hasLength(1));
+      expect(edited.single.id, 'gh');
+      expect(edited.single.isFavorite, isTrue);
+      expect(edited.single.secret, 'StrongPass!2026');
+    });
+
     testWidgets('disables the favorite action without a callback', (
       tester,
     ) async {

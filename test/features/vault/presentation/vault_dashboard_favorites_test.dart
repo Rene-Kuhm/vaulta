@@ -105,6 +105,41 @@ void main() {
       expect(find.text('All entries'), findsOneWidget);
     });
 
+    testWidgets('editing right after marking a favorite keeps it', (
+      tester,
+    ) async {
+      // Regression: the editor used to be seeded from the entry the
+      // dashboard had captured when opening the detail screen, so saving
+      // an edit made right after the favorite toggle wrote the flag back
+      // to false.
+      final repository = _SavingVaultRepository(items: _seedItems());
+      await pumpDashboard(tester, repository);
+
+      await tester.tap(find.text('Bank'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.star_border_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.edit_rounded));
+      await tester.pumpAndSettle();
+
+      // The editor shows the state the detail screen already has.
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+
+      final saveButton = find.text('Save changes');
+      await tester.ensureVisible(saveButton);
+      await tester.tap(saveButton);
+      await tester.pumpAndSettle();
+
+      expect(repository.saved.first.isFavorite, isTrue);
+      expect(repository.saved.last.title, 'Bank');
+      expect(repository.saved.last.isFavorite, isTrue);
+      expect(
+        repository.items.singleWhere((item) => item.id == '2').isFavorite,
+        isTrue,
+      );
+    });
+
     testWidgets('marking a favorite from the detail screen persists it', (
       tester,
     ) async {
@@ -195,6 +230,9 @@ class _SavingVaultRepository implements VaultRepository {
 
   final List<VaultItem> _items;
   final List<VaultItem> saved = <VaultItem>[];
+
+  /// Current repository contents, in insertion order.
+  List<VaultItem> get items => List.unmodifiable(_items);
 
   @override
   Future<List<VaultItem>> fetchItems() async => List.unmodifiable(_items);

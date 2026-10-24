@@ -36,14 +36,18 @@ class VaultEntryDetailScreen extends StatefulWidget {
     this.clipboardService,
   });
 
-  /// The entry being shown. The screen does not mutate it directly;
-  /// edits flow through the [onEdit] callback.
+  /// The entry being shown. The screen never mutates it: the favorite
+  /// toggle persists through [onToggleFavorite] and updates a local
+  /// copy, and edits flow through the [onEdit] callback.
   final VaultItem item;
 
-  /// Invoked when the user taps the edit action. The returned
-  /// `true` value signals the dashboard that the entry changed and
-  /// the list should be refreshed.
-  final Future<bool> Function()? onEdit;
+  /// Invoked when the user taps the edit action. The argument is the
+  /// entry as this screen currently shows it, so an edit opened right
+  /// after a favorite toggle edits the toggled value instead of the
+  /// one this screen was built with. The returned `true` value signals
+  /// the dashboard that the entry changed and the list should be
+  /// refreshed.
+  final Future<bool> Function(VaultItem item)? onEdit;
 
   /// Invoked when the user confirms the delete action.
   final Future<void> Function()? onDelete;
@@ -453,7 +457,10 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
   }
 
   Future<void> _runEdit() async {
-    final changed = await widget.onEdit?.call() ?? false;
+    // [_item] carries any favorite toggle the user already made on this
+    // screen; passing it keeps the editor from reopening a stale copy
+    // and silently reverting that toggle on save.
+    final changed = await widget.onEdit?.call(_item) ?? false;
     if (changed && mounted) {
       Navigator.of(context).pop(true);
     }
