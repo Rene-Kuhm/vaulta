@@ -803,6 +803,24 @@ abstract class AppLocalizations {
   /// **'Delete entry'**
   String get entryDeleteTooltip;
 
+  /// No description provided for @entryFavoriteLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorite'**
+  String get entryFavoriteLabel;
+
+  /// No description provided for @entryMarkFavoriteTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as favorite'**
+  String get entryMarkFavoriteTooltip;
+
+  /// No description provided for @entryUnmarkFavoriteTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from favorites'**
+  String get entryUnmarkFavoriteTooltip;
+
   /// No description provided for @entryUsernameLabel.
   ///
   /// In en, this message translates to:
@@ -1121,6 +1139,12 @@ abstract class AppLocalizations {
   /// **'Entries with notes'**
   String get filterWithNotes;
 
+  /// No description provided for @filterFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorites'**
+  String get filterFavorites;
+
   /// No description provided for @resetFilters.
   ///
   /// In en, this message translates to:
@@ -1246,6 +1270,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Infrastructure'**
   String get editorCategoryInfrastructure;
+
+  /// No description provided for @editorFavoriteLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorite entry'**
+  String get editorFavoriteLabel;
+
+  /// No description provided for @editorFavoriteHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorites appear under the Favorites filter on the dashboard.'**
+  String get editorFavoriteHint;
 
   /// No description provided for @editorSecretTitle.
   ///

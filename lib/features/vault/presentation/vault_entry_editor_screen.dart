@@ -46,6 +46,7 @@ class _VaultEntryEditorScreenState extends State<VaultEntryEditorScreen> {
   late final TextEditingController _notesController;
 
   late VaultCategory _category;
+  bool _isFavorite = false;
   bool _obscureSecret = true;
   double _generatedLength = 16;
   bool _includeUppercase = true;
@@ -63,6 +64,7 @@ class _VaultEntryEditorScreenState extends State<VaultEntryEditorScreen> {
     _websiteController = TextEditingController(text: item?.website ?? '');
     _notesController = TextEditingController(text: item?.notes ?? '');
     _category = item?.category ?? VaultCategory.personal;
+    _isFavorite = item?.isFavorite ?? false;
   }
 
   @override
@@ -161,6 +163,47 @@ class _VaultEntryEditorScreenState extends State<VaultEntryEditorScreen> {
                             setState(() => _category = value);
                           }
                         },
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Row(
+                        children: [
+                          Icon(
+                            _isFavorite
+                                ? Icons.star_rounded
+                                : Icons.star_border_rounded,
+                            color: _isFavorite
+                                ? AppColors.warning
+                                : theme.colorScheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  l10n.editorFavoriteLabel,
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  l10n.editorFavoriteHint,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch(
+                            value: _isFavorite,
+                            onChanged: (value) {
+                              setState(() => _isFavorite = value);
+                            },
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -405,6 +448,7 @@ class _VaultEntryEditorScreenState extends State<VaultEntryEditorScreen> {
       notes: _normalizeOptional(_notesController.text),
       updatedAt: now,
       passwordHistory: passwordHistory,
+      isFavorite: _isFavorite,
     );
 
     Navigator.of(context).pop(item);
