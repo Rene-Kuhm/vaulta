@@ -13,6 +13,7 @@ import '../../../core/security/native_biometric_auth_service.dart';
 import '../../../core/security/secure_storage_service.dart';
 import '../../../core/security/vault_repository.dart';
 import '../../../core/security/vault_security_controller.dart';
+import '../../../core/security/vault_security_message.dart';
 import '../../../core/sync/device_registration_repository.dart';
 import '../../../core/sync/sync_conflict.dart';
 import '../../../core/sync/sync_conflict_resolver.dart';
@@ -22,6 +23,7 @@ import '../../backup/application/vault_backup_coordinator.dart';
 import '../../backup/presentation/backup_section.dart';
 import '../../security/presentation/security_capabilities_panel.dart';
 import '../../security/presentation/unlock_throttle_text.dart';
+import '../../security/presentation/vault_security_message_l10n.dart';
 import 'update_section.dart';
 
 /// "Settings" tab: local unlock posture (biometric toggle, idle
@@ -229,7 +231,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await _handleCurrentDeviceRevocation(
           context,
           status: DeviceSessionStatus.revokedDevice,
-          lockReason: context.l10n.settingsCurrentDeviceRevokedBody,
         );
         return;
       }
@@ -261,7 +262,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _handleCurrentDeviceRevocation(
     BuildContext context, {
     required DeviceSessionStatus status,
-    required String lockReason,
   }) async {
     if (_currentDeviceRevocationHandled) {
       return;
@@ -305,7 +305,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
-    await widget.securityController.lock(reason: lockReason);
+    // Same distinction as the dialog above: "all sessions revoked" is not
+    // the same event as "this device revoked", and the user should not have
+    // to guess which one happened.
+    await widget.securityController.lock(
+      code: switch (status) {
+        DeviceSessionStatus.revokedAll =>
+          VaultSecurityMessageCode.vaultLockedAllSessionsRevoked,
+        _ => VaultSecurityMessageCode.vaultLockedSessionRevoked,
+      },
+    );
   }
 
   Future<void> _revokeAllOtherDevices(BuildContext context) async {
@@ -574,11 +583,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     if (securityController.message case final message?) ...[
                       const SizedBox(height: AppSpacing.md),
                       AppBanner(
-                        message: message,
-                        tone: securityController.messageIsError
+                        message: vaultSecurityMessageText(l10n, message),
+                        tone: message.isError
                             ? AppBannerTone.danger
                             : AppBannerTone.info,
-                        icon: securityController.messageIsError
+                        icon: message.isError
                             ? Icons.error_outline_rounded
                             : Icons.info_outline_rounded,
                       ),
@@ -696,16 +705,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       if (!mounted) {
                         return;
                       }
-                      final status = currentDevice!.status;
-                      final reason = switch (status) {
-                        DeviceSessionStatus.revokedAll =>
-                          l10n.settingsRevokedAllBody,
-                        _ => l10n.settingsCurrentDeviceRevokedBody,
-                      };
                       _handleCurrentDeviceRevocation(
                         context,
-                        status: status,
-                        lockReason: reason,
+                        status: currentDevice!.status,
                       );
                     });
                   }
@@ -1412,8 +1414,11 @@ class _ChangeMasterPasswordDialogState
     setState(() {
       // A throttled attempt leaves `message` null; explain the lockout
       // (or the secure-storage failure) in the user's language.
-      _formFeedback =
-          widget.controller.message ??
+      final message = widget.controller.message;
+      _formFeedback = message == null
+          ? null
+          : vaultSecurityMessageText(context.l10n, message);
+      _formFeedback ??=
           unlockThrottleMessage(context.l10n, widget.controller) ??
           context.l10n.changeMasterPasswordErrorFallback;
     });
