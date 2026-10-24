@@ -1,14 +1,21 @@
+import 'dart:async';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:gestor_contrasenas/l10n/app_localizations.dart';
 
 import '../localization/app_locale_controller.dart';
+import '../../core/sync/remote_snapshot_applier.dart';
+import '../../core/storage/lazy_sqlite_vault_repository.dart';
+import '../../features/sync/presentation/sync_sign_in_gate.dart';
+import '../../core/storage/vault_storage_flags.dart';
 import '../../core/security/aes_gcm_vault_crypto_service.dart';
 import '../../core/security/android_keystore_envelope_key_provider.dart';
 import '../../core/security/biometric_auth_service.dart';
 import '../../core/security/biometric_key_envelope_service.dart';
 import '../../core/security/biometric_unlock_service.dart';
+import '../../core/security/common_password_blocklist.dart';
 import '../../core/security/flutter_secure_storage_service.dart';
 import '../../core/security/local_encrypted_vault_repository.dart';
 import '../../core/security/master_password_service.dart';
@@ -20,6 +27,8 @@ import '../../core/sync/device_registration_repository.dart';
 import '../../core/sync/device_registration_service.dart';
 import '../../core/sync/device_sync_bootstrap.dart';
 import '../../core/sync/local_vault_mutation.dart';
+import '../../features/autofill/autofill_channel.dart';
+import '../../features/autofill/autofill_fill_handler.dart';
 import '../../features/home/presentation/app_shell.dart';
 import '../../features/security/presentation/security_gate.dart';
 import '../theme/app_theme.dart';
@@ -36,31 +45,98 @@ Future<void> runPasswordManagerApp() async {
   final localeController = AppLocaleController(storage: storage);
   final mutationSink = RelayLocalVaultMutationSink();
   late final VaultSecurityController securityController;
-  final repository = LocalEncryptedVaultRepository(
-    storage: storage,
-    cryptoService: AesGcmVaultCryptoService(),
-    readSession: () => securityController.vaultSession,
-    mutationSink: mutationSink,
-  );
+  final cryptoService = AesGcmVaultCryptoService();
+
+  // The payload floor lives in secure storage and the SQLite repository needs it
+  // through a synchronous getter, so it is read once during bootstrap.
+  var payloadFloor = 1;
+  Future<void> readPayloadFloor() async {
+    final raw = await storage.read(
+      LocalEncryptedVaultRepository.itemPayloadMinVersionKey,
+    );
+    payloadFloor = (raw == null || raw.isEmpty)
+        ? 1
+        : int.tryParse(raw) ??
+              LocalEncryptedVaultRepository.currentItemPayloadVersion;
+  }
+
+  // ADR-007: the encrypted database is behind a compile-time flag, off by
+  // default. Both paths are [VaultRepository]; only the rekey and payload-upgrade
+  // hooks differ, because the database re-keys a file instead of re-encrypting a
+  // blob.
+  final VaultRepository repository;
+  final VaultRekeyEntries rekeyHook;
+  final VaultMigrateEntries migrateHook;
+  // Sync's pull path applies snapshots through this narrow port, and both
+  // storages implement it, so a pulled change reaches the vault whichever one
+  // the flag selects. `buildDeviceSyncLifecycle` still documents `null` as
+  // "pull advances sync state, vault unchanged", but nothing here passes it any
+  // more.
+  late final RemoteSnapshotApplier snapshotApplier;
+  // Autofill asks the vault exactly one question, "which items are indexed for
+  // this host". The database answers it with an index lookup; the blob has no
+  // index, so the lookup port decides which shape it can offer and the handler
+  // never gains a way to read the whole vault by accident (ADR-008 §3, §5).
+  final AutofillVaultLookup autofillLookup;
+  if (vaultSqliteStorageEnabled) {
+    final sqlite = LazySqliteVaultRepository(
+      storage: storage,
+      cryptoService: cryptoService,
+      readSession: () => securityController.vaultSession,
+      readMinimumVersion: () => payloadFloor,
+      databasePath: () async {
+        final directory = await getApplicationSupportDirectory();
+        return '${directory.path}/vault.db';
+      },
+    );
+    repository = sqlite;
+    rekeyHook = sqlite.rekeyEntries;
+    migrateHook = sqlite.migrateItemsToCurrentVersion;
+    snapshotApplier = sqlite;
+    autofillLookup = VaultRepositoryAutofillLookup(
+      repository: sqlite,
+      isUnlocked: () => securityController.isUnlocked,
+      findByHost: sqlite.findByHost,
+    );
+  } else {
+    final blob = LocalEncryptedVaultRepository(
+      storage: storage,
+      cryptoService: cryptoService,
+      readSession: () => securityController.vaultSession,
+      mutationSink: mutationSink,
+    );
+    repository = blob;
+    rekeyHook = blob.rekeyEntries;
+    migrateHook = blob.migrateItemsToCurrentVersion;
+    snapshotApplier = blob;
+    autofillLookup = VaultRepositoryAutofillLookup(
+      repository: blob,
+      isUnlocked: () => securityController.isUnlocked,
+    );
+  }
+  await readPayloadFloor();
   final envelopeService = BiometricKeyEnvelopeService(storage: storage);
-  final envelopeKeyProvider = _buildEnvelopeKeyProvider(storage: storage);
-  // The biometric auth service is platform-aware: on Android we use
-  // the native MethodChannel (the same one the KeyStore provider uses
-  // to open the BiometricPrompt) so the gate and the prompt can never
-  // disagree. On every other target we fall back to local_auth which
-  // does not have a hardware-backed variant yet.
-  final biometricAuthService = _buildBiometricAuthService();
+  // The biometric stack is resolved in ONE place. It used to be two
+  // independent `defaultTargetPlatform` branches — one for the envelope
+  // key provider, one for the auth service — and nothing tied the two
+  // together, so pairing the KeyStore provider with the self-prompting
+  // `local_auth` gate was a one-line mistake away and would have shown
+  // the user two biometric prompts per unlock. [BiometricStack] makes
+  // each platform's pairing a type instead.
+  final biometricStack = resolveBiometricStack(storage: storage);
+  final biometricAuthService = biometricStack.authService;
   final biometricUnlockService = BiometricUnlockService(
     storage: storage,
     biometricAuthService: biometricAuthService,
     envelopeService: envelopeService,
-    envelopeKeyProvider: envelopeKeyProvider,
+    envelopeKeyProvider: biometricStack.envelopeKeyProvider,
   );
   securityController = VaultSecurityController(
     storage: storage,
     masterPasswordService: MasterPasswordService(),
     biometricAuthService: biometricAuthService,
-    rekeyEntries: repository.rekeyEntries,
+    rekeyEntries: rekeyHook,
+    migrateEntries: migrateHook,
     biometricEnvelopeService: envelopeService,
     biometricUnlockService: biometricUnlockService,
   );
@@ -68,12 +144,26 @@ Future<void> runPasswordManagerApp() async {
   await securityController.initialize();
   await localeController.initialize();
 
-  final deviceSyncLifecycle = await buildDeviceSyncLifecycle(
+  // The autofill bridge, on the app's single engine and nowhere else. The
+  // service runs in this process and calls this channel; when the process has
+  // no engine (started by the service alone) or the session is locked, the
+  // Dart answer is "locked" and the service keeps the slice A response. It is
+  // registered here, next to the rest of the wiring, so it exists exactly once
+  // and never as a second engine with a second, stale view of the vault.
+  AutofillChannel(
+    handler: AutofillFillHandler(lookup: autofillLookup),
+  ).register();
+
+  Future<DeviceSyncLifecycle?> buildSyncLifecycle() => buildDeviceSyncLifecycle(
     storage: storage,
-    vaultRepository: repository,
+    vaultRepository: snapshotApplier,
     mutationSink: mutationSink,
     onCurrentDeviceRevoked: (DeviceAccessStatus status) {
       return securityController.lock(reason: status.userFacingReason());
+    },
+    readLocalVaultKeyRecord: securityController.readRecordJson,
+    adoptRemoteVaultKeyRecord: (recordJson) async {
+      await securityController.adoptRemoteVaultRecord(recordJson);
     },
   );
 
@@ -83,48 +173,104 @@ Future<void> runPasswordManagerApp() async {
       securityController: securityController,
       localeController: localeController,
       secureStorage: storage,
-      deviceSyncLifecycle: deviceSyncLifecycle,
+      buildSyncLifecycle: buildSyncLifecycle,
     ),
   );
+
+  // Fire-and-forget on purpose. The breach corpus is ~2.7 MB of digests
+  // and takes tens of milliseconds to parse; blocking the first frame on
+  // it would make startup feel slower for a screen that does not need it
+  // yet. Until it lands, password screening falls back to the in-source
+  // curated list, which is correct but smaller: a password typed in the
+  // first moments after launch is screened against the short list. That
+  // trade is stated in ADR-001 rather than hidden.
+  unawaited(loadBreachCorpus());
 }
 
-/// On Android we use the hardware-backed KeyStore provider. On every
-/// other target we fall back to a no-op provider that always reports
-/// "no envelope key", which surfaces a clean "biometrics not
-/// available" message instead of crashing.
+/// Everything the biometric unlock path needs for one platform, as a
+/// single value.
 ///
-/// Tests that don't want to involve the platform channel can override
-/// the provider in their own bootstrap.
-BiometricEnvelopeKeyProvider _buildEnvelopeKeyProvider({
-  required dynamic storage,
+/// The property this type exists to protect is "exactly one
+/// `BiometricPrompt` per unlock". Two halves of the unlock path can each
+/// open a prompt — the gate ([BiometricAuthService.authenticateForUnlock])
+/// and the envelope key provider
+/// ([BiometricEnvelopeKeyProvider.releaseEnvelopeKey]) — and only one of
+/// them may. Which half owns it is a per-platform fact, so it belongs in
+/// the composition rather than in a comment next to an `if`:
+///
+///   * Android — [AndroidKeystoreBiometricStack]. The prompt has to be
+///     bound to the KeyStore private key through a `CryptoObject`, so
+///     the provider owns it and the gate stays a probe
+///     ([NonPromptingBiometricAuthService]).
+///   * Every other target — [LocalAuthBiometricStack]. There is no
+///     platform-protected envelope key, so the gate owns the prompt
+///     ([PromptingBiometricAuthService]) and the provider is inert.
+///
+/// [BiometricStack] is sealed and both subclasses are `final`, so adding
+/// a platform means adding a case here, where the pairing is visible,
+/// instead of adding a branch next to an unrelated one.
+sealed class BiometricStack {
+  const BiometricStack();
+
+  /// The gate the controller and the unlock service talk to.
+  BiometricAuthService get authService;
+
+  /// The provider that mints (enrollment) and releases (unlock) the
+  /// platform-protected envelope key.
+  BiometricEnvelopeKeyProvider get envelopeKeyProvider;
+}
+
+/// Android: the hardware-backed KeyStore pair. Exactly one prompt, and it
+/// is the one the KeyStore crypto object requires.
+final class AndroidKeystoreBiometricStack extends BiometricStack {
+  /// Wires the native gate to the native provider. [storage] backs the
+  /// RSA-encrypted seed, so both halves have to be built together.
+  AndroidKeystoreBiometricStack({required FlutterSecureStorageService storage})
+    : authService = NativeBiometricAuthService(),
+      envelopeKeyProvider = AndroidKeystoreEnvelopeKeyProvider(
+        storage: storage,
+      );
+
+  @override
+  final NativeBiometricAuthService authService;
+
+  @override
+  final AndroidKeystoreEnvelopeKeyProvider envelopeKeyProvider;
+}
+
+/// Every non-Android target: `local_auth` owns the prompt and the
+/// provider reports "not supported" instead of touching a channel that
+/// was never registered.
+final class LocalAuthBiometricStack extends BiometricStack {
+  /// Builds the desktop / web stack, where there is no platform key.
+  LocalAuthBiometricStack()
+    : authService = LocalBiometricAuthService(),
+      envelopeKeyProvider = const _NullEnvelopeKeyProvider();
+
+  @override
+  final LocalBiometricAuthService authService;
+
+  @override
+  final BiometricEnvelopeKeyProvider envelopeKeyProvider;
+}
+
+/// Resolves the biometric stack for the current platform. This is the
+/// only place that branch lives.
+///
+/// On Android we deliberately bypass `local_auth` and talk to the native
+/// `MethodChannel`s directly, so the gate (`BiometricManager`) and the
+/// prompt are guaranteed to be looking at the same state. Mixing the two
+/// was the root cause of the "the unlock button disappeared" bug on
+/// devices that only have weak biometrics enrolled. On every other target
+/// we keep the `local_auth` path, since the KeyStore-backed provider is
+/// Android-only.
+BiometricStack resolveBiometricStack({
+  required FlutterSecureStorageService storage,
 }) {
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-    return AndroidKeystoreEnvelopeKeyProvider(
-      storage: storage as FlutterSecureStorageService,
-    );
+    return AndroidKeystoreBiometricStack(storage: storage);
   }
-  // The unlock service replaces this with its own no-op default if
-  // we pass null, so this branch is only here to make the intent
-  // explicit in the source.
-  return const _NullEnvelopeKeyProvider();
-}
-
-/// Picks the right [BiometricAuthService] for the current platform.
-///
-/// On Android we deliberately bypass `local_auth` and talk to the
-/// native `MethodChannel` directly so the gate (canAuthenticate) and
-/// the prompt (`BiometricPrompt.authenticate`) are guaranteed to be
-/// looking at the same `BiometricManager` state. Mixing the two was
-/// the root cause of the "the unlock button disappeared" bug on
-/// devices that only have weak biometrics enrolled.
-///
-/// On every other target we keep the `local_auth` path since the
-/// KeyStore-backed provider is Android-only.
-BiometricAuthService _buildBiometricAuthService() {
-  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-    return NativeBiometricAuthService();
-  }
-  return LocalBiometricAuthService();
+  return LocalAuthBiometricStack();
 }
 
 class _NullEnvelopeKeyProvider implements BiometricEnvelopeKeyProvider {
@@ -132,16 +278,12 @@ class _NullEnvelopeKeyProvider implements BiometricEnvelopeKeyProvider {
 
   @override
   Future<BiometricEnvelopeKeyResult> acquireEnvelopeKey() async {
-    return const BiometricEnvelopeKeyResult.unavailable(
-      'platform_not_android',
-    );
+    return const BiometricEnvelopeKeyResult.unavailable('platform_not_android');
   }
 
   @override
   Future<BiometricEnvelopeKeyResult> releaseEnvelopeKey() async {
-    return const BiometricEnvelopeKeyResult.unavailable(
-      'platform_not_android',
-    );
+    return const BiometricEnvelopeKeyResult.unavailable('platform_not_android');
   }
 }
 
@@ -159,6 +301,7 @@ class PasswordManagerApp extends StatelessWidget {
     required this.localeController,
     required this.secureStorage,
     this.deviceSyncLifecycle,
+    this.buildSyncLifecycle,
   });
 
   /// Encrypted vault repository. Injected so the [AppShell] can
@@ -181,6 +324,13 @@ class PasswordManagerApp extends StatelessWidget {
   /// picks up the conflict resolver and revocation service from it.
   final DeviceSyncLifecycle? deviceSyncLifecycle;
 
+  /// Builds the device sync lifecycle once a session exists.
+  ///
+  /// The lifecycle cannot be created at bootstrap: it resolves the user from
+  /// `auth.currentUser`, and at bootstrap there is no user yet. Building it there
+  /// produced a sync that registered no device and pushed nothing, silently.
+  final Future<DeviceSyncLifecycle?> Function()? buildSyncLifecycle;
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -202,16 +352,24 @@ class PasswordManagerApp extends StatelessWidget {
             GlobalWidgetsLocalizations.delegate,
           ],
           supportedLocales: AppLocalizations.supportedLocales,
-          home: SecurityGate(
-            controller: securityController,
-            deviceSyncLifecycle: deviceSyncLifecycle,
-            child: AppShell(
-              repository: repository,
-              securityController: securityController,
-              localeController: localeController,
-              conflictResolver: deviceSyncLifecycle?.conflictResolver,
-              revocationService: deviceSyncLifecycle?.revocationService,
-              secureStorage: secureStorage,
+          // Sign-in wraps the vault gate, not the other way around: with no
+          // session every RLS policy rejects the write, so the account has to
+          // exist before sync can mean anything. When the build has no Supabase
+          // defines this is a pass-through and the app stays local-only.
+          home: SyncSignInGate(
+            buildSync: buildSyncLifecycle,
+            initialLifecycle: deviceSyncLifecycle,
+            childBuilder: (lifecycle) => SecurityGate(
+              controller: securityController,
+              deviceSyncLifecycle: lifecycle,
+              child: AppShell(
+                repository: repository,
+                securityController: securityController,
+                localeController: localeController,
+                conflictResolver: lifecycle?.conflictResolver,
+                revocationService: lifecycle?.revocationService,
+                secureStorage: secureStorage,
+              ),
             ),
           ),
         );

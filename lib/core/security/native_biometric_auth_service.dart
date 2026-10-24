@@ -113,21 +113,38 @@ class NativeBiometricCapability {
 /// which is invoked one step later in `BiometricUnlockService.unlock`.
 /// This avoids the double-prompt bug where the user got one
 /// `local_auth` prompt followed by a second `BiometricPrompt` for
-/// the KeyStore operation.
-class NativeBiometricAuthService implements BiometricAuthService {
+/// the KeyStore operation. That ownership is part of the type, not a
+/// comment: this class implements [NonPromptingBiometricAuthService],
+/// so pairing it with a self-prompting gate is a compile error in
+/// `password_manager_app.dart`.
+class NativeBiometricAuthService implements NonPromptingBiometricAuthService {
   /// Builds a [NativeBiometricAuthService] using the supplied
   /// [biometricChannel] (defaults to `com.insyd.vaulta/biometric`)
   /// for probing the platform.
+  ///
+  /// [isAndroid] is the platform gate. It defaults to
+  /// [Platform.isAndroid], so production behaviour is unchanged; tests
+  /// pass `true` to run the real logic against a fake channel on a
+  /// non-Android host, mirroring the seam on
+  /// `AndroidKeystoreEnvelopeKeyProvider`. Every platform check in this
+  /// class reads that field, never [Platform] directly.
   NativeBiometricAuthService({
     MethodChannel? biometricChannel,
-  }) : _channel = biometricChannel ??
-            const MethodChannel('com.insyd.vaulta/biometric');
+    @visibleForTesting bool? isAndroid,
+  })  : _channel = biometricChannel ??
+            const MethodChannel('com.insyd.vaulta/biometric'),
+        _isAndroid = isAndroid ?? Platform.isAndroid;
 
   final MethodChannel _channel;
 
+  /// The platform gate. False on every target the native channels do not
+  /// exist on, where this service reports "nothing available" instead of
+  /// calling into a plugin that was never registered.
+  final bool _isAndroid;
+
   @override
   Future<BiometricAvailability> getAvailability() async {
-    if (!Platform.isAndroid) {
+    if (!_isAndroid) {
       return const BiometricAvailability(
         deviceSupported: false,
         canCheckBiometrics: false,
@@ -180,7 +197,7 @@ class NativeBiometricAuthService implements BiometricAuthService {
   /// [NativeBiometricCapability.needsEnrollment] to decide whether
   /// to render the "Set up biometrics" CTA.
   Future<NativeBiometricCapability> probeCapability() async {
-    if (!Platform.isAndroid) return NativeBiometricCapability.empty;
+    if (!_isAndroid) return NativeBiometricCapability.empty;
     try {
       final raw = await _channel.invokeMapMethod<String, dynamic>(
         'probeAvailability',
@@ -210,7 +227,7 @@ class NativeBiometricAuthService implements BiometricAuthService {
   /// Opens the system biometric-enrollment settings. Returns true
   /// if a settings activity was launched, false otherwise.
   Future<bool> openBiometricEnrollment() async {
-    if (!Platform.isAndroid) return false;
+    if (!_isAndroid) return false;
     try {
       final ok = await _channel.invokeMethod<bool>('openBiometricEnrollment');
       return ok ?? false;
@@ -220,14 +237,22 @@ class NativeBiometricAuthService implements BiometricAuthService {
     }
   }
 
-  /// Passive check: returns true if the platform can open a prompt
-  /// right now (with strong biometric OR device credential). Does
-  /// NOT show a prompt — the actual prompt is opened by the
-  /// KeyStore provider a few lines of code later.
+  /// Passive check: reports whether the platform can authorize the
+  /// biometric envelope key *right now*. Does NOT show a prompt — the
+  /// prompt is opened by the KeyStore provider inside
+  /// `BiometricPrompt.CryptoObject`.
+  ///
+  /// The answer is [NativeBiometricCapability.canUseStrong], never
+  /// [NativeBiometricCapability.canUseStrongOrCredential]: the envelope
+  /// key is declared `setUserAuthenticationParameters(0,
+  /// AUTH_BIOMETRIC_STRONG)`, so a device whose only credential is a
+  /// PIN/pattern/password cannot open it. Asking the weaker question made
+  /// this gate say "yes, you can unlock with biometrics" on a device
+  /// where the very next KeyStore operation would be refused.
   @override
   Future<bool> authenticateForUnlock() async {
-    if (!Platform.isAndroid) return false;
+    if (!_isAndroid) return false;
     final cap = await probeCapability();
-    return cap.canUseStrongOrCredential;
+    return cap.canUseStrong;
   }
 }

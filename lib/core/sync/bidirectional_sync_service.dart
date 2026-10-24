@@ -7,7 +7,17 @@ import 'local_vault_mutation.dart';
 import 'remote_vault_blob_change.dart';
 import 'remote_vault_sync_repository.dart';
 import 'sync_conflict.dart';
+import 'sync_item_payload_codec.dart';
 import 'sync_runtime_hardening.dart';
+
+/// Callback that hands resolved remote snapshots to the vault writer.
+/// Returns the record ids the writer refused (invalid, downgraded or
+/// unauthenticated payloads) so the sync layer can report them; `null`
+/// or an empty iterable means everything was applied.
+typedef ApplyLocalSnapshots =
+    Future<Iterable<String>?> Function(
+      Iterable<RemoteVaultBlobSnapshot> snapshots,
+    );
 
 /// Bidirectional sync coordinator: single owner of the local cursor
 /// (pull) and the local push queue (push). Replaces the historical
@@ -28,7 +38,8 @@ class BidirectionalSyncService implements LocalVaultMutationSink {
   /// Builds a [BidirectionalSyncService]. Most callers should rely on
   /// the defaults; the optional [uuid] / [delay] / [now] are for
   /// tests, and the optional [applyLocalSnapshots] callback is
-  /// what feeds the vault writer during a pull.
+  /// what feeds the vault writer during a pull (see
+  /// [ApplyLocalSnapshots]).
   BidirectionalSyncService({
     required RemoteVaultSyncRepository repository,
     required LocalRemoteVaultStore localStore,
@@ -42,8 +53,7 @@ class BidirectionalSyncService implements LocalVaultMutationSink {
     Duration pushBaseBackoff = const Duration(seconds: 2),
     Duration pushMaxBackoff = const Duration(minutes: 2),
     this.diagnosticsHook,
-    Future<void> Function(Iterable<RemoteVaultBlobSnapshot> snapshots)?
-    applyLocalSnapshots,
+    ApplyLocalSnapshots? applyLocalSnapshots,
     Future<void> Function(Duration delay)? delay,
     DateTime Function()? now,
   }) : _repository = repository,
@@ -72,8 +82,7 @@ class BidirectionalSyncService implements LocalVaultMutationSink {
   final int _pushMaxItemsPerRun;
   final Duration _pushBaseBackoff;
   final Duration _pushMaxBackoff;
-  final Future<void> Function(Iterable<RemoteVaultBlobSnapshot> snapshots)?
-  _applyLocalSnapshots;
+  final ApplyLocalSnapshots? _applyLocalSnapshots;
   final Future<void> Function(Duration delay) _delay;
   final DateTime Function() _now;
 
@@ -193,7 +202,13 @@ class BidirectionalSyncService implements LocalVaultMutationSink {
           userId: userId,
           changes: changes,
         );
-        await applyLocalSnapshots(snapshots);
+        final refused = await applyLocalSnapshots(snapshots);
+        for (final recordId in refused ?? const <String>[]) {
+          _reportRejectedPayload(
+            recordId: recordId,
+            reason: 'refused_by_vault',
+          );
+        }
       }
 
       if (changes.length < _pullBatchSize) {
@@ -208,36 +223,99 @@ class BidirectionalSyncService implements LocalVaultMutationSink {
     );
   }
 
+  /// Maps each pulled change to the local record id the vault writer
+  /// should use.
+  ///
+  /// Record-bound (v3) payloads carry their bound local record id in
+  /// the wire ciphertext (see [SyncItemPayloadCodec]). That id is only
+  /// trusted when it derives to the remote row the change arrived
+  /// under; otherwise the ciphertext was moved between rows (or forged)
+  /// and the change is dropped and reported instead of applied. A
+  /// verified binding also records the remote -> local id mapping so
+  /// later tombstones for the row resolve to the right local item.
   Future<List<RemoteVaultBlobSnapshot>> _resolveSnapshotIds({
     required String userId,
     required List<RemoteVaultBlobChange> changes,
   }) async {
     final resolved = <RemoteVaultBlobSnapshot>[];
     for (final change in changes) {
+      final base = RemoteVaultBlobSnapshot.fromChange(change);
+      if (!change.isTombstone &&
+          change.keyVersion >= SyncItemPayloadCodec.boundPayloadVersion) {
+        final bound = SyncItemPayloadCodec.decode(change.ciphertext);
+        if (bound == null) {
+          _reportRejectedPayload(
+            recordId: change.recordId,
+            reason: 'malformed_binding',
+          );
+          continue;
+        }
+        final expectedRemoteId = _remoteRecordIdFor(
+          userId: userId,
+          localRecordId: bound.recordId,
+        );
+        if (expectedRemoteId != change.recordId) {
+          _reportRejectedPayload(
+            recordId: change.recordId,
+            reason: 'record_binding_mismatch',
+          );
+          continue;
+        }
+        await _localStore.saveRecordIdMapping(
+          userId: userId,
+          localRecordId: bound.recordId,
+          remoteRecordId: change.recordId,
+        );
+        resolved.add(_withRecordId(base, bound.recordId));
+        continue;
+      }
+
       final localId = await _localStore.resolveLocalRecordId(
         userId: userId,
         remoteRecordId: change.recordId,
       );
-      final base = RemoteVaultBlobSnapshot.fromChange(change);
-      if (localId == base.recordId) {
-        resolved.add(base);
-      } else {
-        resolved.add(
-          RemoteVaultBlobSnapshot(
-            recordId: localId,
-            version: base.version,
-            keyVersion: base.keyVersion,
-            ciphertext: base.ciphertext,
-            nonce: base.nonce,
-            gcmTag: base.gcmTag,
-            deletedAt: base.deletedAt,
-            updatedAt: base.updatedAt,
-          ),
-        );
-      }
+      resolved.add(
+        localId == base.recordId ? base : _withRecordId(base, localId),
+      );
     }
 
     return resolved;
+  }
+
+  RemoteVaultBlobSnapshot _withRecordId(
+    RemoteVaultBlobSnapshot base,
+    String recordId,
+  ) {
+    return RemoteVaultBlobSnapshot(
+      recordId: recordId,
+      version: base.version,
+      keyVersion: base.keyVersion,
+      ciphertext: base.ciphertext,
+      nonce: base.nonce,
+      gcmTag: base.gcmTag,
+      itemKeySalt: base.itemKeySalt,
+      itemKeyVersion: base.itemKeyVersion,
+      deletedAt: base.deletedAt,
+      updatedAt: base.updatedAt,
+    );
+  }
+
+  void _reportRejectedPayload({
+    required String recordId,
+    required String reason,
+  }) {
+    const code = SyncStatusCodes.payloadRejected;
+    emitSyncDiagnostic(
+      scope: 'pull',
+      operation: 'apply_snapshot',
+      code: code,
+      message: syncMessageForCode(code),
+      retriable: false,
+      timestamp: _now(),
+      hook: diagnosticsHook,
+      metadata: {'recordId': recordId, 'reason': reason},
+    );
+    syncDebugPrint('[sync][pull] rejected payload record=$recordId ($reason)');
   }
 
   Future<List<RemoteVaultBlobChange>?> _fetchWithRetry({
@@ -522,6 +600,8 @@ class BidirectionalSyncService implements LocalVaultMutationSink {
         nonce: item.nonce ?? '',
         gcmTag: item.gcmTag,
         keyVersion: item.keyVersion ?? 1,
+        itemKeySalt: item.itemKeySalt,
+        itemKeyVersion: item.itemKeyVersion,
       ),
       PushQueueOperationKind.delete => _repository.pushDeleteBlob(
         deviceId: deviceId,
@@ -695,6 +775,8 @@ class BidirectionalSyncService implements LocalVaultMutationSink {
           ciphertext: item.ciphertext,
           nonce: item.nonce,
           gcmTag: item.gcmTag,
+          itemKeySalt: item.itemKeySalt,
+          itemKeyVersion: item.itemKeyVersion,
           updatedAt: item.updatedAt,
         ),
         remoteSnapshot: snapshot == null
@@ -708,6 +790,8 @@ class BidirectionalSyncService implements LocalVaultMutationSink {
                 ciphertext: snapshot.ciphertext,
                 nonce: snapshot.nonce,
                 gcmTag: snapshot.gcmTag,
+                itemKeySalt: snapshot.itemKeySalt,
+                itemKeyVersion: snapshot.itemKeyVersion,
                 deletedAt: snapshot.deletedAt,
                 updatedAt: snapshot.updatedAt,
               ),
@@ -730,6 +814,8 @@ class BidirectionalSyncService implements LocalVaultMutationSink {
         ciphertext: deletedAt == null ? item.ciphertext : null,
         nonce: deletedAt == null ? item.nonce : null,
         gcmTag: deletedAt == null ? item.gcmTag : null,
+        itemKeySalt: deletedAt == null ? item.itemKeySalt : null,
+        itemKeyVersion: deletedAt == null ? item.itemKeyVersion : null,
         deletedAt: deletedAt,
         updatedAt: _now().toUtc(),
       ),

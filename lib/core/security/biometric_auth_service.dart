@@ -60,6 +60,12 @@ class BiometricAvailability {
 
 /// Abstraction over the platform's biometric prompt. [LocalBiometricAuthService]
 /// is the production implementation; tests substitute fakes.
+///
+/// The two production implementations differ in *who opens the prompt*,
+/// and that difference is a security property, not an implementation
+/// detail, so it lives in the type system rather than in a runtime flag
+/// somewhere in the bootstrap. See [PromptingBiometricAuthService] and
+/// [NonPromptingBiometricAuthService].
 abstract interface class BiometricAuthService {
   /// Probes the platform and returns what kinds of biometric factors
   /// are available, without prompting the user.
@@ -71,8 +77,30 @@ abstract interface class BiometricAuthService {
   Future<bool> authenticateForUnlock();
 }
 
+/// A gate that opens its own `BiometricPrompt` inside
+/// [BiometricAuthService.authenticateForUnlock]. Only for platforms with
+/// no platform-protected envelope key to authorize.
+abstract interface class PromptingBiometricAuthService
+    implements BiometricAuthService {}
+
+/// A gate whose [BiometricAuthService.authenticateForUnlock] is only an
+/// availability probe and NEVER opens a prompt.
+///
+/// On Android the prompt is opened by the envelope key provider, bound
+/// to the KeyStore private key through `BiometricPrompt.CryptoObject`, so
+/// anything that also opened one here would show the user a second,
+/// pointless prompt. Pairing a [PromptingBiometricAuthService] with a
+/// prompting provider is the double-prompt bug; keeping the two
+/// capabilities in separate types is what stops it from being written.
+abstract interface class NonPromptingBiometricAuthService
+    implements BiometricAuthService {}
+
 /// Production [BiometricAuthService] backed by `package:local_auth`.
-class LocalBiometricAuthService implements BiometricAuthService {
+///
+/// This variant owns the prompt: [authenticateForUnlock] shows one. It
+/// is therefore only correct for a platform with no envelope key
+/// provider behind it, which today means every non-Android target.
+class LocalBiometricAuthService implements PromptingBiometricAuthService {
   /// Optional [auth] override for tests. Defaults to a fresh
   /// [LocalAuthentication] instance.
   LocalBiometricAuthService({LocalAuthentication? auth})

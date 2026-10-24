@@ -18,6 +18,7 @@ import '../../../core/sync/sync_conflict_resolver.dart';
 import '../../../core/update/update_service.dart';
 import '../../../features/access/presentation/access_screen.dart';
 import '../../settings/presentation/settings_screen.dart';
+import '../../settings/presentation/update_section.dart';
 import '../../vault/presentation/vault_dashboard_screen.dart';
 
 /// Top-level unlocked shell: a [ScaffoldMessenger] hosting a
@@ -140,7 +141,13 @@ class _AppShellState extends State<AppShell> {
     } catch (error) {
       if (!mounted) return;
       messenger?.showSnackBar(
-        SnackBar(content: Text(l10n.updateGenericError(error.toString()))),
+        SnackBar(
+          content: Text(
+            error is UpdateVerificationException
+                ? localizedUpdateError(l10n, error)
+                : l10n.updateGenericError(error.toString()),
+          ),
+        ),
       );
     }
   }
@@ -167,6 +174,7 @@ class _AppShellState extends State<AppShell> {
         conflictResolver: widget.conflictResolver,
         revocationService: widget.revocationService,
         secureStorage: widget.secureStorage,
+        repository: widget.repository,
       ),
     ];
 
@@ -174,7 +182,6 @@ class _AppShellState extends State<AppShell> {
       key: _scaffoldMessengerKey,
       child: Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
-        extendBody: true,
         body: AnimatedSwitcher(
           duration: AppMotion.medium,
           switchInCurve: AppMotion.enter,

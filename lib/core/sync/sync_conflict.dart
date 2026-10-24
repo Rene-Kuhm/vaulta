@@ -34,6 +34,8 @@ class SyncConflictSnapshot {
     this.ciphertext,
     this.nonce,
     this.gcmTag,
+    this.itemKeySalt,
+    this.itemKeyVersion,
     this.deletedAt,
     this.updatedAt,
   });
@@ -56,6 +58,14 @@ class SyncConflictSnapshot {
   /// Base64 GCM auth tag. Null for tombstones.
   final String? gcmTag;
 
+  /// Base64 salt of the per-item key, for payloads sealed under their own
+  /// key. Null for DEK-sealed payloads and tombstones. Carried so the
+  /// conflict view shows the same payload the queue would re-ship.
+  final String? itemKeySalt;
+
+  /// Item key version, under the same gate as [itemKeySalt].
+  final int? itemKeyVersion;
+
   /// When the record was tombstoned. Non-null marks the snapshot
   /// as a delete.
   final DateTime? deletedAt;
@@ -66,6 +76,8 @@ class SyncConflictSnapshot {
 
   /// Inverse of [toJson]. Accepts the legacy `aad` field name as a
   /// fallback for [gcmTag] so old persisted conflicts keep loading.
+  /// Records persisted before item-keyed payloads existed carry neither
+  /// item key field and load with both null.
   factory SyncConflictSnapshot.fromJson(Map<String, dynamic> json) {
     return SyncConflictSnapshot(
       version: json['version'] as int?,
@@ -73,6 +85,8 @@ class SyncConflictSnapshot {
       ciphertext: json['ciphertext'] as String?,
       nonce: json['nonce'] as String?,
       gcmTag: (json['gcmTag'] ?? json['aad']) as String?,
+      itemKeySalt: json['itemKeySalt'] as String?,
+      itemKeyVersion: json['itemKeyVersion'] as int?,
       deletedAt: json['deletedAt'] == null
           ? null
           : DateTime.parse(json['deletedAt'] as String).toUtc(),
@@ -90,6 +104,8 @@ class SyncConflictSnapshot {
       'ciphertext': ciphertext,
       'nonce': nonce,
       'gcmTag': gcmTag,
+      'itemKeySalt': itemKeySalt,
+      'itemKeyVersion': itemKeyVersion,
       'deletedAt': deletedAt?.toUtc().toIso8601String(),
       'updatedAt': updatedAt?.toUtc().toIso8601String(),
     };

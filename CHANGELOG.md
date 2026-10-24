@@ -4,6 +4,118 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **TOTP (RFC 6238) on vault items.** An item can carry an `otpauth://`
+  URI and the detail screen shows the current code with a countdown and a
+  copy action. HMAC-SHA1 by default, SHA256/SHA512 and 6/8 digits when the
+  URI asks for them. Verified against the eight RFC 6238 Appendix B test
+  vectors, including the 8-digit value that starts with a zero.
+- **KeePass `.kdbx` import.** KDBX 3.1 and 4.x, with a password and
+  optionally a key file. A wrong master password produces a clear error
+  instead of an empty item list. Every previous import format keeps
+  working, and a test pins that CSV still skips the password prompt.
+- **Password history per item.** Rotating a secret keeps the previous one
+  with the instant it was replaced, capped at 10 entries, shown newest
+  first on the detail screen with a copy action. An item that never had a
+  history serializes byte-identically to before.
+- **Vault health report.** A screen that names which items are weak and
+  which share a secret with another item, each tappable to open it, with a
+  real empty state for a healthy vault.
+- **Clear-text CSV and JSON export**, next to the encrypted `.vaulta`
+  export and not replacing it. It requires acknowledging an explicit
+  warning and re-entering the master password, and the encrypted export
+  stays the default.
+
+### Changed
+
+- **The security screen reports the real device capability set.** It used
+  to show `false` for hardware-backed keys and biometric unlock even when
+  the Android KeyStore path worked. It now carries three states — supported,
+  unsupported, and could-not-determine — so an unknown is never disguised
+  as a negative.
+- **`README.md` no longer contradicts the code**: the encrypted export is
+  documented as shipped (it was listed as unavailable) and the coverage
+  gate is stated as 60%, which is what CI enforces.
+
+### Internal
+
+- **Encrypted local database (ADR-007).** SQLite 3.54 built as SQLite3
+  Multiple Ciphers through native assets, `STRICT` tables, per-item payload
+  encryption unchanged, and a verified one-time migration that keeps the
+  legacy blob as the rollback. Off by default behind
+  `--dart-define=VAULTA_SQLITE_STORAGE=true`; the release default still uses
+  the encrypted blob. A save drops from 501 encryptions and 179.433 bytes to
+  2 encryptions and 277 bytes on a 500-item vault.
+- **Sync decoupled from the blob** through a narrow `RemoteSnapshotApplier`
+  port, now implemented by both storages.
+
+## [1.1.0] - 2026-10-19
+
+### Security
+
+- **Master-password attempts are throttled (#3).** After 4 failed
+  attempts the lock screen locks out for 30 seconds, doubling with
+  each further failure up to 15 minutes. The counter and lockout are
+  stored in secure storage as a single atomic record, so killing or
+  restarting the app does not reset them, and they are checked
+  before any Argon2id work. Unreadable state fails closed. Clock
+  rollbacks keep the device locked; a clock that was ahead and is
+  then corrected never locks the user out for longer than one
+  lockout period. Biometric setup from the lock screen and changing
+  the master password go through the same limiter. The unlock
+  screen shows a localized countdown.
+- **Screen and clipboard protection on Android (#4).**
+  - `FLAG_SECURE` on the main window blocks screenshots, screen
+    recording, casting and the recents thumbnail (plus
+    `setRecentsScreenshotEnabled(false)` on Android 13+).
+  - Copied secrets are flagged as sensitive so keyboards and the
+    Android 13+ clipboard preview hide them, and are cleared after
+    30 seconds by a native alarm that survives the app being frozen
+    or killed. Locking the vault clears them immediately. Vaulta only
+    clears clips it put there.
+  - Revealed secrets are kept out of the text toolbar (Copy, Share,
+    Translate / `PROCESS_TEXT`) and keyboard copy/cut, and password
+    fields disable autocorrect and suggestions so keyboards do not
+    learn them.
+- **Verified in-app updates.** The updater now follows the latest
+  stable release instead of the rolling dev build, and refuses to
+  install an APK unless its SHA-256 matches the release's
+  `SHA256SUMS` and it is signed with the same certificate as the
+  installed app. A missing checksum, a mismatch or a different signer
+  shows a localized error and the download is deleted. An optional
+  *Dev channel* switch in *Settings > Updates* follows `dev-latest`
+  with the same checks.
+
+### Added
+
+- **Stable release pipeline.** Pushing a `vX.Y.Z` tag builds the
+  signed APK and the Windows bundle (`vaulta.exe` inside
+  `vaulta-windows-bundle.zip`) in CI, publishes them with a
+  `SHA256SUMS` file, and uses this changelog section as the release
+  notes. The tag must match the `pubspec.yaml` version. See
+  `docs/release-process.md`.
+- `SECURITY.md` with supported versions and private reporting through
+  GitHub Security Advisories.
+- Dependabot for pub, Gradle and GitHub Actions dependencies.
+
+### Changed
+
+- The `dev-latest` build is now published as a pre-release with its
+  own `SHA256SUMS`, so it is never shown as the latest release.
+- CI pins Flutter 3.47.7 and every GitHub Action to a commit SHA,
+  builds Windows on pull requests, and requires 60% line coverage on
+  `lib/core/security` (was 50%).
+
+### Documentation
+
+- The README describes only what ships today, with unshipped work
+  (autofill, Windows Hello unlock, signed Windows binary) moved to a
+  roadmap, and a security hardening status page was added under
+  `docs/security/` (#2).
+
 ## [1.0.21] - 2026-06-10
 
 ### Fixed

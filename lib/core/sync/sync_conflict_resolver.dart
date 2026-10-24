@@ -156,6 +156,10 @@ class SyncConflictResolver {
       nonce: queueItem.nonce,
       gcmTag: queueItem.gcmTag,
       keyVersion: queueItem.keyVersion,
+      // The re-push must ship the same salt: without it the other
+      // device derives a different item key and cannot open the payload.
+      itemKeySalt: queueItem.itemKeySalt,
+      itemKeyVersion: queueItem.itemKeyVersion,
       idempotencyKey: null,
       attemptCount: queueItem.attemptCount,
       retryCount: 0,

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../../../app/design_system/app_components.dart';
 import '../../../app/design_system/app_panel.dart';
@@ -9,6 +10,7 @@ import '../../../app/localization/l10n.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../core/security/sensitive_clipboard_service.dart';
+import '../../totp/presentation/totp_code_panel.dart';
 import '../domain/vault_item.dart';
 
 /// Read-only detail view for a single [VaultItem].
@@ -59,6 +61,11 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
   bool _obscureSecret = true;
   late final SensitiveClipboardService _clipboard =
       widget.clipboardService ?? SensitiveClipboardService.shared;
+
+  /// Indexes (in [VaultItem.passwordHistoryNewestFirst] order) of the
+  /// previous passwords the user chose to reveal. Empty by default so
+  /// old secrets stay masked until asked for.
+  final Set<int> _revealedHistory = <int>{};
 
   @override
   Widget build(BuildContext context) {
@@ -226,6 +233,17 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
                 ],
               ),
             ),
+            if (item.passwordHistory.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.lg),
+              _passwordHistoryPanel(context),
+            ],
+            if (item.otpAuthUri != null) ...[
+              const SizedBox(height: AppSpacing.lg),
+              TotpCodePanel(
+                uri: item.otpAuthUri!,
+                clipboardService: _clipboard,
+              ),
+            ],
             if (item.notes != null) ...[
               const SizedBox(height: AppSpacing.lg),
               AppPanel(
@@ -251,6 +269,110 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
         ),
       ),
     );
+  }
+
+  /// Collapsible list of the passwords this entry used to have, newest
+  /// first. Only rendered when there is at least one entry, so an item
+  /// whose password was never rotated looks exactly like before.
+  Widget _passwordHistoryPanel(BuildContext context) {
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final entries = widget.item.passwordHistoryNewestFirst;
+
+    return AppPanel(
+      child: ExpansionTile(
+        title: Text(
+          l10n.entryPasswordHistoryTitle,
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        subtitle: Text(
+          l10n.entryPasswordHistoryHint,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        // Keep the panel chrome as the only border.
+        shape: const Border(),
+        collapsedShape: const Border(),
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: AppSpacing.xs),
+        expandedCrossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final (index, entry) in entries.indexed)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Plain Text on purpose, like the current secret:
+                        // a selectable previous password would expose the
+                        // platform's plain Copy/Share toolbar. The copy
+                        // button below is the only copy path, and it goes
+                        // through the sensitive clipboard service.
+                        Text(
+                          _revealedHistory.contains(index)
+                              ? entry.secret
+                              : _mask(entry.secret),
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: AppColors.paperDark,
+                            letterSpacing: 0.6,
+                            fontWeight: FontWeight.w600,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _formatReplacedAt(context, entry.replacedAt),
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => _toggleHistoryReveal(index),
+                    tooltip: _revealedHistory.contains(index)
+                        ? l10n.entryPasswordHistoryHideTooltip
+                        : l10n.entryPasswordHistoryRevealTooltip,
+                    icon: Icon(
+                      _revealedHistory.contains(index)
+                          ? Icons.visibility_off_rounded
+                          : Icons.visibility_rounded,
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => _copySecret(entry.secret),
+                    tooltip: l10n.entryPasswordHistoryCopyTooltip,
+                    icon: const Icon(Icons.copy_rounded),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _toggleHistoryReveal(int index) {
+    setState(() {
+      if (!_revealedHistory.add(index)) {
+        _revealedHistory.remove(index);
+      }
+    });
+  }
+
+  /// Localized date and time at which a previous password was replaced.
+  String _formatReplacedAt(BuildContext context, DateTime replacedAt) {
+    return DateFormat.yMMMd(
+      Localizations.localeOf(context).toLanguageTag(),
+    ).add_Hm().format(replacedAt.toLocal());
   }
 
   AppPillTint _categoryTint(VaultCategory c) {

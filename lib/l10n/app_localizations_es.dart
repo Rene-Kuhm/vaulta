@@ -155,7 +155,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get settingsRoadmapTitle => 'Roadmap de seguridad de plataforma';
 
   @override
-  String get settingsRoadmapNotes => 'Los ítems del vault usan ADR-001 v2: Argon2id deriva una KEK desde la master password y una DEK aleatoria cifra entradas con AES-256-GCM. Android ya usa KeyStore para desbloqueo biométrico; iOS/macOS quedan pendientes.';
+  String get settingsRoadmapNotes => 'Los ítems del vault usan el payload v4 de ADR-001: Argon2id deriva una KEK desde la master password, una DEK aleatoria abre la bóveda y cada ítem se sella con AES-256-GCM bajo su propia clave, con el ciphertext atado a su id de registro, id de clave de ítem, versión de clave de ítem e IV. Android recupera la DEK con biometría mediante una clave del KeyStore; iOS/macOS quedan pendientes.';
 
   @override
   String get settingsSecureStorage => 'Almacenamiento seguro';
@@ -164,10 +164,19 @@ class AppLocalizationsEs extends AppLocalizations {
   String get settingsBiometricUnlock => 'Recovery biométrico de clave';
 
   @override
-  String get settingsHardwareBackedKeys => 'Claves con respaldo de hardware';
+  String get settingsHardwareBackedKeys => 'Clave en el KeyStore';
 
   @override
   String get settingsVaultEncryptionReady => 'Cifrado del vault conectado end-to-end';
+
+  @override
+  String get settingsCapabilitySupported => 'Disponible';
+
+  @override
+  String get settingsCapabilityUnsupported => 'No disponible';
+
+  @override
+  String get settingsCapabilityUnknown => 'No se pudo determinar';
 
   @override
   String get settingsConflictsTitle => 'Conflictos de sync';
@@ -302,7 +311,13 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
-  String get securityBiometricUnavailable => 'No detectamos biometría disponible. Igual vas a poder entrar con tu master password.';
+  String get securityBiometricUnavailable => 'El desbloqueo biométrico no está disponible: no hay biometría enrolled, o esta versión de Android no puede exigir una biometría. Igual vas a poder entrar con tu master password.';
+
+  @override
+  String get securityShowPassword => 'Mostrar contraseña';
+
+  @override
+  String get securityHidePassword => 'Ocultar contraseña';
 
   @override
   String get securityCreateSecureAccess => 'Crear acceso seguro al vault';
@@ -388,6 +403,35 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get clipboardCleared => 'Portapapeles limpiado.';
+
+  @override
+  String get entryPasswordHistoryTitle => 'Contraseñas anteriores';
+
+  @override
+  String get entryPasswordHistoryHint => 'Contraseñas que guardamos al cambiar el secreto. Primero las más recientes.';
+
+  @override
+  String get entryPasswordHistoryCopyTooltip => 'Copiar contraseña anterior';
+
+  @override
+  String get entryPasswordHistoryRevealTooltip => 'Mostrar contraseña anterior';
+
+  @override
+  String get entryPasswordHistoryHideTooltip => 'Ocultar contraseña anterior';
+
+  @override
+  String get totpTitle => 'Código de un solo uso';
+
+  @override
+  String get totpCopyCode => 'Copiar código';
+
+  @override
+  String totpSecondsRemaining(int seconds) {
+    return '${seconds}s restantes';
+  }
+
+  @override
+  String get totpUnavailable => 'No se pudo leer el código de un solo uso de esta entrada.';
 
   @override
   String get entryNotesTitle => 'Notas';
@@ -714,7 +758,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get updateRemote => 'Remota';
 
   @override
-  String get updateDescription => 'Las nuevas versiones se publican automaticamente cuando hay un push a master. Tocá el botón para comprobar si hay una version más reciente sin desinstalar la app.';
+  String get updateDescription => 'Las versiones estables se publican desde releases etiquetadas. Antes de instalar, cada descarga se verifica contra los checksums SHA-256 de la release y el certificado de firma de la app.';
 
   @override
   String get updateCheck => 'Buscar actualizaciones';
@@ -738,7 +782,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get updateUpToDateTitle => 'Al día';
 
   @override
-  String get updateUpToDateBody => 'La version instalada coincide con la ultima publicada en master.';
+  String get updateUpToDateBody => 'La version instalada coincide con la ultima publicada en este canal.';
 
   @override
   String get updateErrorTitle => 'No pudimos comprobar actualizaciones';
@@ -765,6 +809,21 @@ class AppLocalizationsEs extends AppLocalizations {
   String get updateActionUpdate => 'Actualizar';
 
   @override
+  String get updateDevChannelTitle => 'Canal dev';
+
+  @override
+  String get updateDevChannelSubtitle => 'Recibe la build continua que se publica con cada cambio en master. Menos probada que las versiones estables; las descargas se verifican igual.';
+
+  @override
+  String get updateChecksumMissing => 'Actualizacion rechazada: la release no publica un checksum SHA-256 para esta APK, asi que no se puede verificar.';
+
+  @override
+  String get updateChecksumMismatch => 'Actualizacion rechazada: la APK descargada no coincide con el checksum SHA-256 publicado. Se elimino.';
+
+  @override
+  String get updateSignatureMismatch => 'Actualizacion rechazada: la APK descargada no esta firmada con el mismo certificado que la app instalada. Se elimino.';
+
+  @override
   String get updateInstallPrompt => 'Confirma la instalacion en la pantalla del sistema.';
 
   @override
@@ -779,19 +838,49 @@ class AppLocalizationsEs extends AppLocalizations {
   String get accessEyebrow => 'Autofill y acceso';
 
   @override
-  String get accessTitle => 'Tu vault en cada input';
+  String get accessTitle => 'El autofill está listo';
 
   @override
-  String get accessSubtitle => 'Configurá Vaulta como proveedor de autofill del sistema y desbloqueá tus entradas en el momento que un campo de password las necesita.';
+  String get accessSubtitle => 'El servicio de autofill de Android de Vaulta está registrado en este dispositivo. Completa inicios de sesión en el navegador y en apps que verifican su sitio web en Android 12 o superior.';
 
   @override
-  String get accessHeroTitle => 'Autofill en un toque';
+  String get accessHeroTitle => 'Completa inicios de sesión sin copiar y pegar';
 
   @override
-  String get accessHeroBody => 'Respaldado por hardware. Offline por defecto. Nada sale del dispositivo.';
+  String get accessHeroBody => 'Elegí Vaulta como servicio de autofill en los ajustes de Android y desbloqueá cuando un inicio de sesión pida una contraseña.';
 
   @override
-  String get accessPlatformAndroid => 'Android 11+';
+  String get accessPlatformAndroid => 'Android';
+
+  @override
+  String get accessComingSoon => 'Disponible ahora';
+
+  @override
+  String get accessStatusTitle => 'Servicio de autofill registrado';
+
+  @override
+  String get accessStatusBody => 'El servicio de autofill de Vaulta está activo en este dispositivo. Nada en esta pantalla cambia los ajustes del sistema: elegí Vaulta en Ajustes → Servicio de autofill para empezar a completar.';
+
+  @override
+  String get accessUnlockPostureTitle => 'Postura de desbloqueo';
+
+  @override
+  String get accessUnlockPostureBody => 'Las solicitudes de autofill van a usar el mismo estado de desbloqueo que el resto de la app.';
+
+  @override
+  String get accessUnlocked => 'Vault desbloqueado';
+
+  @override
+  String get accessLocked => 'Vault bloqueado';
+
+  @override
+  String get accessLockNow => 'Bloquear vault ahora';
+
+  @override
+  String get accessRoadmapTitle => 'Lo que viene';
+
+  @override
+  String get accessRoadmapBody => 'El autofill de iOS y desktop todavía está pendiente. El llenado en apps de Android (más allá de sitios web verificados) está limitado por las reglas de verificación de dominio de la plataforma.';
 
   @override
   String get accessPlatformBiometrics => 'Desbloqueo biométrico';
@@ -824,23 +913,217 @@ class AppLocalizationsEs extends AppLocalizations {
   String get accessSetupStep3Body => 'La próxima vez que toques un campo de password, Vaulta pide biometria o master password y completa la entrada correcta.';
 
   @override
-  String get accessUnlockPostureTitle => 'Postura de desbloqueo';
+  String get backupSectionTitle => 'Copia de seguridad cifrada';
 
   @override
-  String get accessUnlockPostureBody => 'Las solicitudes de autofill usan el mismo estado de desbloqueo que el resto de la app.';
+  String get backupSectionSubtitle => 'Exporta tu vault a un archivo .vaulta cifrado para restaurarlo en un dispositivo nuevo. Guarda el archivo fuera de este dispositivo.';
 
   @override
-  String get accessUnlocked => 'Vault desbloqueado';
+  String get backupExportAction => 'Exportar copia';
 
   @override
-  String get accessLocked => 'Vault bloqueado';
+  String get backupRestoreAction => 'Restaurar copia';
 
   @override
-  String get accessLockNow => 'Bloquear vault ahora';
+  String get backupExportTitle => 'Exportar copia cifrada';
 
   @override
-  String get accessRoadmapTitle => 'Lo que viene';
+  String get backupReauthBody => 'Vuelve a ingresar tu master password para exportar el vault.';
 
   @override
-  String get accessRoadmapBody => 'El autofill de iOS y desktop sale despues de los bindings biometricos (iOS/macOS) que faltan.';
+  String get backupMasterPasswordLabel => 'Master password';
+
+  @override
+  String get backupContinue => 'Continuar';
+
+  @override
+  String get backupMasterPasswordMismatch => 'La master password no coincide.';
+
+  @override
+  String backupItemCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'La copia contendra $count entradas.',
+      one: 'La copia contendra 1 entrada.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupPasswordLabel => 'Password de la copia';
+
+  @override
+  String get backupPasswordConfirmLabel => 'Confirmar password de la copia';
+
+  @override
+  String get backupPasswordHint => 'Al menos 12 caracteres, y que no aparezca en listas de contrasenas filtradas. Una frase larga es mejor.';
+
+  @override
+  String get backupPasswordWarning => 'Vaulta no puede recuperar la password de la copia. Si la olvidas, nadie podra abrir esta copia, ni siquiera tu.';
+
+  @override
+  String backupPasswordTooShort(int min) {
+    return 'Usa al menos $min caracteres.';
+  }
+
+  @override
+  String get backupPasswordWeak => 'Esa contrasena aparece en listas de contrasenas filtradas. Elegi otra.';
+
+  @override
+  String get backupPasswordMismatch => 'La confirmacion no coincide con la password de la copia.';
+
+  @override
+  String get backupCreateAction => 'Crear copia';
+
+  @override
+  String get backupSaveAgain => 'Guardar archivo';
+
+  @override
+  String get backupSaveCancelled => 'Se cancelo el guardado. No se escribio ningun archivo.';
+
+  @override
+  String get backupExportSuccess => 'Copia cifrada guardada.';
+
+  @override
+  String get backupExportFailed => 'No se pudo crear la copia. Intenta de nuevo.';
+
+  @override
+  String get backupExportClearTextAction => 'Exportar sin cifrar (CSV/JSON)';
+
+  @override
+  String get backupClearTextTitle => 'Exportar archivo sin cifrar';
+
+  @override
+  String get backupClearTextReauthBody => 'Vuelve a ingresar tu master password para exportar el vault en texto plano.';
+
+  @override
+  String backupClearTextItemCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'El archivo tendrá $count entradas.',
+      one: 'El archivo tendrá 1 entrada.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupClearTextWarning => 'Este archivo NO está cifrado. Cualquiera que lo abra va a leer todas tus contraseñas, incluidas las apps que lo sincronicen a la nube. Borralo apenas termines de migrar.';
+
+  @override
+  String get backupClearTextFormatLabel => 'Formato';
+
+  @override
+  String get backupClearTextFormatCsv => 'CSV — gestores de contraseñas y planillas';
+
+  @override
+  String get backupClearTextFormatJson => 'JSON — todos los campos, sin pérdida de datos';
+
+  @override
+  String get backupClearTextConfirm => 'Entiendo que el archivo va a quedar sin cifrar en el disco.';
+
+  @override
+  String get backupClearTextCreateAction => 'Exportar archivo sin cifrar';
+
+  @override
+  String get backupClearTextSuccess => 'Archivo sin cifrar guardado. Borralo cuando ya no lo necesites.';
+
+  @override
+  String get backupClearTextExportFailed => 'No se pudo crear el archivo sin cifrar. Intenta de nuevo.';
+
+  @override
+  String get backupReauthExpired => 'Tu confirmacion vencio. Vuelve a iniciar la exportacion.';
+
+  @override
+  String get backupRestoreTitle => 'Restaurar copia';
+
+  @override
+  String get backupRestoreIntro => 'Elige un archivo .vaulta e ingresa su password. No se escribe nada en tu vault hasta que confirmes.';
+
+  @override
+  String get backupPickFile => 'Elegir archivo de copia';
+
+  @override
+  String get backupPickFailed => 'No se pudo abrir el archivo.';
+
+  @override
+  String get backupUnlockAction => 'Abrir copia';
+
+  @override
+  String get backupOpenFailed => 'No se pudo abrir la copia. Revisa la password de la copia; el archivo tambien puede estar danado o modificado.';
+
+  @override
+  String get backupUnsupportedVersion => 'Esta copia la creo una version mas nueva de Vaulta. Actualiza la app e intenta de nuevo.';
+
+  @override
+  String get backupPreviewTitle => 'Contenido de la copia';
+
+  @override
+  String backupPreviewCreatedAt(String date) {
+    return 'Creada el $date';
+  }
+
+  @override
+  String backupPreviewSummary(int total, int fresh, int conflicts, int duplicates) {
+    return '$total entradas: $fresh nuevas, $conflicts conservadas junto a una similar, $duplicates ya estan en tu vault.';
+  }
+
+  @override
+  String get backupConflictSuffix => ' (restaurada)';
+
+  @override
+  String backupRestoreConfirm(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Restaurar $count entradas',
+      one: 'Restaurar 1 entrada',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupRestoreNothing => 'Todas las entradas de esta copia ya estan en tu vault.';
+
+  @override
+  String backupRestoreSuccess(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Se restauraron $count entradas.',
+      one: 'Se restauro 1 entrada.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupRestoreFailed => 'La restauracion se interrumpio. Se conservaron las entradas escritas antes del error.';
+
+  @override
+  String get backupRestoreLocked => 'Desbloquea Vaulta para restaurar una copia.';
+
+  @override
+  String get syncSignInTitle => 'Inicia sesion para sincronizar';
+
+  @override
+  String get syncSignInBody => 'Tu vault sigue cifrado en este dispositivo. La cuenta solo transporta texto cifrado entre tus dispositivos.';
+
+  @override
+  String get syncEmailLabel => 'Correo';
+
+  @override
+  String get syncPasswordLabel => 'Contrasena';
+
+  @override
+  String get syncSignInAction => 'Entrar';
+
+  @override
+  String get syncSignInInvalid => 'Correo o contrasena incorrectos.';
+
+  @override
+  String get syncSignInOffline => 'No se pudo llegar al servidor. Revisa tu conexion.';
+
+  @override
+  String get syncSignInRequired => 'Inicia sesion para sincronizar este vault.';
 }

@@ -3,6 +3,8 @@
 import 'dart:io';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart'
+    show debugPrint, visibleForTesting;
 
 import 'biometric_auth_service.dart';
 import 'biometric_key_envelope_service.dart';
@@ -156,15 +158,23 @@ class BiometricUnlockService {
   /// Wires the unlock service. All dependencies are required; the
   /// optional [envelopeKeyProvider] defaults to a no-op (always
   /// reports "platform not supported") for non-Android targets.
+  ///
+  /// [isMobileTarget] is the platform gate for step 1. It defaults to
+  /// [Platform.isAndroid] || [Platform.isIOS], so production behaviour is
+  /// unchanged; tests pass `true` to run the real orchestration against a
+  /// stub envelope-key provider on a host that is neither.
   BiometricUnlockService({
     required SecureStorageService storage,
     required BiometricAuthService biometricAuthService,
     required BiometricKeyEnvelopeService envelopeService,
     BiometricEnvelopeKeyProvider? envelopeKeyProvider,
+    @visibleForTesting bool? isMobileTarget,
   }) : _storage = storage,
        _biometricAuthService = biometricAuthService,
        _envelopeService = envelopeService,
-       _envelopeKeyProvider = envelopeKeyProvider ?? _defaultKeyProvider;
+       _envelopeKeyProvider = envelopeKeyProvider ?? _defaultKeyProvider,
+       _isMobileTarget = isMobileTarget ??
+           (Platform.isAndroid || Platform.isIOS);
 
   /// Secure storage key for the platform KeyStore alias reference
   /// (used to invalidate cleanly when biometrics are turned off).
@@ -174,6 +184,10 @@ class BiometricUnlockService {
   final BiometricAuthService _biometricAuthService;
   final BiometricKeyEnvelopeService _envelopeService;
   final BiometricEnvelopeKeyProvider _envelopeKeyProvider;
+
+  /// Whether this target can host a biometric prompt at all. The only
+  /// place the unlock service reads [Platform].
+  final bool _isMobileTarget;
 
   /// Exposed so the controller can hand the same provider to its
   /// enrollment helper. Hiding this would force every callsite to
@@ -268,9 +282,14 @@ class BiometricUnlockService {
       return const BiometricUnlockRejected(
         'La plataforma devolvio una clave inconsistente. Ingresa la master password y re-enrola biometria.',
       );
-    } catch (error) {
-      return BiometricUnlockRejected(
-        'No pudimos recuperar tu sesion con biometria. Ingresa la master password. ($error)',
+    } catch (error, stack) {
+      // Logged, not interpolated. Exception text from a crypto path can
+      // carry provider and algorithm detail that does not belong on an
+      // unlock screen, and it tells the user nothing they can act on.
+      debugPrint('[Vaulta/Biometric] unlock failed: $error\n$stack');
+      return const BiometricUnlockRejected(
+        'No pudimos recuperar tu sesion con biometria. '
+        'Re-enrola biometria o usa la master password.',
       );
     }
   }
@@ -289,10 +308,7 @@ class BiometricUnlockService {
   }
 
   Future<bool> _isBiometricCapableTarget() async {
-    if (Platform.isAndroid || Platform.isIOS) {
-      return true;
-    }
-    return false;
+    return _isMobileTarget;
   }
 
   /// Default provider for non-Android targets (web, desktop, iOS in

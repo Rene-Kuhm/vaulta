@@ -1,5 +1,27 @@
 -- Batch B7: device/session revocation + device access checks.
 
+-- This migration redefines rpc_vault_register_device and rpc_vault_device_heartbeat
+-- with a wider result: the access check merged into them adds access_allowed,
+-- revoked_at and revoke_all_after. Postgres rejects a CREATE OR REPLACE that
+-- changes a function's return type (42P13: cannot change return type), so the old
+-- definitions must be dropped first. Dropping by name through pg_proc keeps this
+-- correct whatever the previous argument list was, and is a no-op on a fresh
+-- database where they do not exist yet.
+do $$
+declare
+  target record;
+begin
+  for target in
+    select p.oid::regprocedure as signature
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.proname in ('rpc_vault_register_device', 'rpc_vault_device_heartbeat')
+  loop
+    execute format('drop function %s', target.signature);
+  end loop;
+end $$;
+
 alter table public.vault_devices
   add column if not exists revoked_at timestamptz;
 

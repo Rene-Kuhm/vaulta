@@ -10,6 +10,23 @@ import '../../../app/theme/app_spacing.dart';
 import '../../../core/update/update_service.dart';
 import '../../../l10n/app_localizations.dart';
 
+/// Maps an error thrown by [UpdateService] to the text shown to the
+/// user. Verification failures get a dedicated localized message;
+/// anything else falls back to the error's own description.
+String localizedUpdateError(AppLocalizations l10n, Object error) {
+  if (error is UpdateVerificationException) {
+    switch (error.failure) {
+      case UpdateVerificationFailure.checksumMissing:
+        return l10n.updateChecksumMissing;
+      case UpdateVerificationFailure.checksumMismatch:
+        return l10n.updateChecksumMismatch;
+      case UpdateVerificationFailure.signatureMismatch:
+        return l10n.updateSignatureMismatch;
+    }
+  }
+  return error.toString();
+}
+
 /// Settings subsection that owns the in-app update flow: queries
 /// [UpdateService] for a new build, exposes a download + install
 /// button, and renders the corresponding banners. Localized to the
@@ -43,11 +60,34 @@ class _UpdateSectionState extends State<UpdateSection> {
   String? _errorMessage;
   UpdateInfo? _info;
   String _currentVersion = '…';
+  bool _devChannel = false;
 
   @override
   void initState() {
     super.initState();
     unawaited(_loadCurrentVersion());
+    unawaited(_loadReleaseChannel());
+  }
+
+  Future<void> _loadReleaseChannel() async {
+    final channel = await widget.service.releaseChannel();
+    if (!mounted) return;
+    setState(() => _devChannel = channel == UpdateReleaseChannel.dev);
+  }
+
+  Future<void> _setDevChannel(bool enabled) async {
+    await widget.service.setReleaseChannel(
+      enabled ? UpdateReleaseChannel.dev : UpdateReleaseChannel.stable,
+    );
+    if (!mounted) return;
+    // The previous result belongs to the other channel; force a new
+    // check instead of offering a stale download.
+    setState(() {
+      _devChannel = enabled;
+      _state = _UpdateState.idle;
+      _info = null;
+      _errorMessage = null;
+    });
   }
 
   Future<void> _loadCurrentVersion() async {
@@ -110,7 +150,7 @@ class _UpdateSectionState extends State<UpdateSection> {
       if (!mounted) return;
       setState(() {
         _state = _UpdateState.failed;
-        _errorMessage = error.toString();
+        _errorMessage = localizedUpdateError(context.l10n, error);
       });
     }
   }
@@ -151,6 +191,17 @@ class _UpdateSectionState extends State<UpdateSection> {
               color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
+          const SizedBox(height: AppSpacing.xs),
+          Material(
+            type: MaterialType.transparency,
+            child: SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _devChannel,
+              onChanged: _isBusy ? null : _setDevChannel,
+              title: Text(l10n.updateDevChannelTitle),
+              subtitle: Text(l10n.updateDevChannelSubtitle),
+            ),
+          ),
           const SizedBox(height: AppSpacing.md),
           _buildAction(theme, l10n),
           if (_state == _UpdateState.upToDate) ...[
@@ -169,6 +220,11 @@ class _UpdateSectionState extends State<UpdateSection> {
       ),
     );
   }
+
+  bool get _isBusy =>
+      _state == _UpdateState.checking ||
+      _state == _UpdateState.downloading ||
+      _state == _UpdateState.installing;
 
   Widget _buildAction(ThemeData theme, AppLocalizations l10n) {
     switch (_state) {
@@ -274,9 +330,7 @@ class _UpdateAvailablePanel extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.crimson.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
-        border: Border.all(
-          color: AppColors.crimson.withValues(alpha: 0.35),
-        ),
+        border: Border.all(color: AppColors.crimson.withValues(alpha: 0.35)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -347,10 +401,7 @@ class _ErrorBanner extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(
-                Icons.error_outline_rounded,
-                color: AppColors.danger,
-              ),
+              const Icon(Icons.error_outline_rounded, color: AppColors.danger),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(

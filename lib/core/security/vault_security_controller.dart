@@ -3,12 +3,14 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
+import 'android_keystore_envelope_key_provider.dart';
 import 'biometric_auth_service.dart';
 import 'biometric_key_envelope_service.dart';
 import 'biometric_unlock_service.dart';
 import 'master_password_record.dart';
 import 'master_password_service.dart';
 import 'native_biometric_auth_service.dart';
+import 'platform_security_plan.dart';
 import 'secure_storage_service.dart';
 import 'sensitive_clipboard_service.dart';
 import 'unlock_attempt_limiter.dart';
@@ -22,6 +24,12 @@ typedef VaultRekeyEntries =
       required VaultSession sourceSession,
       required VaultSession targetSession,
     });
+
+/// Function signature for the repository hook that upgrades every
+/// stored item to the current payload format (v3, record-bound AAD).
+/// The controller calls it after each successful unlock, once the new
+/// session is active. It must be idempotent.
+typedef VaultMigrateEntries = Future<void> Function();
 
 /// Top-level UI state of the vault. Drives which screen the
 /// [SecurityGate] renders.
@@ -54,7 +62,10 @@ class VaultSecurityController extends ChangeNotifier {
   /// [masterPasswordService] runs the KDF and record lifecycle.
   /// [biometricAuthService] probes the platform's biometric gate.
   /// [rekeyEntries] is the repository hook invoked on master password
-  /// change to re-encrypt every entry. [biometricEnvelopeService]
+  /// change to re-encrypt every entry. [migrateEntries] is the
+  /// repository hook run after every successful unlock to upgrade
+  /// stored items to the current payload format; if it fails the vault
+  /// stays locked. [biometricEnvelopeService]
   /// wraps the DEK for biometric unlock; defaults to a service built
   /// from [storage]. [biometricUnlockService] is the runtime unlock
   /// orchestrator. [unlockAttemptLimiter] throttles master-password
@@ -66,6 +77,7 @@ class VaultSecurityController extends ChangeNotifier {
     required MasterPasswordService masterPasswordService,
     required BiometricAuthService biometricAuthService,
     VaultRekeyEntries? rekeyEntries,
+    VaultMigrateEntries? migrateEntries,
     BiometricKeyEnvelopeService? biometricEnvelopeService,
     BiometricUnlockService? biometricUnlockService,
     UnlockAttemptLimiter? unlockAttemptLimiter,
@@ -74,6 +86,7 @@ class VaultSecurityController extends ChangeNotifier {
        _masterPasswordService = masterPasswordService,
        _biometricAuthService = biometricAuthService,
        _rekeyEntries = rekeyEntries ?? _unsupportedRekey,
+       _migrateEntries = migrateEntries,
        _biometricEnvelopeService = biometricEnvelopeService ??
            BiometricKeyEnvelopeService(storage: storage),
        _biometricUnlockService = biometricUnlockService,
@@ -103,6 +116,7 @@ class VaultSecurityController extends ChangeNotifier {
   final MasterPasswordService _masterPasswordService;
   final BiometricAuthService _biometricAuthService;
   final VaultRekeyEntries _rekeyEntries;
+  final VaultMigrateEntries? _migrateEntries;
   final BiometricKeyEnvelopeService _biometricEnvelopeService;
   final BiometricUnlockService? _biometricUnlockService;
   final UnlockAttemptLimiter _unlockAttemptLimiter;
@@ -317,6 +331,103 @@ class VaultSecurityController extends ChangeNotifier {
     return NativeBiometricCapability.empty;
   }
 
+  /// Probes the platform capabilities the security screen reports.
+  ///
+  /// Every answer comes from the service that performs the operation, not
+  /// from a static "which platform is this" table. The old table answered
+  /// `false` for capabilities that worked and had no way to say "I could
+  /// not find out"; this probe keeps the three states apart, and the UI
+  /// renders an unknown state differently from a confirmed no.
+  Future<PlatformSecurityPlan> probeSecurityPlan() async {
+    final hardwareBackedKeys = await _probeHardwareBackedKeys();
+    // Biometric unlock needs both halves: a prompt the platform is willing
+    // to open and a platform-protected key to release. When there is no
+    // key path at all the answer is already settled, and the gate is not
+    // even asked. Otherwise one confirmed "no" is a no, and if either
+    // half could not be asked the pair is unknown rather than false.
+    final biometricGate = hardwareBackedKeys.isUnsupported
+        ? SecurityCapabilityState.unsupported
+        : await _probeBiometricGate();
+    return PlatformSecurityPlan(
+      secureStorage: await _probeSecureStorage(),
+      hardwareBackedKeys: hardwareBackedKeys,
+      biometricUnlock: SecurityCapabilityState.both(
+        biometricGate,
+        hardwareBackedKeys,
+      ),
+      // A property of this build, not of the device: the controller is
+      // constructed with the master-password and envelope services and
+      // the AES-256-GCM / Argon2id implementation is compiled in. There
+      // is no runtime question to ask, so this one is a confirmed yes.
+      vaultEncryptionReady: SecurityCapabilityState.supported,
+    );
+  }
+
+  /// True when secure storage answers a read. A throw means we cannot
+  /// tell whether the platform store works, which is not the same as it
+  /// being unavailable.
+  Future<SecurityCapabilityState> _probeSecureStorage() async {
+    try {
+      await _storage.read(biometricEnabledKey);
+      return SecurityCapabilityState.supported;
+    } catch (error) {
+      debugPrint('[Vaulta] secure storage probe failed: $error');
+      return SecurityCapabilityState.unknown;
+    }
+  }
+
+  /// Asks the wired envelope-key provider whether the platform key is
+  /// there. Outside Android the bootstrap wires a no-op provider that
+  /// never touches a platform key, so "no" is a fact of the build and
+  /// not a failure to answer.
+  Future<SecurityCapabilityState> _probeHardwareBackedKeys() async {
+    final provider = _biometricUnlockService?.envelopeKeyProvider;
+    if (provider is! AndroidKeystoreEnvelopeKeyProvider) {
+      return SecurityCapabilityState.unsupported;
+    }
+    return provider.probeHardwareBackedKeyAvailability();
+  }
+
+  /// Asks the biometric gate whether it can authorize a prompt right
+  /// now. On Android that is the native `BiometricManager` probe the
+  /// KeyStore path also uses, so the screen and the unlock agree; the
+  /// prompt itself is never opened here.
+  Future<SecurityCapabilityState> _probeBiometricGate() async {
+    final service = _biometricAuthService;
+    try {
+      if (service is NativeBiometricAuthService) {
+        final capability = await service.probeCapability();
+        if (_biometricProbeDidNotAnswer(capability)) {
+          return SecurityCapabilityState.unknown;
+        }
+        return capability.canUseStrong
+            ? SecurityCapabilityState.supported
+            : SecurityCapabilityState.unsupported;
+      }
+      final availability = await service.getAvailability();
+      final usable =
+          availability.canAuthenticate && availability.hasEnrolledBiometrics;
+      return usable
+          ? SecurityCapabilityState.supported
+          : SecurityCapabilityState.unsupported;
+    } catch (error) {
+      debugPrint('[Vaulta] biometric gate probe failed: $error');
+      return SecurityCapabilityState.unknown;
+    }
+  }
+
+  /// [NativeBiometricAuthService.probeCapability] collapses a failed or
+  /// unregistered channel into [NativeBiometricCapability.empty], whose
+  /// error codes are all the `-1` sentinel. Real `BiometricManager` codes
+  /// are never negative, so all-`-1` means the question was never
+  /// answered.
+  bool _biometricProbeDidNotAnswer(NativeBiometricCapability capability) {
+    return capability.strongErrorCode < 0 &&
+        capability.weakErrorCode < 0 &&
+        capability.strongOrCredentialErrorCode < 0 &&
+        capability.deviceCredentialErrorCode < 0;
+  }
+
   /// Opens the system biometric-enrollment settings. Returns true
   /// if the intent was launched, false otherwise. The settings
   /// screen uses this to deep-link the user into the platform setup
@@ -423,6 +534,9 @@ class VaultSecurityController extends ChangeNotifier {
         dekWrap: record.dekWrap!,
       );
       await _storage.save(masterPasswordRecordKey, record.encode());
+      if (!await _migrateEntriesAfterUnlock()) {
+        return false;
+      }
       await _persistBiometricPreference(enableBiometrics);
       await _enrollBiometricEnvelopeIfNeeded(record);
 
@@ -477,32 +591,49 @@ class VaultSecurityController extends ChangeNotifier {
 
       var activeRecord = record;
       var activeSession = sourceSession;
-      if (record.version < 2 || record.kdf == null || record.dekWrap == null) {
-        final migratedRecord = await _masterPasswordService.createRecord(
-          password,
-        );
-        final migratedSession = VaultSession.v2(
-          keyId: migratedRecord.keyId,
-          secretKey: await _masterPasswordService.deriveVaultKey(
-            record: migratedRecord,
-            password: password,
-          ),
-          kdf: migratedRecord.kdf!,
-          dekWrap: migratedRecord.dekWrap!,
-        );
-        await _rekeyEntries(
+      var rewriteDeferred = false;
+      if (_needsRecordMigration(record)) {
+        final rewrite = await _rewriteLegacyRecordOnUnlock(
+          legacyRecord: record,
+          password: password,
           sourceSession: sourceSession,
-          targetSession: migratedSession,
         );
-        await _storage.save(masterPasswordRecordKey, migratedRecord.encode());
-        activeRecord = migratedRecord;
-        activeSession = migratedSession;
-        // Re-enroll the envelope after migration so the new DEK is the
-        // one wrapped on disk, not the v1 derived key.
-        await _enrollBiometricEnvelopeIfNeeded(activeRecord);
+        if (!rewrite.recoverable) {
+          // Fail closed: the entries were rewritten under a DEK that no
+          // record on disk points to, and the undo did not land. This
+          // build cannot tell the user what their vault contains, so the
+          // only honest state is locked with an explanation.
+          _vaultSession = null;
+          _stage = VaultSecurityStage.locked;
+          _message =
+              'No pudimos actualizar el cifrado del vault y el rollback '
+              'tampoco se completo. Vaulta queda bloqueada por seguridad.';
+          return false;
+        }
+        activeRecord = rewrite.record;
+        activeSession = rewrite.session;
+        rewriteDeferred = !rewrite.migrated;
       }
 
       _vaultSession = activeSession;
+
+      if (activeRecord != record) {
+        // The DEK changed, so the envelope written for the legacy
+        // record wraps a key that no longer opens anything: a biometric
+        // unlock would report success and hand the vault a DEK that
+        // matches none of its items. Wipe it and wrap the new DEK.
+        //
+        // This must run *after* `_vaultSession` is set, because the
+        // enrollment helper reads the DEK out of the active session.
+        // Running it before (as it used to) made it a silent no-op, and
+        // the stale envelope then survived the migration.
+        await _biometricEnvelopeService.clear();
+        await _enrollBiometricEnvelopeIfNeeded(activeRecord);
+      }
+
+      if (!await _migrateEntriesAfterUnlock()) {
+        return false;
+      }
 
       // Always try to (re)enroll the biometric envelope on a fresh
       // unlock. The enrollment is silent (no biometric prompt) and
@@ -518,9 +649,12 @@ class VaultSecurityController extends ChangeNotifier {
       }
       _envelopeEnrolled = await _biometricEnvelopeService.isEnrolled();
 
-      _message = activeRecord == record
-          ? 'Vaulta desbloqueada.'
-          : 'Vaulta desbloqueada y migrada a cifrado v2.';
+      _message = activeRecord != record
+          ? 'Vaulta desbloqueada y migrada a cifrado v3.'
+          : rewriteDeferred
+          ? 'Vaulta desbloqueada. La mejora de cifrado se reintentara en '
+                'el proximo desbloqueo.'
+          : 'Vaulta desbloqueada.';
       _stage = VaultSecurityStage.unlocked;
       _restartIdleTimer();
       return true;
@@ -558,6 +692,9 @@ class VaultSecurityController extends ChangeNotifier {
           // are not counted here.
           await _unlockAttemptLimiter.recordSuccess();
           _vaultSession = session;
+          if (!await _migrateEntriesAfterUnlock()) {
+            return false;
+          }
           _stage = VaultSecurityStage.unlocked;
           _envelopeEnrolled = true;
           _message = 'Vaulta desbloqueada con biometria.';
@@ -793,42 +930,29 @@ class VaultSecurityController extends ChangeNotifier {
         dekWrap: newRecord.dekWrap!,
       );
 
-      try {
-        await _rekeyEntries(
-          sourceSession: sourceSession,
-          targetSession: targetSession,
-        );
-      } catch (_) {
-        _message =
-            'No pudimos completar el re-cifrado del vault. Se mantuvo tu clave actual para evitar inconsistencias.';
-        return false;
-      }
+      final write = await _rekeyThenPersistRecord(
+        sourceSession: sourceSession,
+        targetSession: targetSession,
+        targetRecord: newRecord,
+      );
 
-      try {
-        await _storage.save(masterPasswordRecordKey, newRecord.encode());
-      } catch (_) {
-        var rollbackSucceeded = false;
-        try {
-          await _rekeyEntries(
-            sourceSession: targetSession,
-            targetSession: sourceSession,
-          );
-          rollbackSucceeded = true;
-        } catch (_) {
-          rollbackSucceeded = false;
-        }
-
-        if (!rollbackSucceeded) {
+      switch (write) {
+        case _RecordWrite.rekeyFailed:
+          _message =
+              'No pudimos completar el re-cifrado del vault. Se mantuvo tu clave actual para evitar inconsistencias.';
+          return false;
+        case _RecordWrite.saveFailed:
+          _message =
+              'No pudimos guardar la nueva master password. Se mantuvo tu clave actual para evitar inconsistencias.';
+          return false;
+        case _RecordWrite.rollbackFailed:
           _vaultSession = null;
           _stage = VaultSecurityStage.locked;
           _message =
               'Fallo al persistir la nueva master password y no pudimos confirmar rollback completo. Vaulta queda bloqueada por seguridad.';
           return false;
-        }
-
-        _message =
-            'No pudimos guardar la nueva master password. Se mantuvo tu clave actual para evitar inconsistencias.';
-        return false;
+        case _RecordWrite.persisted:
+          break;
       }
 
       _vaultSession = targetSession;
@@ -943,8 +1067,8 @@ class VaultSecurityController extends ChangeNotifier {
           'enrolled=${_biometricAvailability.hasEnrolledBiometrics})');
       return;
     }
-    if (record.version < 2 || record.kdf == null || record.dekWrap == null) {
-      debugPrint('[Vaulta] enroll skipped: record is not v2');
+    if (_needsRecordMigration(record)) {
+      debugPrint('[Vaulta] enroll skipped: record is not the current format');
       return;
     }
 
@@ -1067,7 +1191,7 @@ class VaultSecurityController extends ChangeNotifier {
         return false;
       }
 
-      if (record.version < 2 || record.kdf == null || record.dekWrap == null) {
+      if (_needsRecordMigration(record)) {
         _message = 'Tu master password es de una version anterior. '
             'Desbloquea una vez para migrar y vuelve a intentar.';
         return false;
@@ -1114,6 +1238,36 @@ class VaultSecurityController extends ChangeNotifier {
     });
   }
 
+  /// Re-confirms the master password of an unlocked vault before a
+  /// sensitive action (encrypted backup export). Returns true only when
+  /// the vault is unlocked and [password] matches.
+  ///
+  /// Throttled by the same [UnlockAttemptLimiter] as
+  /// [unlockWithPassword]: while [isUnlockLockedOut] is true, or when
+  /// the attempt counter cannot be persisted, it returns false without
+  /// running the KDF. It never sets [message]; callers render localized
+  /// feedback (see `unlockThrottleMessage`).
+  Future<bool> reauthenticateWithPassword(String password) async {
+    final session = _vaultSession;
+    if (!isUnlocked || session == null || isUnlockLockedOut) {
+      return false;
+    }
+    return _runBusy(() async {
+      final record = await _readRecord();
+      if (record == null || record.keyId != session.keyId) {
+        return false;
+      }
+      final verified = await _verifyThrottled(
+        record: record,
+        password: password,
+        mismatchMessage: '',
+      );
+      _message = null;
+      // The vault may have been locked while the KDF ran.
+      return verified && isUnlocked && identical(_vaultSession, session);
+    });
+  }
+
   /// Runs the master-password verifier through the attempt limiter
   /// and maps the outcome onto [message]. Returns true on a match.
   ///
@@ -1145,6 +1299,165 @@ class VaultSecurityController extends ChangeNotifier {
     }
   }
 
+  /// Rewrites a legacy master-password record into the current format
+  /// along with the entries sealed under its DEK.
+  ///
+  /// This is the v2 -> v3 (and v1 -> v3) boundary. The caller has
+  /// already verified the password, so by the time this runs the user
+  /// owns the vault; nothing here can lock them out.
+  ///
+  /// The rewrite is deliberately fail-safe, and the ordering is the
+  /// whole argument for that:
+  ///
+  ///  * The password is verified *before* this is called, so no rewrite
+  ///    can be triggered by a wrong guess.
+  ///  * The entries move first and the record second. At every instant
+  ///    in between, the record on disk is still a key that opens the
+  ///    *previous* entries, so a crash or a failed write cannot leave a
+  ///    record pointing at items it cannot read.
+  ///  * When the record write is the step that fails, the entry rewrite
+  ///    is undone. Without that undo the vault would hold items sealed
+  ///    under a DEK that exists nowhere on disk, which is silent data
+  ///    loss; with it, the legacy record and the legacy entries are a
+  ///    matching pair again.
+  ///  * When the rewrite cannot be completed but the legacy pair is
+  ///    still consistent, the caller unlocks on the legacy record and
+  ///    retries on the next unlock. Not migrating leaves the user with
+  ///    the older scheme, which is weaker but intact; a half-migrated
+  ///    vault would be neither.
+  ///
+  /// [migrated] is true only when the new record is persisted and the
+  /// entries are sealed under its DEK. [recoverable] is false only when
+  /// the entry rewrite could not be undone, which means the caller must
+  /// fail closed. In the non-migrated cases [record] and [session] are
+  /// the legacy pair, which still open the vault.
+  Future<
+      ({
+        bool migrated,
+        bool recoverable,
+        MasterPasswordRecord record,
+        VaultSession session,
+      })> _rewriteLegacyRecordOnUnlock({
+    required MasterPasswordRecord legacyRecord,
+    required String password,
+    required VaultSession sourceSession,
+  }) async {
+    final migratedRecord = await _masterPasswordService.createRecord(password);
+    final migratedSession = VaultSession.v2(
+      keyId: migratedRecord.keyId,
+      secretKey: await _masterPasswordService.deriveVaultKey(
+        record: migratedRecord,
+        password: password,
+      ),
+      kdf: migratedRecord.kdf!,
+      dekWrap: migratedRecord.dekWrap!,
+    );
+
+    final write = await _rekeyThenPersistRecord(
+      sourceSession: sourceSession,
+      targetSession: migratedSession,
+      targetRecord: migratedRecord,
+    );
+
+    return switch (write) {
+      _RecordWrite.persisted => (
+          migrated: true,
+          recoverable: true,
+          record: migratedRecord,
+          session: migratedSession,
+        ),
+      _RecordWrite.rekeyFailed || _RecordWrite.saveFailed => (
+          migrated: false,
+          recoverable: true,
+          record: legacyRecord,
+          session: sourceSession,
+        ),
+      _RecordWrite.rollbackFailed => (
+          migrated: false,
+          recoverable: false,
+          record: legacyRecord,
+          session: sourceSession,
+        ),
+    };
+  }
+
+  /// Re-encrypts every entry from [sourceSession] under [targetSession]
+  /// and then persists [targetRecord] as the live master-password
+  /// record.
+  ///
+  /// Single owner of that ordering, shared by [changeMasterPassword]
+  /// and [_rewriteLegacyRecordOnUnlock], because the two operations
+  /// have identical failure semantics and the invariant below is what
+  /// keeps a failed rewrite from destroying a vault: **the record is
+  /// written last, and a failure to write it undoes the entry
+  /// rewrite**. Every earlier failure leaves the pre-existing record
+  /// and the pre-existing entries as a pair that still opens.
+  ///
+  /// Never throws: every outcome is reported as a [_RecordWrite] so the
+  /// caller can decide between "keep the old key" and "fail closed"
+  /// without having to re-derive which writes already landed.
+  Future<_RecordWrite> _rekeyThenPersistRecord({
+    required VaultSession sourceSession,
+    required VaultSession targetSession,
+    required MasterPasswordRecord targetRecord,
+  }) async {
+    try {
+      await _rekeyEntries(
+        sourceSession: sourceSession,
+        targetSession: targetSession,
+      );
+    } catch (_) {
+      // The repository stages the new blob behind the rekey-in-progress
+      // marker and only swaps it in once the rewrite completes, so a
+      // throw here means the live entries are still the old ones.
+      return _RecordWrite.rekeyFailed;
+    }
+
+    try {
+      await _storage.save(masterPasswordRecordKey, targetRecord.encode());
+    } catch (_) {
+      // The entries now live under the target DEK and no record on
+      // disk references it. Put them back under the source DEK, which
+      // the still-live old record can open.
+      try {
+        await _rekeyEntries(
+          sourceSession: targetSession,
+          targetSession: sourceSession,
+        );
+      } catch (_) {
+        return _RecordWrite.rollbackFailed;
+      }
+      return _RecordWrite.saveFailed;
+    }
+
+    return _RecordWrite.persisted;
+  }
+
+  /// Runs the [VaultMigrateEntries] hook against the session that was
+  /// just activated. Fails closed: if the upgrade throws, the session
+  /// is dropped and the vault stays locked (the stored items are left
+  /// intact by the repository, so the next unlock simply retries).
+  /// Returns true when the vault may proceed to the unlocked stage.
+  Future<bool> _migrateEntriesAfterUnlock() async {
+    final migrate = _migrateEntries;
+    if (migrate == null) {
+      return true;
+    }
+    try {
+      await migrate();
+      return true;
+    } catch (error) {
+      debugPrint(
+        '[Vaulta] item payload migration failed: ${error.runtimeType}',
+      );
+      _vaultSession = null;
+      _stage = VaultSecurityStage.locked;
+      _message =
+          'No pudimos actualizar el cifrado del vault. Tus datos siguen intactos; volve a desbloquear para reintentar.';
+      return false;
+    }
+  }
+
   Future<Uint8List?> _unwrapCurrentDek(MasterPasswordRecord record) async {
     final session = _vaultSession;
     if (session == null || session.keyId != record.keyId) {
@@ -1161,6 +1474,39 @@ class VaultSecurityController extends ChangeNotifier {
     }
 
     return MasterPasswordRecord.decode(raw);
+  }
+
+  /// Returns the persisted master-password record as its serialized JSON,
+  /// or `null` when this device has not created or adopted a vault.
+  ///
+  /// This is what the vault-key sync pushes to the backend: the wrapped DEK
+  /// plus the KDF parameters, verifier and key id. None of it reveals the
+  /// master password or the DEK.
+  Future<String?> readRecordJson() async {
+    final raw = await _storage.read(masterPasswordRecordKey);
+    return (raw == null || raw.isEmpty) ? null : raw;
+  }
+
+  /// Adopts a remote vault key as the local master-password record.
+  ///
+  /// Used when a signed-in device has no local vault but the backend already
+  /// has one: the remote `record_json` is persisted and the stage moves from
+  /// onboarding to locked, so the user unlocks their existing vault with the
+  /// same master password instead of creating a new one. Returns false when
+  /// [recordJson] does not decode as a [MasterPasswordRecord]; the local
+  /// record is left untouched in that case.
+  Future<bool> adoptRemoteVaultRecord(String recordJson) async {
+    try {
+      final record = MasterPasswordRecord.decode(recordJson);
+      await _storage.save(masterPasswordRecordKey, record.encode());
+      if (_stage == VaultSecurityStage.onboarding) {
+        _stage = VaultSecurityStage.locked;
+        notifyListeners();
+      }
+      return true;
+    } on Object {
+      return false;
+    }
   }
 
   Future<bool> _runBusy(Future<bool> Function() action) async {
@@ -1258,3 +1604,37 @@ class VaultSecurityController extends ChangeNotifier {
     throw UnsupportedError('Vault rekeying operation is not configured.');
   }
 }
+
+/// Outcome of re-encrypting the entries and then persisting a new
+/// master-password record. See [_rekeyThenPersistRecord] for the
+/// ordering that produces these four cases.
+enum _RecordWrite {
+  /// Both writes landed: the entries are sealed under the new DEK and
+  /// the new record is on disk.
+  persisted,
+
+  /// The entry rewrite threw and did not commit. The old record and the
+  /// old entries are still a matching pair.
+  rekeyFailed,
+
+  /// The record write threw and the entry rewrite was undone. The old
+  /// record and the old entries are still a matching pair.
+  saveFailed,
+
+  /// The record write threw *and* the undo threw. The entries and the
+  /// record disagree, so the caller must fail closed.
+  rollbackFailed,
+}
+
+/// True when [record] predates the current master-password format and the
+/// vault must be re-keyed before it can be trusted.
+///
+/// This is deliberately NOT `record.version < 2`. v2 records are Argon2id
+/// with a raw-password KEK and a different DEK wrap from v3, so they need
+/// the same rewrite. The old check let v2 records through: their verifier
+/// still validated, and only the later DEK derivation failed, which reads
+/// as "the password is wrong" and locks the owner out of their own vault.
+bool _needsRecordMigration(MasterPasswordRecord record) =>
+    !record.isCurrentFormat ||
+    record.kdf == null ||
+    record.dekWrap == null;

@@ -58,6 +58,16 @@ class _SecurityGateState extends State<SecurityGate>
     widget.controller.addListener(_handleSecurityStageChange);
     WidgetsBinding.instance.addObserver(this);
     unawaited(_refreshBiometricUnlockAvailability());
+
+    // A signed-in device with no local vault may already have one on the
+    // backend (second device): adopt the remote wrapped DEK so the gate shows
+    // the unlock screen instead of creating a brand new vault. Fire-and-forget;
+    // the controller's stage change re-renders this gate when it lands.
+    final lifecycle = widget.deviceSyncLifecycle;
+    if (lifecycle != null &&
+        _lastStage == VaultSecurityStage.onboarding) {
+      _runLifecycleAction(lifecycle.syncVaultKey());
+    }
   }
 
   @override
@@ -88,7 +98,14 @@ class _SecurityGateState extends State<SecurityGate>
     final movedToLocked =
         _lastStage != VaultSecurityStage.locked &&
         currentStage == VaultSecurityStage.locked;
+    final leftUnlocked =
+        _lastStage == VaultSecurityStage.unlocked &&
+        currentStage != VaultSecurityStage.unlocked;
     _lastStage = currentStage;
+
+    if (leftUnlocked) {
+      _dismissRoutesAboveGate();
+    }
 
     if (movedToLocked || movedToUnlocked) {
       unawaited(_refreshBiometricUnlockAvailability());
@@ -104,6 +121,20 @@ class _SecurityGateState extends State<SecurityGate>
     }
 
     _runLifecycleAction(lifecycle.onSessionStarted());
+  }
+
+  /// Fail closed on lock: pops every route pushed above the gate
+  /// (entry detail, editor, import / backup screens, dialogs, bottom
+  /// sheets). They are not part of the gate's subtree, so swapping the
+  /// stage alone would leave them, and the secrets they render, on top
+  /// of the lock screen. Popping disposes their state, which drops any
+  /// sensitive data they hold.
+  void _dismissRoutesAboveGate() {
+    if (!mounted) return;
+    final navigator = Navigator.maybeOf(context, rootNavigator: true);
+    if (navigator == null) return;
+    // pop (not maybePop) so a PopScope on a route cannot veto the lock.
+    navigator.popUntil((route) => route.isFirst);
   }
 
   @override
@@ -637,6 +668,12 @@ class _OnboardingForm extends StatelessWidget {
                 prefixIcon: const Icon(Icons.password_rounded),
                 suffixIcon: IconButton(
                   onPressed: onTogglePasswordObscure,
+                  // An icon-only button with no tooltip has no accessible
+                  // name: a screen reader announces "button" and nothing
+                  // else. The label names what the button WILL do.
+                  tooltip: obscurePassword
+                      ? l10n.securityShowPassword
+                      : l10n.securityHidePassword,
                   icon: Icon(
                     obscurePassword
                         ? Icons.visibility_off_rounded
@@ -666,6 +703,9 @@ class _OnboardingForm extends StatelessWidget {
                 prefixIcon: const Icon(Icons.password_rounded),
                 suffixIcon: IconButton(
                   onPressed: onToggleConfirmationObscure,
+                  tooltip: obscureConfirmation
+                      ? l10n.securityShowPassword
+                      : l10n.securityHidePassword,
                   icon: Icon(
                     obscureConfirmation
                         ? Icons.visibility_off_rounded
@@ -1177,6 +1217,9 @@ class _UnlockForm extends StatelessWidget {
               prefixIcon: const Icon(Icons.password_rounded),
               suffixIcon: IconButton(
                 onPressed: onToggleObscure,
+                tooltip: obscurePassword
+                    ? l10n.securityShowPassword
+                    : l10n.securityHidePassword,
                 icon: Icon(
                   obscurePassword
                       ? Icons.visibility_off_rounded
@@ -1458,6 +1501,8 @@ class _SetupBiometricDialogState extends State<_SetupBiometricDialog> {
                   onPressed: () {
                     setState(() => _obscure = !_obscure);
                   },
+                  tooltip:
+                      _obscure ? l10n.securityShowPassword : l10n.securityHidePassword,
                   icon: Icon(
                     _obscure
                         ? Icons.visibility_off_rounded

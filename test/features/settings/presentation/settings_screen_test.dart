@@ -13,7 +13,47 @@ import 'package:gestor_contrasenas/core/sync/device_session_revocation_service.d
 import 'package:gestor_contrasenas/features/settings/presentation/settings_screen.dart';
 import 'package:gestor_contrasenas/l10n/app_localizations.dart';
 
+import '../../backup/backup_test_support.dart' show InMemoryVaultRepository;
+
 void main() {
+  group('SettingsScreen backup section', () {
+    testWidgets('renders only when a repository is provided', (tester) async {
+      final controller = await _buildUnlockedController();
+      final localeController = AppLocaleController(
+        storage: _InMemorySecureStorageService(),
+      );
+      await localeController.initialize();
+      addTearDown(controller.dispose);
+      _setLargeViewport(tester);
+
+      await tester.pumpWidget(
+        _testApp(
+          SettingsScreen(
+            securityController: controller,
+            localeController: localeController,
+          ),
+        ),
+      );
+      await _pumpUi(tester);
+      expect(find.text('Encrypted backup'), findsNothing);
+
+      await tester.pumpWidget(
+        _testApp(
+          SettingsScreen(
+            key: const ValueKey('with-repository'),
+            securityController: controller,
+            localeController: localeController,
+            repository: InMemoryVaultRepository(),
+          ),
+        ),
+      );
+      await _pumpUi(tester);
+      expect(find.text('Encrypted backup'), findsOneWidget);
+      expect(find.text('Export backup'), findsOneWidget);
+      expect(find.text('Restore backup'), findsOneWidget);
+    });
+  });
+
   group('SettingsScreen change master password', () {
     testWidgets('updates master password and closes dialog on success', (
       tester,
@@ -361,6 +401,79 @@ void main() {
 
       expect(repository.lastRevokeAllCurrentDeviceId, 'current-device');
       expect(repository.revokeAllOtherCalls, 1);
+    });
+  });
+
+  group('SettingsScreen platform capabilities', () {
+    Future<Map<String, String>> renderCapabilities(
+      WidgetTester tester,
+      AppLocalizations l10n,
+    ) async {
+      final controller = await _buildUnlockedController();
+      final localeController = AppLocaleController(
+        storage: _InMemorySecureStorageService(),
+      );
+      await localeController.initialize();
+      addTearDown(controller.dispose);
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1200, 12000);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        _testApp(
+          SettingsScreen(
+            securityController: controller,
+            localeController: localeController,
+          ),
+        ),
+      );
+      await _pumpUi(tester);
+
+      // The state a capability row renders, read from the row itself so the
+      // assertion is about that line and not about any other copy on the
+      // screen that happens to share a word.
+      String stateFor(String title) {
+        final row = find
+            .ancestor(of: find.text(title), matching: find.byType(Row))
+            .first;
+        final labels = find
+            .descendant(of: row, matching: find.byType(Text))
+            .evaluate()
+            .map((element) => (element.widget as Text).data)
+            .whereType<String>()
+            .toList();
+        return labels.last;
+      }
+
+      return {
+        'biometric': stateFor(l10n.settingsBiometricUnlock),
+        'hardware': stateFor(l10n.settingsHardwareBackedKeys),
+        'storage': stateFor(l10n.settingsSecureStorage),
+        'encryption': stateFor(l10n.settingsVaultEncryptionReady),
+      };
+    }
+
+    testWidgets('reports what the wired services answer, not a platform table',
+        (tester) async {
+      // This controller has no biometric unlock service and no KeyStore
+      // provider wired, so "not available" is the correct, *confirmed*
+      // answer for those two rows — and it is deliberately not "unknown".
+      // The states themselves are covered in
+      // test/features/security/presentation/security_capabilities_panel_test.dart;
+      // what this test pins is that the settings screen asks the controller
+      // instead of printing a static platform table.
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+
+      final capabilities = await renderCapabilities(tester, l10n);
+
+      expect(capabilities, {
+        'biometric': l10n.settingsCapabilityUnsupported,
+        'hardware': l10n.settingsCapabilityUnsupported,
+        'storage': l10n.settingsCapabilitySupported,
+        'encryption': l10n.settingsCapabilitySupported,
+      });
+      expect(find.text(l10n.settingsCapabilityUnknown), findsNothing);
     });
   });
 }

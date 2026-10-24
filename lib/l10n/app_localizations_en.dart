@@ -155,7 +155,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsRoadmapTitle => 'Platform security roadmap';
 
   @override
-  String get settingsRoadmapNotes => 'Vault items use ADR-001 v2: Argon2id derives a KEK from the master password, and a random DEK encrypts entries with AES-256-GCM. Android now uses KeyStore for biometric unlock; iOS/macOS bindings remain pending.';
+  String get settingsRoadmapNotes => 'Vault items use ADR-001 payload v4: Argon2id derives a KEK from the master password, a random DEK unlocks the vault, and every item is then sealed with AES-256-GCM under its own key, with the ciphertext bound to its record id, item key id, item key version and IV. Android recovers the DEK with biometrics through a KeyStore key; iOS/macOS bindings remain pending.';
 
   @override
   String get settingsSecureStorage => 'Secure storage';
@@ -164,10 +164,19 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsBiometricUnlock => 'Biometric key recovery';
 
   @override
-  String get settingsHardwareBackedKeys => 'Hardware-backed keys';
+  String get settingsHardwareBackedKeys => 'KeyStore-held key';
 
   @override
   String get settingsVaultEncryptionReady => 'Vault item encryption wired end-to-end';
+
+  @override
+  String get settingsCapabilitySupported => 'Available';
+
+  @override
+  String get settingsCapabilityUnsupported => 'Not available';
+
+  @override
+  String get settingsCapabilityUnknown => 'Could not determine';
 
   @override
   String get settingsConflictsTitle => 'Sync conflicts';
@@ -302,7 +311,13 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get securityBiometricUnavailable => 'No biometrics detected. You can still unlock with your master password.';
+  String get securityBiometricUnavailable => 'Biometric unlock is unavailable: no biometrics are enrolled, or this Android version cannot require a biometric. You can still unlock with your master password.';
+
+  @override
+  String get securityShowPassword => 'Show password';
+
+  @override
+  String get securityHidePassword => 'Hide password';
 
   @override
   String get securityCreateSecureAccess => 'Create secure vault access';
@@ -388,6 +403,35 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get clipboardCleared => 'Clipboard cleared.';
+
+  @override
+  String get entryPasswordHistoryTitle => 'Previous passwords';
+
+  @override
+  String get entryPasswordHistoryHint => 'Older passwords kept when you change the secret. Newest first.';
+
+  @override
+  String get entryPasswordHistoryCopyTooltip => 'Copy previous password';
+
+  @override
+  String get entryPasswordHistoryRevealTooltip => 'Show previous password';
+
+  @override
+  String get entryPasswordHistoryHideTooltip => 'Hide previous password';
+
+  @override
+  String get totpTitle => 'One-time code';
+
+  @override
+  String get totpCopyCode => 'Copy code';
+
+  @override
+  String totpSecondsRemaining(int seconds) {
+    return '${seconds}s remaining';
+  }
+
+  @override
+  String get totpUnavailable => 'This entry\'s one-time code could not be read.';
 
   @override
   String get entryNotesTitle => 'Notes';
@@ -708,7 +752,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get updateRemote => 'Remote';
 
   @override
-  String get updateDescription => 'New versions are published automatically when there is a push to master. Tap below to check for a newer build without uninstalling the app.';
+  String get updateDescription => 'Stable versions are published from tagged releases. Before installing, every download is checked against the release SHA-256 checksums and the app signing certificate.';
 
   @override
   String get updateCheck => 'Check for updates';
@@ -732,7 +776,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get updateUpToDateTitle => 'Up to date';
 
   @override
-  String get updateUpToDateBody => 'The installed build matches the latest release on master.';
+  String get updateUpToDateBody => 'The installed build matches the latest release on this channel.';
 
   @override
   String get updateErrorTitle => 'We could not check for updates';
@@ -759,6 +803,21 @@ class AppLocalizationsEn extends AppLocalizations {
   String get updateActionUpdate => 'Update';
 
   @override
+  String get updateDevChannelTitle => 'Dev channel';
+
+  @override
+  String get updateDevChannelSubtitle => 'Receive the rolling build published on every change to master. Less tested than stable releases; downloads are still verified.';
+
+  @override
+  String get updateChecksumMissing => 'Update refused: the release does not publish a SHA-256 checksum for this APK, so it cannot be verified.';
+
+  @override
+  String get updateChecksumMismatch => 'Update refused: the downloaded APK does not match the published SHA-256 checksum. It was deleted.';
+
+  @override
+  String get updateSignatureMismatch => 'Update refused: the downloaded APK is not signed with the same certificate as the installed app. It was deleted.';
+
+  @override
   String get updateInstallPrompt => 'Confirm the installation on the system screen.';
 
   @override
@@ -773,19 +832,49 @@ class AppLocalizationsEn extends AppLocalizations {
   String get accessEyebrow => 'Autofill & access';
 
   @override
-  String get accessTitle => 'Vault on every input';
+  String get accessTitle => 'Autofill is ready';
 
   @override
-  String get accessSubtitle => 'Set Vaulta as the system autofill provider and unlock your entries the moment a password field needs them.';
+  String get accessSubtitle => 'Vaulta\'s Android autofill service is registered on this device. It fills logins in your browser, and in apps that verify their website on Android 12 and above.';
 
   @override
-  String get accessHeroTitle => 'One-tap autofill';
+  String get accessHeroTitle => 'Fill logins without copy-paste';
 
   @override
-  String get accessHeroBody => 'Hardware-backed. Offline-first. No data leaves the device.';
+  String get accessHeroBody => 'Pick Vaulta as your autofill service in Android settings, then unlock when a login asks for a password.';
 
   @override
-  String get accessPlatformAndroid => 'Android 11+';
+  String get accessPlatformAndroid => 'Android';
+
+  @override
+  String get accessComingSoon => 'Available now';
+
+  @override
+  String get accessStatusTitle => 'Autofill service registered';
+
+  @override
+  String get accessStatusBody => 'Vaulta\'s autofill service is active on this device. Nothing on this screen changes your system settings: pick Vaulta under Settings → Autofill service to start filling.';
+
+  @override
+  String get accessUnlockPostureTitle => 'Unlock posture';
+
+  @override
+  String get accessUnlockPostureBody => 'Autofill requests are gated by the same unlock state as the rest of the app.';
+
+  @override
+  String get accessUnlocked => 'Vault is unlocked';
+
+  @override
+  String get accessLocked => 'Vault is locked';
+
+  @override
+  String get accessLockNow => 'Lock vault now';
+
+  @override
+  String get accessRoadmapTitle => 'What\'s next';
+
+  @override
+  String get accessRoadmapBody => 'iOS and desktop autofill are still ahead. Android app filling (beyond verified websites) is limited by the platform\'s domain-verification rules.';
 
   @override
   String get accessPlatformBiometrics => 'Biometric unlock';
@@ -818,23 +907,217 @@ class AppLocalizationsEn extends AppLocalizations {
   String get accessSetupStep3Body => 'Next time you tap a password field, Vaulta prompts for biometrics or master password and fills the right entry.';
 
   @override
-  String get accessUnlockPostureTitle => 'Unlock posture';
+  String get backupSectionTitle => 'Encrypted backup';
 
   @override
-  String get accessUnlockPostureBody => 'Autofill requests are gated by the same unlock state as the rest of the app.';
+  String get backupSectionSubtitle => 'Export your vault to an encrypted .vaulta file so you can restore it on a new device. Keep the file somewhere other than this device.';
 
   @override
-  String get accessUnlocked => 'Vault is unlocked';
+  String get backupExportAction => 'Export backup';
 
   @override
-  String get accessLocked => 'Vault is locked';
+  String get backupRestoreAction => 'Restore backup';
 
   @override
-  String get accessLockNow => 'Lock vault now';
+  String get backupExportTitle => 'Export encrypted backup';
 
   @override
-  String get accessRoadmapTitle => 'What\'s next';
+  String get backupReauthBody => 'Re-enter your master password to export the vault.';
 
   @override
-  String get accessRoadmapBody => 'iOS and desktop autofill ship after the biometric platform bindings (iOS/macOS) are in place.';
+  String get backupMasterPasswordLabel => 'Master password';
+
+  @override
+  String get backupContinue => 'Continue';
+
+  @override
+  String get backupMasterPasswordMismatch => 'The master password does not match.';
+
+  @override
+  String backupItemCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'The backup will contain $count entries.',
+      one: 'The backup will contain 1 entry.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupPasswordLabel => 'Backup password';
+
+  @override
+  String get backupPasswordConfirmLabel => 'Confirm backup password';
+
+  @override
+  String get backupPasswordHint => 'At least 12 characters, and not a password that already appears in leaked-password lists. A passphrase works best.';
+
+  @override
+  String get backupPasswordWarning => 'Vaulta cannot recover the backup password. If you forget it, nobody can open this backup, not even you.';
+
+  @override
+  String backupPasswordTooShort(int min) {
+    return 'Use at least $min characters.';
+  }
+
+  @override
+  String get backupPasswordWeak => 'That password appears on lists of leaked passwords. Choose another.';
+
+  @override
+  String get backupPasswordMismatch => 'The confirmation does not match the backup password.';
+
+  @override
+  String get backupCreateAction => 'Create backup';
+
+  @override
+  String get backupSaveAgain => 'Save file';
+
+  @override
+  String get backupSaveCancelled => 'Saving was cancelled. No file was written.';
+
+  @override
+  String get backupExportSuccess => 'Encrypted backup saved.';
+
+  @override
+  String get backupExportFailed => 'The backup could not be created. Try again.';
+
+  @override
+  String get backupExportClearTextAction => 'Export unencrypted (CSV/JSON)';
+
+  @override
+  String get backupClearTextTitle => 'Export unencrypted file';
+
+  @override
+  String get backupClearTextReauthBody => 'Re-enter your master password to export the vault in clear text.';
+
+  @override
+  String backupClearTextItemCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'The file will contain $count entries.',
+      one: 'The file will contain 1 entry.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupClearTextWarning => 'This file is NOT encrypted. Every password in it is readable by anyone who opens it, including any app that syncs it to the cloud. Delete it as soon as you finish migrating.';
+
+  @override
+  String get backupClearTextFormatLabel => 'Format';
+
+  @override
+  String get backupClearTextFormatCsv => 'CSV — password managers and spreadsheets';
+
+  @override
+  String get backupClearTextFormatJson => 'JSON — every field, no information loss';
+
+  @override
+  String get backupClearTextConfirm => 'I understand the file will be unencrypted on disk.';
+
+  @override
+  String get backupClearTextCreateAction => 'Export unencrypted file';
+
+  @override
+  String get backupClearTextSuccess => 'Unencrypted file saved. Delete it once you are done with it.';
+
+  @override
+  String get backupClearTextExportFailed => 'The unencrypted file could not be created. Try again.';
+
+  @override
+  String get backupReauthExpired => 'Your confirmation expired. Start the export again.';
+
+  @override
+  String get backupRestoreTitle => 'Restore backup';
+
+  @override
+  String get backupRestoreIntro => 'Pick a .vaulta file and enter its backup password. Nothing is written to your vault until you confirm.';
+
+  @override
+  String get backupPickFile => 'Choose backup file';
+
+  @override
+  String get backupPickFailed => 'The file could not be opened.';
+
+  @override
+  String get backupUnlockAction => 'Open backup';
+
+  @override
+  String get backupOpenFailed => 'The backup could not be opened. Check the backup password; the file may also be damaged or modified.';
+
+  @override
+  String get backupUnsupportedVersion => 'This backup was made by a newer version of Vaulta. Update the app and try again.';
+
+  @override
+  String get backupPreviewTitle => 'Backup contents';
+
+  @override
+  String backupPreviewCreatedAt(String date) {
+    return 'Created $date';
+  }
+
+  @override
+  String backupPreviewSummary(int total, int fresh, int conflicts, int duplicates) {
+    return '$total entries: $fresh new, $conflicts kept next to a similar entry, $duplicates already in your vault.';
+  }
+
+  @override
+  String get backupConflictSuffix => ' (restored)';
+
+  @override
+  String backupRestoreConfirm(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Restore $count entries',
+      one: 'Restore 1 entry',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupRestoreNothing => 'Every entry in this backup is already in your vault.';
+
+  @override
+  String backupRestoreSuccess(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Restored $count entries.',
+      one: 'Restored 1 entry.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get backupRestoreFailed => 'The restore was interrupted. Entries written before the error were kept.';
+
+  @override
+  String get backupRestoreLocked => 'Unlock Vaulta to restore a backup.';
+
+  @override
+  String get syncSignInTitle => 'Sign in to sync';
+
+  @override
+  String get syncSignInBody => 'Your vault stays encrypted on this device. The account only carries ciphertext between your devices.';
+
+  @override
+  String get syncEmailLabel => 'Email';
+
+  @override
+  String get syncPasswordLabel => 'Password';
+
+  @override
+  String get syncSignInAction => 'Sign in';
+
+  @override
+  String get syncSignInInvalid => 'Wrong email or password.';
+
+  @override
+  String get syncSignInOffline => 'Could not reach the server. Check your connection.';
+
+  @override
+  String get syncSignInRequired => 'Sign in to sync this vault.';
 }

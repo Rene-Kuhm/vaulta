@@ -11,6 +11,7 @@ import 'device_registration_repository.dart';
 import 'device_session_revocation_service.dart';
 import 'sync_conflict_resolver.dart';
 import 'sync_runtime_hardening.dart';
+import 'vault_key_sync_service.dart';
 
 /// Abstraction over "what version of the app is running?". Lets
 /// tests substitute a stub without pulling in `package_info_plus`.
@@ -207,6 +208,7 @@ class DeviceSyncLifecycle {
     this.baseRetryDelay = const Duration(seconds: 1),
     this.heartbeatInterval = const Duration(minutes: 5),
     this.diagnosticsHook,
+    this.vaultKeySync,
     Future<void> Function(Duration delay)? delay,
     DateTime Function()? now,
   }) : _service = service,
@@ -253,6 +255,10 @@ class DeviceSyncLifecycle {
   /// Optional hook that receives a [SyncDiagnosticEvent] for every
   /// session-related failure. Used by the settings screen.
   final SyncDiagnosticsHook? diagnosticsHook;
+
+  /// Reconciles the local vault key (wrapped DEK) with the remote one.
+  /// `null` on builds or sessions where vault-key sync is not wired.
+  final VaultKeySyncService? vaultKeySync;
   final Future<void> Function(Duration delay) _delay;
   final DateTime Function() _now;
 
@@ -289,6 +295,14 @@ class DeviceSyncLifecycle {
       mutationSink.attach(syncService);
     }
     await syncService?.onSessionStarted();
+    await syncVaultKey();
+  }
+
+  /// Reconciles the vault key (wrapped DEK) with the remote, so a second
+  /// device can adopt an existing vault and this device pushes its key
+  /// after a fresh vault or a rekey. No-op when [vaultKeySync] is null.
+  Future<void> syncVaultKey() async {
+    await vaultKeySync?.syncOnce();
   }
 
   /// Hook for the app's foreground-resume lifecycle event. Sends

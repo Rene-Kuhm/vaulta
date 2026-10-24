@@ -386,7 +386,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsRoadmapNotes.
   ///
   /// In en, this message translates to:
-  /// **'Vault items use ADR-001 v2: Argon2id derives a KEK from the master password, and a random DEK encrypts entries with AES-256-GCM. Android now uses KeyStore for biometric unlock; iOS/macOS bindings remain pending.'**
+  /// **'Vault items use ADR-001 payload v4: Argon2id derives a KEK from the master password, a random DEK unlocks the vault, and every item is then sealed with AES-256-GCM under its own key, with the ciphertext bound to its record id, item key id, item key version and IV. Android recovers the DEK with biometrics through a KeyStore key; iOS/macOS bindings remain pending.'**
   String get settingsRoadmapNotes;
 
   /// No description provided for @settingsSecureStorage.
@@ -404,7 +404,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsHardwareBackedKeys.
   ///
   /// In en, this message translates to:
-  /// **'Hardware-backed keys'**
+  /// **'KeyStore-held key'**
   String get settingsHardwareBackedKeys;
 
   /// No description provided for @settingsVaultEncryptionReady.
@@ -412,6 +412,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Vault item encryption wired end-to-end'**
   String get settingsVaultEncryptionReady;
+
+  /// No description provided for @settingsCapabilitySupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Available'**
+  String get settingsCapabilitySupported;
+
+  /// No description provided for @settingsCapabilityUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Not available'**
+  String get settingsCapabilityUnsupported;
+
+  /// No description provided for @settingsCapabilityUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not determine'**
+  String get settingsCapabilityUnknown;
 
   /// No description provided for @settingsConflictsTitle.
   ///
@@ -668,8 +686,20 @@ abstract class AppLocalizations {
   /// No description provided for @securityBiometricUnavailable.
   ///
   /// In en, this message translates to:
-  /// **'No biometrics detected. You can still unlock with your master password.'**
+  /// **'Biometric unlock is unavailable: no biometrics are enrolled, or this Android version cannot require a biometric. You can still unlock with your master password.'**
   String get securityBiometricUnavailable;
+
+  /// No description provided for @securityShowPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Show password'**
+  String get securityShowPassword;
+
+  /// No description provided for @securityHidePassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide password'**
+  String get securityHidePassword;
 
   /// No description provided for @securityCreateSecureAccess.
   ///
@@ -832,6 +862,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Clipboard cleared.'**
   String get clipboardCleared;
+
+  /// No description provided for @entryPasswordHistoryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous passwords'**
+  String get entryPasswordHistoryTitle;
+
+  /// No description provided for @entryPasswordHistoryHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Older passwords kept when you change the secret. Newest first.'**
+  String get entryPasswordHistoryHint;
+
+  /// No description provided for @entryPasswordHistoryCopyTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy previous password'**
+  String get entryPasswordHistoryCopyTooltip;
+
+  /// No description provided for @entryPasswordHistoryRevealTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Show previous password'**
+  String get entryPasswordHistoryRevealTooltip;
+
+  /// No description provided for @entryPasswordHistoryHideTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide previous password'**
+  String get entryPasswordHistoryHideTooltip;
+
+  /// No description provided for @totpTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'One-time code'**
+  String get totpTitle;
+
+  /// No description provided for @totpCopyCode.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy code'**
+  String get totpCopyCode;
+
+  /// No description provided for @totpSecondsRemaining.
+  ///
+  /// In en, this message translates to:
+  /// **'{seconds}s remaining'**
+  String totpSecondsRemaining(int seconds);
+
+  /// No description provided for @totpUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'This entry\'s one-time code could not be read.'**
+  String get totpUnavailable;
 
   /// No description provided for @entryNotesTitle.
   ///
@@ -1436,7 +1520,7 @@ abstract class AppLocalizations {
   /// No description provided for @updateDescription.
   ///
   /// In en, this message translates to:
-  /// **'New versions are published automatically when there is a push to master. Tap below to check for a newer build without uninstalling the app.'**
+  /// **'Stable versions are published from tagged releases. Before installing, every download is checked against the release SHA-256 checksums and the app signing certificate.'**
   String get updateDescription;
 
   /// No description provided for @updateCheck.
@@ -1484,7 +1568,7 @@ abstract class AppLocalizations {
   /// No description provided for @updateUpToDateBody.
   ///
   /// In en, this message translates to:
-  /// **'The installed build matches the latest release on master.'**
+  /// **'The installed build matches the latest release on this channel.'**
   String get updateUpToDateBody;
 
   /// No description provided for @updateErrorTitle.
@@ -1523,6 +1607,36 @@ abstract class AppLocalizations {
   /// **'Update'**
   String get updateActionUpdate;
 
+  /// No description provided for @updateDevChannelTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Dev channel'**
+  String get updateDevChannelTitle;
+
+  /// No description provided for @updateDevChannelSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Receive the rolling build published on every change to master. Less tested than stable releases; downloads are still verified.'**
+  String get updateDevChannelSubtitle;
+
+  /// No description provided for @updateChecksumMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'Update refused: the release does not publish a SHA-256 checksum for this APK, so it cannot be verified.'**
+  String get updateChecksumMissing;
+
+  /// No description provided for @updateChecksumMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Update refused: the downloaded APK does not match the published SHA-256 checksum. It was deleted.'**
+  String get updateChecksumMismatch;
+
+  /// No description provided for @updateSignatureMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Update refused: the downloaded APK is not signed with the same certificate as the installed app. It was deleted.'**
+  String get updateSignatureMismatch;
+
   /// No description provided for @updateInstallPrompt.
   ///
   /// In en, this message translates to:
@@ -1550,32 +1664,92 @@ abstract class AppLocalizations {
   /// No description provided for @accessTitle.
   ///
   /// In en, this message translates to:
-  /// **'Vault on every input'**
+  /// **'Autofill is ready'**
   String get accessTitle;
 
   /// No description provided for @accessSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Set Vaulta as the system autofill provider and unlock your entries the moment a password field needs them.'**
+  /// **'Vaulta\'s Android autofill service is registered on this device. It fills logins in your browser, and in apps that verify their website on Android 12 and above.'**
   String get accessSubtitle;
 
   /// No description provided for @accessHeroTitle.
   ///
   /// In en, this message translates to:
-  /// **'One-tap autofill'**
+  /// **'Fill logins without copy-paste'**
   String get accessHeroTitle;
 
   /// No description provided for @accessHeroBody.
   ///
   /// In en, this message translates to:
-  /// **'Hardware-backed. Offline-first. No data leaves the device.'**
+  /// **'Pick Vaulta as your autofill service in Android settings, then unlock when a login asks for a password.'**
   String get accessHeroBody;
 
   /// No description provided for @accessPlatformAndroid.
   ///
   /// In en, this message translates to:
-  /// **'Android 11+'**
+  /// **'Android'**
   String get accessPlatformAndroid;
+
+  /// No description provided for @accessComingSoon.
+  ///
+  /// In en, this message translates to:
+  /// **'Available now'**
+  String get accessComingSoon;
+
+  /// No description provided for @accessStatusTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Autofill service registered'**
+  String get accessStatusTitle;
+
+  /// No description provided for @accessStatusBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Vaulta\'s autofill service is active on this device. Nothing on this screen changes your system settings: pick Vaulta under Settings → Autofill service to start filling.'**
+  String get accessStatusBody;
+
+  /// No description provided for @accessUnlockPostureTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock posture'**
+  String get accessUnlockPostureTitle;
+
+  /// No description provided for @accessUnlockPostureBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Autofill requests are gated by the same unlock state as the rest of the app.'**
+  String get accessUnlockPostureBody;
+
+  /// No description provided for @accessUnlocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Vault is unlocked'**
+  String get accessUnlocked;
+
+  /// No description provided for @accessLocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Vault is locked'**
+  String get accessLocked;
+
+  /// No description provided for @accessLockNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock vault now'**
+  String get accessLockNow;
+
+  /// No description provided for @accessRoadmapTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'What\'s next'**
+  String get accessRoadmapTitle;
+
+  /// No description provided for @accessRoadmapBody.
+  ///
+  /// In en, this message translates to:
+  /// **'iOS and desktop autofill are still ahead. Android app filling (beyond verified websites) is limited by the platform\'s domain-verification rules.'**
+  String get accessRoadmapBody;
 
   /// No description provided for @accessPlatformBiometrics.
   ///
@@ -1637,47 +1811,359 @@ abstract class AppLocalizations {
   /// **'Next time you tap a password field, Vaulta prompts for biometrics or master password and fills the right entry.'**
   String get accessSetupStep3Body;
 
-  /// No description provided for @accessUnlockPostureTitle.
+  /// No description provided for @backupSectionTitle.
   ///
   /// In en, this message translates to:
-  /// **'Unlock posture'**
-  String get accessUnlockPostureTitle;
+  /// **'Encrypted backup'**
+  String get backupSectionTitle;
 
-  /// No description provided for @accessUnlockPostureBody.
+  /// No description provided for @backupSectionSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Autofill requests are gated by the same unlock state as the rest of the app.'**
-  String get accessUnlockPostureBody;
+  /// **'Export your vault to an encrypted .vaulta file so you can restore it on a new device. Keep the file somewhere other than this device.'**
+  String get backupSectionSubtitle;
 
-  /// No description provided for @accessUnlocked.
+  /// No description provided for @backupExportAction.
   ///
   /// In en, this message translates to:
-  /// **'Vault is unlocked'**
-  String get accessUnlocked;
+  /// **'Export backup'**
+  String get backupExportAction;
 
-  /// No description provided for @accessLocked.
+  /// No description provided for @backupRestoreAction.
   ///
   /// In en, this message translates to:
-  /// **'Vault is locked'**
-  String get accessLocked;
+  /// **'Restore backup'**
+  String get backupRestoreAction;
 
-  /// No description provided for @accessLockNow.
+  /// No description provided for @backupExportTitle.
   ///
   /// In en, this message translates to:
-  /// **'Lock vault now'**
-  String get accessLockNow;
+  /// **'Export encrypted backup'**
+  String get backupExportTitle;
 
-  /// No description provided for @accessRoadmapTitle.
+  /// No description provided for @backupReauthBody.
   ///
   /// In en, this message translates to:
-  /// **'What\'s next'**
-  String get accessRoadmapTitle;
+  /// **'Re-enter your master password to export the vault.'**
+  String get backupReauthBody;
 
-  /// No description provided for @accessRoadmapBody.
+  /// No description provided for @backupMasterPasswordLabel.
   ///
   /// In en, this message translates to:
-  /// **'iOS and desktop autofill ship after the biometric platform bindings (iOS/macOS) are in place.'**
-  String get accessRoadmapBody;
+  /// **'Master password'**
+  String get backupMasterPasswordLabel;
+
+  /// No description provided for @backupContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue'**
+  String get backupContinue;
+
+  /// No description provided for @backupMasterPasswordMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The master password does not match.'**
+  String get backupMasterPasswordMismatch;
+
+  /// No description provided for @backupItemCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{The backup will contain 1 entry.} other{The backup will contain {count} entries.}}'**
+  String backupItemCount(int count);
+
+  /// No description provided for @backupPasswordLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup password'**
+  String get backupPasswordLabel;
+
+  /// No description provided for @backupPasswordConfirmLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm backup password'**
+  String get backupPasswordConfirmLabel;
+
+  /// No description provided for @backupPasswordHint.
+  ///
+  /// In en, this message translates to:
+  /// **'At least 12 characters, and not a password that already appears in leaked-password lists. A passphrase works best.'**
+  String get backupPasswordHint;
+
+  /// No description provided for @backupPasswordWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Vaulta cannot recover the backup password. If you forget it, nobody can open this backup, not even you.'**
+  String get backupPasswordWarning;
+
+  /// No description provided for @backupPasswordTooShort.
+  ///
+  /// In en, this message translates to:
+  /// **'Use at least {min} characters.'**
+  String backupPasswordTooShort(int min);
+
+  /// No description provided for @backupPasswordWeak.
+  ///
+  /// In en, this message translates to:
+  /// **'That password appears on lists of leaked passwords. Choose another.'**
+  String get backupPasswordWeak;
+
+  /// No description provided for @backupPasswordMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The confirmation does not match the backup password.'**
+  String get backupPasswordMismatch;
+
+  /// No description provided for @backupCreateAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Create backup'**
+  String get backupCreateAction;
+
+  /// No description provided for @backupSaveAgain.
+  ///
+  /// In en, this message translates to:
+  /// **'Save file'**
+  String get backupSaveAgain;
+
+  /// No description provided for @backupSaveCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Saving was cancelled. No file was written.'**
+  String get backupSaveCancelled;
+
+  /// No description provided for @backupExportSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Encrypted backup saved.'**
+  String get backupExportSuccess;
+
+  /// No description provided for @backupExportFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The backup could not be created. Try again.'**
+  String get backupExportFailed;
+
+  /// No description provided for @backupExportClearTextAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Export unencrypted (CSV/JSON)'**
+  String get backupExportClearTextAction;
+
+  /// No description provided for @backupClearTextTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Export unencrypted file'**
+  String get backupClearTextTitle;
+
+  /// No description provided for @backupClearTextReauthBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Re-enter your master password to export the vault in clear text.'**
+  String get backupClearTextReauthBody;
+
+  /// No description provided for @backupClearTextItemCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{The file will contain 1 entry.} other{The file will contain {count} entries.}}'**
+  String backupClearTextItemCount(int count);
+
+  /// No description provided for @backupClearTextWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'This file is NOT encrypted. Every password in it is readable by anyone who opens it, including any app that syncs it to the cloud. Delete it as soon as you finish migrating.'**
+  String get backupClearTextWarning;
+
+  /// No description provided for @backupClearTextFormatLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Format'**
+  String get backupClearTextFormatLabel;
+
+  /// No description provided for @backupClearTextFormatCsv.
+  ///
+  /// In en, this message translates to:
+  /// **'CSV — password managers and spreadsheets'**
+  String get backupClearTextFormatCsv;
+
+  /// No description provided for @backupClearTextFormatJson.
+  ///
+  /// In en, this message translates to:
+  /// **'JSON — every field, no information loss'**
+  String get backupClearTextFormatJson;
+
+  /// No description provided for @backupClearTextConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'I understand the file will be unencrypted on disk.'**
+  String get backupClearTextConfirm;
+
+  /// No description provided for @backupClearTextCreateAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Export unencrypted file'**
+  String get backupClearTextCreateAction;
+
+  /// No description provided for @backupClearTextSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Unencrypted file saved. Delete it once you are done with it.'**
+  String get backupClearTextSuccess;
+
+  /// No description provided for @backupClearTextExportFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The unencrypted file could not be created. Try again.'**
+  String get backupClearTextExportFailed;
+
+  /// No description provided for @backupReauthExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'Your confirmation expired. Start the export again.'**
+  String get backupReauthExpired;
+
+  /// No description provided for @backupRestoreTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore backup'**
+  String get backupRestoreTitle;
+
+  /// No description provided for @backupRestoreIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a .vaulta file and enter its backup password. Nothing is written to your vault until you confirm.'**
+  String get backupRestoreIntro;
+
+  /// No description provided for @backupPickFile.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose backup file'**
+  String get backupPickFile;
+
+  /// No description provided for @backupPickFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The file could not be opened.'**
+  String get backupPickFailed;
+
+  /// No description provided for @backupUnlockAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Open backup'**
+  String get backupUnlockAction;
+
+  /// No description provided for @backupOpenFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The backup could not be opened. Check the backup password; the file may also be damaged or modified.'**
+  String get backupOpenFailed;
+
+  /// No description provided for @backupUnsupportedVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'This backup was made by a newer version of Vaulta. Update the app and try again.'**
+  String get backupUnsupportedVersion;
+
+  /// No description provided for @backupPreviewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Backup contents'**
+  String get backupPreviewTitle;
+
+  /// No description provided for @backupPreviewCreatedAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Created {date}'**
+  String backupPreviewCreatedAt(String date);
+
+  /// No description provided for @backupPreviewSummary.
+  ///
+  /// In en, this message translates to:
+  /// **'{total} entries: {fresh} new, {conflicts} kept next to a similar entry, {duplicates} already in your vault.'**
+  String backupPreviewSummary(int total, int fresh, int conflicts, int duplicates);
+
+  /// No description provided for @backupConflictSuffix.
+  ///
+  /// In en, this message translates to:
+  /// **' (restored)'**
+  String get backupConflictSuffix;
+
+  /// No description provided for @backupRestoreConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Restore 1 entry} other{Restore {count} entries}}'**
+  String backupRestoreConfirm(int count);
+
+  /// No description provided for @backupRestoreNothing.
+  ///
+  /// In en, this message translates to:
+  /// **'Every entry in this backup is already in your vault.'**
+  String get backupRestoreNothing;
+
+  /// No description provided for @backupRestoreSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{Restored 1 entry.} other{Restored {count} entries.}}'**
+  String backupRestoreSuccess(int count);
+
+  /// No description provided for @backupRestoreFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The restore was interrupted. Entries written before the error were kept.'**
+  String get backupRestoreFailed;
+
+  /// No description provided for @backupRestoreLocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock Vaulta to restore a backup.'**
+  String get backupRestoreLocked;
+
+  /// No description provided for @syncSignInTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to sync'**
+  String get syncSignInTitle;
+
+  /// No description provided for @syncSignInBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your vault stays encrypted on this device. The account only carries ciphertext between your devices.'**
+  String get syncSignInBody;
+
+  /// No description provided for @syncEmailLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Email'**
+  String get syncEmailLabel;
+
+  /// No description provided for @syncPasswordLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get syncPasswordLabel;
+
+  /// No description provided for @syncSignInAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in'**
+  String get syncSignInAction;
+
+  /// No description provided for @syncSignInInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong email or password.'**
+  String get syncSignInInvalid;
+
+  /// No description provided for @syncSignInOffline.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not reach the server. Check your connection.'**
+  String get syncSignInOffline;
+
+  /// No description provided for @syncSignInRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to sync this vault.'**
+  String get syncSignInRequired;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

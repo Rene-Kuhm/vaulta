@@ -1,8 +1,13 @@
 package com.insyd.gestor_contrasenas
 
+import android.content.Context
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import androidx.annotation.ChecksSdkIntAtLeast
+import androidx.annotation.RequiresApi
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricManager.Authenticators
 import android.util.Log
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
@@ -20,7 +25,9 @@ import javax.crypto.spec.PSource
  * Bridge between the Dart envelope and the Android KeyStore.
  *
  * Generates an RSA-2048 keypair inside the hardware-backed KeyStore
- * (AndroidKeyStore provider) with `setUserAuthenticationRequired(true)`.
+ * (AndroidKeyStore provider) declared for
+ * `setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG)` — biometric,
+ * per operation, never the device PIN.
  * The private key never leaves the secure element; every decrypt
  * operation must be preceded by a successful BiometricPrompt, which
  * the host activity handles on a separate channel. We only return
@@ -38,17 +45,28 @@ import javax.crypto.spec.PSource
  *   - AES/GCM/NoPadding inside the Dart envelope is the DEK wrap.
  *   - We never persist the DEK in clear, even on disk.
  *
- * Best-practice notes (Android 11+ / API 30+):
- *   * `setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG)` is
- *     the explicit form that Android wants you to call instead of
- *     relying on the legacy `setUserAuthenticationValidityDuration`
- *     shortcut. With timeout=0 every private-key operation requires
- *     a fresh BiometricPrompt.
- *   * On older devices that pre-date `setUserAuthenticationParameters`
- *     (API < 30) we fall back to `setUserAuthenticationValidityDuration(0)`
- *     which has the same semantics under the hood.
+ * Best-practice notes:
+ *   * The key declares its authenticator type with
+ *     `setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG)`, so
+ *     the device PIN/pattern/password can never authorize it and every
+ *     private-key operation needs a fresh BiometricPrompt. That call —
+ *     and the `AUTH_BIOMETRIC_STRONG` constant itself — only exist from
+ *     API 30 on.
+ *   * Below API 30 there is no way to say "biometric only" to the
+ *     KeyStore: `setUserAuthenticationRequired(true)` alone is satisfied
+ *     by any secure lock-screen credential, so a key minted there is
+ *     authorized by the device PIN as well as by a fingerprint. Rather
+ *     than mint such a key and call it biometric-bound, this channel
+ *     refuses to build one: [isAvailable] answers false and [ensureKey]
+ *     throws, so the biometric envelope simply is not offered and the
+ *     user falls back to the master password. See [buildKeySpecForDevice].
  */
-class KeystoreChannel(engine: FlutterEngine) : MethodChannel.MethodCallHandler {
+class KeystoreChannel(
+    engine: FlutterEngine,
+    context: Context,
+) : MethodChannel.MethodCallHandler {
+
+    private val appContext: Context = context.applicationContext
 
     private val channel: MethodChannel =
         MethodChannel(engine.dartExecutor.binaryMessenger, CHANNEL_NAME).also {
@@ -70,51 +88,89 @@ class KeystoreChannel(engine: FlutterEngine) : MethodChannel.MethodCallHandler {
                     val encrypted = rsaEncrypt(plaintext)
                     result.success(encrypted)
                 }
-                "rsaDecryptAuthorized" -> {
-                    val ciphertext = call.argument<ByteArray>("ciphertext")
-                        ?: return result.error("ARG", "ciphertext is required", null)
-                    val plaintext = rsaDecryptAuthorized(ciphertext)
-                    result.success(plaintext)
-                }
+                // There is deliberately no unauthenticated decrypt method on this
+                // channel. The private key is generated with
+                // setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG), so a
+                // Cipher.init(DECRYPT_MODE, privateKey) without a
+                // BiometricPrompt.CryptoObject can never be authorized by Android.
+                // Unwrapping the seed happens in MainActivity.authenticateAndDecrypt,
+                // which owns the prompt and runs cipher.doFinal() inside
+                // onAuthenticationSucceeded. See ADR-001.
                 else -> result.notImplemented()
             }
-        } catch (e: UserCancelledException) {
-            result.error(BiometricErrorCode.USER_CANCELLED, e.message ?: "user cancelled", null)
-        } catch (e: BiometricUnavailableException) {
-            result.error(BiometricErrorCode.UNAVAILABLE, e.message ?: "biometric unavailable", null)
-        } catch (e: KeyPermanentlyInvalidatedException) {
-            result.error(BiometricErrorCode.LOCKOUT_PERMANENT, e.message ?: "key invalidated", null)
         } catch (e: Throwable) {
             result.error("KEYSTORE", e.message ?: e.javaClass.simpleName, null)
         }
     }
 
+    /**
+     * Reports whether this device can actually back the biometric
+     * envelope right now.
+     *
+     * Two things have to hold: the platform must accept a
+     * biometric-strong RSA spec, and the user must actually have a
+     * strong biometric enrolled. Checking only the first is how a device
+     * with no enrolled fingerprint could report `true`, let enrollment
+     * persist an encrypted seed, and then fail every unlock.
+     *
+     * A third thing has to hold, and it is the one that was missing: the
+     * platform must be able to declare the authenticator type at all. On
+     * API < 30 it cannot, so no key minted on such a device is really
+     * biometric-bound and this answers false.
+     *
+     * Deliberately cheap. The previous implementation generated and
+     * deleted a throwaway RSA-2048 keypair to prove the KeyStore would
+     * accept the spec, and this method runs on every acquire and every
+     * release, so an RSA keygen sat on the critical path of the unlock
+     * button. A spec that the KeyStore provider rejects fails loudly at
+     * `ensureKey` time, which is where a genuine incompatibility
+     * belongs.
+     */
     private fun isAvailable(): Boolean {
-        val ks = try {
-            KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        } catch (e: Throwable) {
-            Log.w(TAG, "isAvailable: KeyStore init failed", e)
+        if (!supportsBiometricOnlyAuth()) {
+            Log.i(
+                TAG,
+                "isAvailable: API ${Build.VERSION.SDK_INT} cannot declare " +
+                    "AUTH_BIOMETRIC_STRONG for a KeyStore key; " +
+                    "biometric envelope unavailable"
+            )
             return false
         }
+
+        val strongEnrolled = try {
+            BiometricManager.from(appContext)
+                .canAuthenticate(Authenticators.BIOMETRIC_STRONG) ==
+                BiometricManager.BIOMETRIC_SUCCESS
+        } catch (e: Throwable) {
+            Log.w(TAG, "isAvailable: BiometricManager probe failed", e)
+            return false
+        }
+        if (!strongEnrolled) {
+            Log.i(TAG, "isAvailable: no strong biometric enrolled")
+            return false
+        }
+
+        // A spec the provider cannot even build is an incompatibility we
+        // can detect without paying for a keypair. buildKeySpec throws on
+        // an unsupported authenticator set, which is the whole probe.
         return try {
-            val generator = KeyPairGenerator.getInstance(
-                KeyProperties.KEY_ALGORITHM_RSA,
-                ANDROID_KEYSTORE
-            )
-            generator.initialize(buildKeySpec("vaulta-biometric-probe"))
-            generator.generateKeyPair()
-            if (ks.containsAlias("vaulta-biometric-probe")) {
-                ks.deleteEntry("vaulta-biometric-probe")
-            }
-            Log.d(TAG, "isAvailable: KeyStore can build a biometric-bound RSA spec")
+            KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            buildKeySpecForDevice(PROBE_ALIAS)
+            Log.i(TAG, "isAvailable: strong biometric enrolled and spec supported")
             true
         } catch (e: Throwable) {
-            Log.w(TAG, "isAvailable: building biometric RSA spec failed", e)
+            Log.w(TAG, "isAvailable: biometric RSA spec unsupported", e)
             false
         }
     }
 
     private fun ensureKey(): String {
+        // The spec is built before the alias check on purpose: on a device
+        // that cannot declare the authenticator type we must refuse even
+        // when a legacy alias is still lying around, or the envelope would
+        // keep unlocking through the PIN on an app version that was
+        // supposed to have closed that hole.
+        val spec = buildKeySpecForDevice(KEY_ALIAS)
         val ks = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         if (ks.containsAlias(KEY_ALIAS)) {
             Log.d(TAG, "ensureKey: alias $KEY_ALIAS already present")
@@ -125,7 +181,6 @@ class KeystoreChannel(engine: FlutterEngine) : MethodChannel.MethodCallHandler {
             KeyProperties.KEY_ALGORITHM_RSA,
             ANDROID_KEYSTORE
         )
-        val spec = buildKeySpec(KEY_ALIAS)
         generator.initialize(spec)
         generator.generateKeyPair()
         Log.i(TAG, "ensureKey: generated new RSA-2048 alias=$KEY_ALIAS")
@@ -133,22 +188,84 @@ class KeystoreChannel(engine: FlutterEngine) : MethodChannel.MethodCallHandler {
     }
 
     /**
+     * True when this platform can declare an authenticator type for the
+     * envelope key.
+     *
+     * [KeyGenParameterSpec.Builder.setUserAuthenticationParameters] and
+     * [KeyProperties.AUTH_BIOMETRIC_STRONG] were both introduced in API 30.
+     * Before that, the only knobs were `setUserAuthenticationRequired` and
+     * the deprecated `setUserAuthenticationValidityDurationSeconds`, and
+     * neither restricts *which* credential satisfies the requirement: a
+     * key that requires user auth on API 23-29 is authorized by the
+     * device PIN/pattern/password as readily as by a fingerprint. There
+     * is no keystore-level fix for that, so the honest answer is that the
+     * biometric envelope is unavailable rather than available with a
+     * weaker guarantee than the UI claims.
+     *
+     * Annotated [ChecksSdkIntAtLeast] so lint keeps treating the
+     * API 30 branch below as genuinely guarded.
+     */
+    @ChecksSdkIntAtLeast(api = Build.VERSION_CODES.R)
+    private fun supportsBiometricOnlyAuth(): Boolean =
+        declaresBiometricOnlyAuth(Build.VERSION.SDK_INT)
+
+    /**
+     * The platform policy as a pure function of the API level, so the
+     * decision is readable — and testable, once `android/app/src/test`
+     * has a runner — without a live [Build.VERSION].
+     */
+    private fun declaresBiometricOnlyAuth(sdkInt: Int): Boolean =
+        sdkInt >= MIN_BIOMETRIC_ONLY_AUTH_SDK
+
+    /**
+     * The one place the API-level branch is written. Below API 30 it is a
+     * refusal, never a downgrade: minting a key whose declared guarantee
+     * is "some secure lock-screen credential" under a UI that says
+     * "biometrics" is exactly the defect this guards against. The
+     * comparison is spelled against [Build.VERSION.SDK_INT] directly so
+     * lint can see it as a version guard.
+     */
+    private fun buildKeySpecForDevice(alias: String): KeyGenParameterSpec =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            buildKeySpec(alias, Build.VERSION.SDK_INT)
+        } else {
+            throw UnsupportedOperationException(
+                "vaulta biometric envelope key requires API " +
+                    "$MIN_BIOMETRIC_ONLY_AUTH_SDK: setUserAuthenticationParameters " +
+                    "and AUTH_BIOMETRIC_STRONG do not exist on API " +
+                    "${Build.VERSION.SDK_INT}, where a " +
+                    "setUserAuthenticationRequired(true) key is also authorized by " +
+                    "the device PIN/pattern/password"
+            )
+        }
+
+    /**
      * Build the [KeyGenParameterSpec] for the biometric-bound RSA key.
      *
-     * The auth timeout is 0 (every operation needs a fresh prompt).
+     * The auth timeout is 0 (every operation needs a fresh prompt) and
+     * the authenticator type is declared as
+     * [KeyProperties.AUTH_BIOMETRIC_STRONG], so the device PIN is not an
+     * accepted substitute for the fingerprint.
      *
-     * On API 30+ we set this explicitly with
-     * [KeyGenParameterSpec.Builder.setUserAuthenticationParameters] and
-     * the [KeyProperties.AUTH_BIOMETRIC_STRONG] authenticator so the
-     * platform never grants a time-based bypass. On API 23-29 the
-     * older `setUserAuthenticationValidityDuration` shortcut has been
-     * pruned from the public SDK, so we leave the timeout unset; the
-     * default for `setUserAuthenticationRequired(true)` is already
-     * "every operation needs a fresh user auth", which is exactly
-     * what we want for the per-unlock biometric gate.
+     * [sdkInt] is a parameter rather than a [Build.VERSION] read so the
+     * precondition is an input: [buildKeySpecForDevice] is the only
+     * production caller and it refuses anything below
+     * [MIN_BIOMETRIC_ONLY_AUTH_SDK], and the redundant check here means
+     * the function cannot be turned into a silent downgrade by a future
+     * caller that skips the guard.
+     *
+     * @param sdkInt the platform API level the spec has to be valid for.
      */
-    private fun buildKeySpec(alias: String): KeyGenParameterSpec {
-        val builder = KeyGenParameterSpec.Builder(
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun buildKeySpec(alias: String, sdkInt: Int): KeyGenParameterSpec {
+        if (!declaresBiometricOnlyAuth(sdkInt)) {
+            throw UnsupportedOperationException(
+                "vaulta biometric envelope key requires API " +
+                    "$MIN_BIOMETRIC_ONLY_AUTH_SDK, got API $sdkInt"
+            )
+        }
+
+        return KeyGenParameterSpec.Builder(
             alias,
             KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
         )
@@ -156,18 +273,13 @@ class KeystoreChannel(engine: FlutterEngine) : MethodChannel.MethodCallHandler {
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_RSA_OAEP)
             .setKeySize(2048)
             .setUserAuthenticationRequired(true)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // API 30+ — explicit authenticator set. timeout=0 means
-            // "every use requires a fresh user auth".
-            builder.setUserAuthenticationParameters(
+            // timeout = 0 → every use needs a fresh user auth;
+            // authType   → a biometric, never the device PIN.
+            .setUserAuthenticationParameters(
                 /* timeout = */ 0,
                 /* authType = */ KeyProperties.AUTH_BIOMETRIC_STRONG
             )
-        }
-        // On API < 30 the system default is the same per-operation
-        // requirement, so we do nothing else. See class docs.
-        return builder.build()
+            .build()
     }
 
     private fun deleteKey() {
@@ -175,9 +287,6 @@ class KeystoreChannel(engine: FlutterEngine) : MethodChannel.MethodCallHandler {
         if (ks.containsAlias(KEY_ALIAS)) {
             ks.deleteEntry(KEY_ALIAS)
             Log.i(TAG, "deleteKey: removed alias $KEY_ALIAS")
-        }
-        if (ks.containsAlias("vaulta-biometric-probe")) {
-            ks.deleteEntry("vaulta-biometric-probe")
         }
     }
 
@@ -200,56 +309,28 @@ class KeystoreChannel(engine: FlutterEngine) : MethodChannel.MethodCallHandler {
         return out
     }
 
-    /**
-     * Decrypts the RSA-encrypted seed. Requires that the user has
-     * freshly authenticated via BiometricPrompt. The hosting activity
-     * must have called `BiometricPrompt.authenticate(...)` immediately
-     * before invoking this method, so the KeyStore grants the
-     * private-key operation a fresh authorization window.
-     */
-    private fun rsaDecryptAuthorized(ciphertext: ByteArray): ByteArray {
-        val ks = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        if (!ks.containsAlias(KEY_ALIAS)) {
-            throw BiometricUnavailableException("No biometric key enrolled.")
-        }
-        val entry = ks.getEntry(KEY_ALIAS, null) as KeyStore.PrivateKeyEntry
-        val cipher = Cipher.getInstance(TRANSFORMATION_RSA)
-        try {
-            cipher.init(Cipher.DECRYPT_MODE, entry.privateKey)
-        } catch (e: Throwable) {
-            val msg = e.message.orEmpty()
-            when {
-                msg.contains("Key permanently invalidated", ignoreCase = true) -> {
-                    Log.w(TAG, "rsaDecryptAuthorized: key permanently invalidated", e)
-                    throw KeyPermanentlyInvalidatedException(
-                        "La biometria fue revocada. Re-enrola desde Ajustes o usa la master password."
-                    )
-                }
-                msg.contains("User not authenticated", ignoreCase = true) -> {
-                    Log.w(TAG, "rsaDecryptAuthorized: not authenticated", e)
-                    throw BiometricUnavailableException(
-                        "La biometria no esta disponible o fue revocada."
-                    )
-                }
-                else -> {
-                    Log.w(TAG, "rsaDecryptAuthorized: init failed", e)
-                    throw e
-                }
-            }
-        }
-        val out = cipher.doFinal(ciphertext)
-        Log.d(TAG, "rsaDecryptAuthorized: ${ciphertext.size} bytes -> ${out.size} bytes")
-        return out
-    }
-
-    class UserCancelledException(message: String) : RuntimeException(message)
-    class BiometricUnavailableException(message: String) : RuntimeException(message)
-    class KeyPermanentlyInvalidatedException(message: String) : RuntimeException(message)
+    // Removed: rsaDecryptAuthorized() and the three KeystoreException classes it
+    // needed. The method was unreachable from Dart and, under
+    // setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG), Android can never
+    // authorize its Cipher.init(DECRYPT_MODE, privateKey) without a
+    // BiometricPrompt.CryptoObject. Keeping an unauthenticated decrypt on a
+    // crypto channel is an audit finding waiting to happen, so the path is gone
+    // rather than merely unused. Seed unwrapping lives in
+    // MainActivity.authenticateAndDecrypt, inside onAuthenticationSucceeded.
 
     companion object {
         const val CHANNEL_NAME = "com.insyd.vaulta/keystore"
+
+        /**
+         * First API level that can express "this key needs a strong
+         * biometric, not the device PIN". Compile-time constant, so it is
+         * inlined and safe to reference from a pre-30 device.
+         */
+        const val MIN_BIOMETRIC_ONLY_AUTH_SDK = Build.VERSION_CODES.R
+
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "vaulta_biometric_envelope_v1"
+        private const val PROBE_ALIAS = "vaulta-biometric-probe"
         private const val TRANSFORMATION_RSA = "RSA/ECB/OAEPWithSHA-256AndMGF1Padding"
         private const val TAG = "Vaulta/KeyStore"
         private val OAEP_SHA256_MGF1_SHA1 = OAEPParameterSpec(

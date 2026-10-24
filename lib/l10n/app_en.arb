@@ -5,12 +5,10 @@
   "navAccess": "Access",
   "navSettings": "Settings",
   "brandFooter": "Tecnodespegue.com",
-
   "languageSectionTitle": "Language",
   "languageSelectorLabel": "App language",
   "languageEnglish": "English",
   "languageSpanish": "Spanish",
-
   "settingsTitle": "Settings",
   "aboutTitle": "About",
   "aboutCreator": "Created by René Kuhm, founder of Tecnodespegue.",
@@ -55,11 +53,14 @@
   "settingsRevokeOthersDone": "Other active sessions were revoked.",
   "settingsRevokeOthersFailed": "We could not revoke other sessions. Please retry in a few seconds.",
   "settingsRoadmapTitle": "Platform security roadmap",
-  "settingsRoadmapNotes": "Vault items use ADR-001 v2: Argon2id derives a KEK from the master password, and a random DEK encrypts entries with AES-256-GCM. Android now uses KeyStore for biometric unlock; iOS/macOS bindings remain pending.",
+  "settingsRoadmapNotes": "Vault items use ADR-001 payload v4: Argon2id derives a KEK from the master password, a random DEK unlocks the vault, and every item is then sealed with AES-256-GCM under its own key, with the ciphertext bound to its record id, item key id, item key version and IV. Android recovers the DEK with biometrics through a KeyStore key; iOS/macOS bindings remain pending.",
   "settingsSecureStorage": "Secure storage",
   "settingsBiometricUnlock": "Biometric key recovery",
-  "settingsHardwareBackedKeys": "Hardware-backed keys",
+  "settingsHardwareBackedKeys": "KeyStore-held key",
   "settingsVaultEncryptionReady": "Vault item encryption wired end-to-end",
+  "settingsCapabilitySupported": "Available",
+  "settingsCapabilityUnsupported": "Not available",
+  "settingsCapabilityUnknown": "Could not determine",
   "settingsConflictsTitle": "Sync conflicts",
   "settingsConflictsEmpty": "No pending conflicts. Sync queue is clean.",
   "settingsConflictsRefresh": "Refresh",
@@ -98,7 +99,6 @@
   "apply": "Apply",
   "masterPasswordUpdatedSuccess": "Master password updated successfully.",
   "changeMasterPasswordErrorFallback": "We could not change the master password. Review the data and try again.",
-
   "securityOnboardingEyebrow": "Secure onboarding",
   "securityOnboardingTitle": "We create your master key with no dangerous shortcuts.",
   "securityOnboardingSubtitle": "The master password validates local access and derives the key that encrypts vault items.",
@@ -119,7 +119,9 @@
       "biometricLabel": {}
     }
   },
-  "securityBiometricUnavailable": "No biometrics detected. You can still unlock with your master password.",
+  "securityBiometricUnavailable": "Biometric unlock is unavailable: no biometrics are enrolled, or this Android version cannot require a biometric. You can still unlock with your master password.",
+  "securityShowPassword": "Show password",
+  "securityHidePassword": "Hide password",
   "securityCreateSecureAccess": "Create secure vault access",
   "securityUnlockEyebrow": "Unlock",
   "securityUnlockTitle": "Your vault stays closed until real identity is verified.",
@@ -145,7 +147,6 @@
   "securityProtectedAccess": "Protected access",
   "securityUnlockVault": "Unlock vault",
   "securityBiometricButton": "Biometric",
-
   "dashboardDecryptError": "Vaulta could not decrypt the local vault right now.",
   "dashboardDecryptErrorAdvice": "Lock and unlock again with your master password, then retry. Details are hidden to avoid leaking sensitive state.",
   "entryDetailTitle": "Entry detail",
@@ -161,6 +162,22 @@
   "copySecret": "Copy secret",
   "secretCopiedLocally": "Secret copied. The clipboard will be cleared in 30 seconds if unchanged.",
   "clipboardCleared": "Clipboard cleared.",
+  "entryPasswordHistoryTitle": "Previous passwords",
+  "entryPasswordHistoryHint": "Older passwords kept when you change the secret. Newest first.",
+  "entryPasswordHistoryCopyTooltip": "Copy previous password",
+  "entryPasswordHistoryRevealTooltip": "Show previous password",
+  "entryPasswordHistoryHideTooltip": "Hide previous password",
+  "totpTitle": "One-time code",
+  "totpCopyCode": "Copy code",
+  "totpSecondsRemaining": "{seconds}s remaining",
+  "@totpSecondsRemaining": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "totpUnavailable": "This entry's one-time code could not be read.",
   "entryNotesTitle": "Notes",
   "entryDeleteDialogTitle": "Delete entry?",
   "entryDeleteDialogBody": "This removes the encrypted record from the local vault. Remote recovery is not available in offline mode.",
@@ -234,7 +251,6 @@
       }
     }
   },
-
   "editorTitleEdit": "Edit entry",
   "editorTitleNew": "New entry",
   "editorIdentityTitle": "Identity",
@@ -271,7 +287,6 @@
   "editorCreateEntry": "Create entry",
   "editorGeneratorSetRequired": "Choose at least one character set to generate.",
   "editorGeneratedInserted": "Generated password inserted.",
-
   "syncConflictsTitle": "Sync conflicts",
   "syncConflictsSubtitle": "A remote change arrived while your local edit was pending. Choose which version to keep.",
   "syncConflictsEmpty": "No pending conflicts. Everything is in sync.",
@@ -292,7 +307,6 @@
   "syncConflictKeepRemote": "Use remote",
   "syncConflictKindUpsert": "Edit conflict",
   "syncConflictKindDelete": "Delete conflict",
-
   "biometricSlotExpired": "The biometric vault key is not ready or was invalidated. Enter your master password and enable biometrics again.",
   "biometricUnlockSuccess": "Biometric verification accepted.",
   "biometricEnrollCta": "Set up biometrics on this device",
@@ -306,11 +320,10 @@
   "securitySetupBiometricDialogCancel": "Cancel",
   "securitySetupBiometricSuccess": "Done. Next time you can unlock Vaulta with your fingerprint.",
   "securitySetupBiometricError": "We could not enable the fingerprint. Verify your master password and try again.",
-
   "updateTitle": "Updates",
   "updateInstalled": "Installed",
   "updateRemote": "Remote",
-  "updateDescription": "New versions are published automatically when there is a push to master. Tap below to check for a newer build without uninstalling the app.",
+  "updateDescription": "Stable versions are published from tagged releases. Before installing, every download is checked against the release SHA-256 checksums and the app signing certificate.",
   "updateCheck": "Check for updates",
   "updateChecking": "Checking...",
   "updateDownload": "Download and install",
@@ -318,7 +331,7 @@
   "updateInstalling": "Opening installer...",
   "updateRetry": "Retry",
   "updateUpToDateTitle": "Up to date",
-  "updateUpToDateBody": "The installed build matches the latest release on master.",
+  "updateUpToDateBody": "The installed build matches the latest release on this channel.",
   "updateErrorTitle": "We could not check for updates",
   "updateInstallerFailed": "We could not open the system installer. Verify that \"Unknown sources\" is enabled.",
   "updateAvailableVersion": "New version {tag}",
@@ -340,6 +353,11 @@
     }
   },
   "updateActionUpdate": "Update",
+  "updateDevChannelTitle": "Dev channel",
+  "updateDevChannelSubtitle": "Receive the rolling build published on every change to master. Less tested than stable releases; downloads are still verified.",
+  "updateChecksumMissing": "Update refused: the release does not publish a SHA-256 checksum for this APK, so it cannot be verified.",
+  "updateChecksumMismatch": "Update refused: the downloaded APK does not match the published SHA-256 checksum. It was deleted.",
+  "updateSignatureMismatch": "Update refused: the downloaded APK is not signed with the same certificate as the installed app. It was deleted.",
   "updateInstallPrompt": "Confirm the installation on the system screen.",
   "updateInstallFailed": "We could not open the installer. Enable \"Unknown sources\" in Settings and try again.",
   "updateGenericError": "Update failed: {error}",
@@ -348,13 +366,22 @@
       "error": {}
     }
   },
-
   "accessEyebrow": "Autofill & access",
-  "accessTitle": "Vault on every input",
-  "accessSubtitle": "Set Vaulta as the system autofill provider and unlock your entries the moment a password field needs them.",
-  "accessHeroTitle": "One-tap autofill",
-  "accessHeroBody": "Hardware-backed. Offline-first. No data leaves the device.",
-  "accessPlatformAndroid": "Android 11+",
+  "accessTitle": "Autofill is ready",
+  "accessSubtitle": "Vaulta's Android autofill service is registered on this device. It fills logins in your browser, and in apps that verify their website on Android 12 and above.",
+  "accessHeroTitle": "Fill logins without copy-paste",
+  "accessHeroBody": "Pick Vaulta as your autofill service in Android settings, then unlock when a login asks for a password.",
+  "accessPlatformAndroid": "Android",
+  "accessComingSoon": "Available now",
+  "accessStatusTitle": "Autofill service registered",
+  "accessStatusBody": "Vaulta's autofill service is active on this device. Nothing on this screen changes your system settings: pick Vaulta under Settings → Autofill service to start filling.",
+  "accessUnlockPostureTitle": "Unlock posture",
+  "accessUnlockPostureBody": "Autofill requests are gated by the same unlock state as the rest of the app.",
+  "accessUnlocked": "Vault is unlocked",
+  "accessLocked": "Vault is locked",
+  "accessLockNow": "Lock vault now",
+  "accessRoadmapTitle": "What's next",
+  "accessRoadmapBody": "iOS and desktop autofill are still ahead. Android app filling (beyond verified websites) is limited by the platform's domain-verification rules.",
   "accessPlatformBiometrics": "Biometric unlock",
   "accessPlatformOffline": "Offline by default",
   "accessSetupTitle": "Setup in three steps",
@@ -365,11 +392,121 @@
   "accessSetupStep2Body": "Select Vaulta as the active service. Android will ask for confirmation.",
   "accessSetupStep3Title": "Unlock and approve",
   "accessSetupStep3Body": "Next time you tap a password field, Vaulta prompts for biometrics or master password and fills the right entry.",
-  "accessUnlockPostureTitle": "Unlock posture",
-  "accessUnlockPostureBody": "Autofill requests are gated by the same unlock state as the rest of the app.",
-  "accessUnlocked": "Vault is unlocked",
-  "accessLocked": "Vault is locked",
-  "accessLockNow": "Lock vault now",
-  "accessRoadmapTitle": "What's next",
-  "accessRoadmapBody": "iOS and desktop autofill ship after the biometric platform bindings (iOS/macOS) are in place."
+  "backupSectionTitle": "Encrypted backup",
+  "backupSectionSubtitle": "Export your vault to an encrypted .vaulta file so you can restore it on a new device. Keep the file somewhere other than this device.",
+  "backupExportAction": "Export backup",
+  "backupRestoreAction": "Restore backup",
+  "backupExportTitle": "Export encrypted backup",
+  "backupReauthBody": "Re-enter your master password to export the vault.",
+  "backupMasterPasswordLabel": "Master password",
+  "backupContinue": "Continue",
+  "backupMasterPasswordMismatch": "The master password does not match.",
+  "backupItemCount": "{count, plural, =1{The backup will contain 1 entry.} other{The backup will contain {count} entries.}}",
+  "@backupItemCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupPasswordLabel": "Backup password",
+  "backupPasswordConfirmLabel": "Confirm backup password",
+  "backupPasswordHint": "At least 12 characters, and not a password that already appears in leaked-password lists. A passphrase works best.",
+  "backupPasswordWarning": "Vaulta cannot recover the backup password. If you forget it, nobody can open this backup, not even you.",
+  "backupPasswordTooShort": "Use at least {min} characters.",
+  "@backupPasswordTooShort": {
+    "placeholders": {
+      "min": {
+        "type": "int"
+      }
+    }
+  },
+  "backupPasswordWeak": "That password appears on lists of leaked passwords. Choose another.",
+  "backupPasswordMismatch": "The confirmation does not match the backup password.",
+  "backupCreateAction": "Create backup",
+  "backupSaveAgain": "Save file",
+  "backupSaveCancelled": "Saving was cancelled. No file was written.",
+  "backupExportSuccess": "Encrypted backup saved.",
+  "backupExportFailed": "The backup could not be created. Try again.",
+  "backupExportClearTextAction": "Export unencrypted (CSV/JSON)",
+  "backupClearTextTitle": "Export unencrypted file",
+  "backupClearTextReauthBody": "Re-enter your master password to export the vault in clear text.",
+  "backupClearTextItemCount": "{count, plural, =1{The file will contain 1 entry.} other{The file will contain {count} entries.}}",
+  "@backupClearTextItemCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupClearTextWarning": "This file is NOT encrypted. Every password in it is readable by anyone who opens it, including any app that syncs it to the cloud. Delete it as soon as you finish migrating.",
+  "backupClearTextFormatLabel": "Format",
+  "backupClearTextFormatCsv": "CSV — password managers and spreadsheets",
+  "backupClearTextFormatJson": "JSON — every field, no information loss",
+  "backupClearTextConfirm": "I understand the file will be unencrypted on disk.",
+  "backupClearTextCreateAction": "Export unencrypted file",
+  "backupClearTextSuccess": "Unencrypted file saved. Delete it once you are done with it.",
+  "backupClearTextExportFailed": "The unencrypted file could not be created. Try again.",
+  "backupReauthExpired": "Your confirmation expired. Start the export again.",
+  "backupRestoreTitle": "Restore backup",
+  "backupRestoreIntro": "Pick a .vaulta file and enter its backup password. Nothing is written to your vault until you confirm.",
+  "backupPickFile": "Choose backup file",
+  "backupPickFailed": "The file could not be opened.",
+  "backupUnlockAction": "Open backup",
+  "backupOpenFailed": "The backup could not be opened. Check the backup password; the file may also be damaged or modified.",
+  "backupUnsupportedVersion": "This backup was made by a newer version of Vaulta. Update the app and try again.",
+  "backupPreviewTitle": "Backup contents",
+  "backupPreviewCreatedAt": "Created {date}",
+  "@backupPreviewCreatedAt": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "backupPreviewSummary": "{total} entries: {fresh} new, {conflicts} kept next to a similar entry, {duplicates} already in your vault.",
+  "@backupPreviewSummary": {
+    "placeholders": {
+      "total": {
+        "type": "int"
+      },
+      "fresh": {
+        "type": "int"
+      },
+      "conflicts": {
+        "type": "int"
+      },
+      "duplicates": {
+        "type": "int"
+      }
+    }
+  },
+  "backupConflictSuffix": " (restored)",
+  "backupRestoreConfirm": "{count, plural, =1{Restore 1 entry} other{Restore {count} entries}}",
+  "@backupRestoreConfirm": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupRestoreNothing": "Every entry in this backup is already in your vault.",
+  "backupRestoreSuccess": "{count, plural, =1{Restored 1 entry.} other{Restored {count} entries.}}",
+  "@backupRestoreSuccess": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupRestoreFailed": "The restore was interrupted. Entries written before the error were kept.",
+  "backupRestoreLocked": "Unlock Vaulta to restore a backup.",
+  "syncSignInTitle": "Sign in to sync",
+  "syncSignInBody": "Your vault stays encrypted on this device. The account only carries ciphertext between your devices.",
+  "syncEmailLabel": "Email",
+  "syncPasswordLabel": "Password",
+  "syncSignInAction": "Sign in",
+  "syncSignInInvalid": "Wrong email or password.",
+  "syncSignInOffline": "Could not reach the server. Check your connection.",
+  "syncSignInRequired": "Sign in to sync this vault."
 }

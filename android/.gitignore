@@ -12,3 +12,8 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# Gradle 9 writes a build/ directory inside android/ on every run, including
+# reports/problems/problems-report.html. The root .gitignore only covers
+# /build/, so this had to be ignored here or every build dirtied the tree.
+/build/

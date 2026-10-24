@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.21+22
+version: 1.1.0+23
 
 environment:
   sdk: ^3.11.3
@@ -38,6 +38,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   google_fonts: ^6.3.1
   flutter_secure_storage: ^10.0.0
+  sqlite3: ^3.7.1
   local_auth: ^3.0.1
   cryptography: ^2.9.0
   intl: ^0.20.2
@@ -45,10 +46,17 @@ dependencies:
   supabase_flutter: ^2.10.2
   uuid: ^4.5.1
   file_picker: ^11.0.2
+  path_provider: ^2.1.5
+  unorm_dart: ^0.3.3
+  kdbx: 2.5.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+  # Direct so tests can mock SharedPreferences for the Supabase auth storage
+  # (it is otherwise only a transitive dep of supabase_flutter).
+  shared_preferences: ^2.5.4
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -56,6 +64,8 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  integration_test:
+    sdk: flutter
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -68,6 +78,14 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # Breached-password screening corpus: 161426 truncated SHA-256 digests of
+  # the UK NCSC top-100k most-used passwords, never plaintext. Loaded once
+  # at startup by loadBreachCorpus() in
+  # lib/core/security/common_password_blocklist.dart; the in-source curated
+  # list is what screens passwords until that load completes.
+  assets:
+    - assets/security/breached_password_sha256.txt
 
   # To add assets to your application, add an assets section, like this:
   # assets:
@@ -99,3 +117,11 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# ADR-007: SQLite3 Multiple Ciphers en vez de SQLite pelado. Native assets compila
+# el motor (SQLite 3.54.0 + sqlite3mc 2.6.1) por plataforma; sin esto el archivo de
+# la base quedaría en claro. Verificado en el spike del ADR.
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlite3mc

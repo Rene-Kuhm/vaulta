@@ -11,9 +11,16 @@ class LocalVaultMutation {
     this.nonce,
     this.gcmTag,
     this.keyVersion,
+    this.itemKeySalt,
+    this.itemKeyVersion,
   });
 
   /// Builds an upsert mutation. All encryption material is required.
+  ///
+  /// [itemKeySalt] and [itemKeyVersion] are the inputs the receiving
+  /// device needs to re-derive the same per-item key (payload v4, see
+  /// `SyncItemPayloadCodec.itemKeyPayloadVersion`). They are null for
+  /// payloads sealed directly under the DEK.
   factory LocalVaultMutation.upsert({
     required String localRecordId,
     required String ciphertext,
@@ -21,6 +28,8 @@ class LocalVaultMutation {
     String? gcmTag,
     required int keyVersion,
     required DateTime occurredAt,
+    String? itemKeySalt,
+    int? itemKeyVersion,
   }) {
     return LocalVaultMutation._(
       kind: LocalVaultMutationKind.upsert,
@@ -29,6 +38,8 @@ class LocalVaultMutation {
       nonce: nonce,
       gcmTag: gcmTag,
       keyVersion: keyVersion,
+      itemKeySalt: itemKeySalt,
+      itemKeyVersion: itemKeyVersion,
       occurredAt: occurredAt,
     );
   }
@@ -53,7 +64,9 @@ class LocalVaultMutation {
   /// dispatch.
   final String localRecordId;
 
-  /// Base64 ciphertext (upsert only). Null for deletes.
+  /// Ciphertext (upsert only). Null for deletes. Plain base64 for
+  /// legacy v1/v2 payloads; for v3 it is the record-bound wire form
+  /// produced by `SyncItemPayloadCodec.encode`.
   final String? ciphertext;
 
   /// Base64 nonce (upsert only). Null for deletes.
@@ -62,9 +75,24 @@ class LocalVaultMutation {
   /// Base64 GCM auth tag (upsert only). Null for deletes.
   final String? gcmTag;
 
-  /// DEK version used to encrypt this payload. The remote uses it to
-  /// decide whether a rekey is in flight.
+  /// Item payload format version (1, 2, 3 or 4), shipped as the backend
+  /// `key_version` column so other devices know how to decode the
+  /// payload. Version 3 means the ciphertext is bound to its record id
+  /// and key id through AES-GCM associated data; version 4 adds a
+  /// per-item key, which makes [itemKeySalt] and [itemKeyVersion]
+  /// mandatory for the receiving device.
   final int? keyVersion;
+
+  /// Base64 salt of the per-item key (payload v4 only, null otherwise).
+  ///
+  /// Not secret: it is an input to the HKDF that derives the item key,
+  /// which the receiver also needs the record id, key id and item key
+  /// version for. Shipped as the backend `item_key_salt` column.
+  final String? itemKeySalt;
+
+  /// Item key version bound into the v4 associated data (payload v4 only,
+  /// null otherwise). Shipped as the backend `item_key_version` column.
+  final int? itemKeyVersion;
 
   /// When the local mutation happened. The push queue uses this to
   /// order dispatch and to merge with the remote's last-seen-at.

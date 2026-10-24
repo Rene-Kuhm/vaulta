@@ -30,6 +30,12 @@ abstract interface class RemoteVaultSyncRepository {
   /// Pushes an upsert to the remote. [expectedVersion] drives the
   /// CAS check; a mismatch yields a [RemoteVaultPushResultCode.casConflict].
   /// [idempotencyKey] deduplicates retries within a single client.
+  ///
+  /// [itemKeySalt] and [itemKeyVersion] describe the per-item key of a
+  /// payload at `SyncItemPayloadCodec.itemKeyPayloadVersion` or above;
+  /// they are what lets the receiving device derive the same key. They
+  /// must be null for older payloads and required by the backend for a
+  /// new one, so a payload nobody can open is never stored.
   Future<RemoteVaultPushResult> pushUpsertBlob({
     required String deviceId,
     required String idempotencyKey,
@@ -39,6 +45,8 @@ abstract interface class RemoteVaultSyncRepository {
     required String nonce,
     required String? gcmTag,
     required int keyVersion,
+    String? itemKeySalt,
+    int? itemKeyVersion,
   });
 
   /// Pushes a tombstone delete. Same CAS + idempotency contract as

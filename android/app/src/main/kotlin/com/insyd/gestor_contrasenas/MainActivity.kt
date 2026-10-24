@@ -16,6 +16,7 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
+import com.insyd.gestor_contrasenas.autofill.VaultaAutofillBridge
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -83,7 +84,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        KeystoreChannel(flutterEngine)
+        KeystoreChannel(flutterEngine, this)
         BiometricChannel(
             flutterEngine,
             this::authenticateAndDecrypt,
@@ -92,6 +93,19 @@ class MainActivity : FlutterFragmentActivity() {
         )
         UpdateChannel(flutterEngine, applicationContext)
         ClipboardChannel(flutterEngine, applicationContext)
+        // The autofill service runs in this app's process, so it asks this
+        // engine for data through a MethodChannel instead of starting an engine
+        // of its own (ADR-008 §3). The bridge only keeps the handle: this is
+        // the one place it is set, next to the other platform channels.
+        VaultaAutofillBridge.attach(flutterEngine)
+    }
+
+    override fun onDestroy() {
+        // The engine does not outlive this activity, so a fill request that
+        // arrives after this sees no handle and answers the locked contract
+        // from the service instead of talking to a dead channel.
+        VaultaAutofillBridge.detach()
+        super.onDestroy()
     }
 
     /**
