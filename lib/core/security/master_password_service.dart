@@ -7,6 +7,31 @@ import 'package:cryptography/cryptography.dart';
 import 'master_password_record.dart';
 import 'password_policy.dart';
 
+/// Thrown when a stored [MasterPasswordRecord] cannot produce the vault key.
+///
+/// Reaching this point means the record already passed the verifier, so the
+/// password is right and the record itself is damaged: the wrapped DEK is
+/// missing, uses an algorithm this build does not know, or does not
+/// authenticate against the derived KEK.
+///
+/// It is a typed error on purpose. A `StateError` or a
+/// `SecretBoxAuthenticationError` escaping from here reaches the widget layer
+/// as a raw exception string, and the user sees that instead of being told
+/// the one thing that matters: this vault cannot be opened. The security
+/// controller maps this exception onto
+/// [VaultSecurityMessageCode.vaultCannotBeOpened].
+class VaultKeyUnavailableException implements Exception {
+  /// Builds the exception with a stable diagnostic [reason] token (for
+  /// example `missing_dek_wrap`).
+  const VaultKeyUnavailableException(this.reason);
+
+  /// Machine-readable cause. Logged, never shown as user copy.
+  final String reason;
+
+  @override
+  String toString() => 'VaultKeyUnavailableException($reason)';
+}
+
 /// Owns the master-password key derivation (Argon2id) and the
 /// master-password record lifecycle (create / verify / rekey).
 ///
@@ -200,9 +225,31 @@ class MasterPasswordService {
   }
 
   /// Derives the in-memory [SecretKey] (the DEK) from [password] and the
-  /// wrapped-DEK metadata in [record]. Throws if the record is
-  /// inconsistent.
+  /// wrapped-DEK metadata in [record].
+  ///
+  /// Throws [VaultKeyUnavailableException] when the record cannot produce a
+  /// key — a missing or corrupt wrapped DEK, or a KEK that does not open it.
+  /// Never throws a bare crypto or state error: the caller has to be able to
+  /// tell "your vault cannot be opened" apart from "something crashed".
   Future<SecretKey> deriveVaultKey({
+    required MasterPasswordRecord record,
+    required String password,
+  }) async {
+    try {
+      return await _deriveVaultKey(record: record, password: password);
+    } on VaultKeyUnavailableException {
+      rethrow;
+    } catch (error) {
+      // Corrupt base64, an unknown wrap algorithm, a tag that does not
+      // authenticate, a missing KDF parameter: all of them mean the same
+      // thing to the person holding the device.
+      throw VaultKeyUnavailableException(
+        'dek_unwrap_failed:${error.runtimeType}',
+      );
+    }
+  }
+
+  Future<SecretKey> _deriveVaultKey({
     required MasterPasswordRecord record,
     required String password,
   }) async {
@@ -214,7 +261,7 @@ class MasterPasswordService {
     final kdf = record.kdf!;
     final dekWrap = record.dekWrap;
     if (dekWrap == null) {
-      throw StateError('Vault record is missing its wrapped DEK.');
+      throw const VaultKeyUnavailableException('missing_dek_wrap');
     }
 
     // A v2 record hashed the raw password and took the Argon2id output
@@ -382,7 +429,7 @@ class MasterPasswordService {
     required SecretKey kek,
   }) {
     if (dekWrap['alg'] != 'AES-256-GCM') {
-      throw StateError('Unsupported DEK wrap algorithm.');
+      throw const VaultKeyUnavailableException('unsupported_dek_wrap_algorithm');
     }
     return _wrapAlgorithm.decrypt(
       SecretBox(

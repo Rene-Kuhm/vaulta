@@ -1120,4 +1120,160 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get syncSignInRequired => 'Sign in to sync this vault.';
+
+  @override
+  String get securityMessageStateUnreadable => 'Vaulta could not read the secure state of this device. Restart the setup.';
+
+  @override
+  String get securityMessagePasswordConfirmationMismatch => 'The confirmation does not match the master password.';
+
+  @override
+  String get securityMessageNewPasswordConfirmationMismatch => 'The confirmation does not match the new master password.';
+
+  @override
+  String get securityMessageNewPasswordMustDifferFromCurrent => 'The new master password must be different from the current one.';
+
+  @override
+  String securityMessageMasterPasswordTooShort(String minimum) {
+    return 'Use at least $minimum characters.';
+  }
+
+  @override
+  String securityMessageMasterPasswordTooLong(String maximum) {
+    return 'Use at most $maximum characters.';
+  }
+
+  @override
+  String get securityMessageMasterPasswordBreached => 'That password appears in breached-password lists. Pick another one.';
+
+  @override
+  String get securityMessageBiometricNotAvailableOnDevice => 'Biometric unlock is not available on this device.';
+
+  @override
+  String get securityMessageBiometricNotEnrolled => 'No biometrics are enrolled on this device. Set up the fingerprint or face unlock in the system settings and try again.';
+
+  @override
+  String get securityMessageNoMasterPasswordConfigured => 'No master password has been set up yet.';
+
+  @override
+  String get securityMessagePasswordMismatch => 'The master password does not match.';
+
+  @override
+  String get securityMessageCurrentPasswordMismatch => 'The current master password does not match.';
+
+  @override
+  String get securityMessageBiometricUnlockNotWired => 'Biometric unlock is not connected on this device.';
+
+  @override
+  String get securityMessageBiometricIdentityRejected => 'We could not verify your identity. Enter the master password.';
+
+  @override
+  String securityMessageBiometricKeyRejected(String reason) {
+    return 'The platform rejected the biometric key ($reason). Re-enroll biometrics or use the master password.';
+  }
+
+  @override
+  String get securityMessageBiometricKeyInconsistent => 'The platform returned an inconsistent key. Enter the master password and re-enroll biometrics.';
+
+  @override
+  String get securityMessageBiometricSessionRecoveryFailed => 'We could not recover your session with biometrics. Re-enroll biometrics or use the master password.';
+
+  @override
+  String get securityMessageVaultCannotBeOpened => 'This vault cannot be opened: the stored key is damaged. Restore a backup or import the vault again.';
+
+  @override
+  String get securityMessageMasterPasswordNeedsMigration => 'Your master password uses an older format. Unlock once with it so Vaulta can re-encrypt the vault, then try again.';
+
+  @override
+  String securityMessageBiometricEnrollmentFailed(String reason) {
+    return 'We could not prepare the fingerprint on this device. Retry or use the master password. [$reason]';
+  }
+
+  @override
+  String get securityMessageUnlockBeforeChangingMasterPassword => 'Unlock Vaulta before changing the master password.';
+
+  @override
+  String get securityMessageSessionNotInMemory => 'There is no valid vault session in memory. Unlock again.';
+
+  @override
+  String get securityMessageSessionRecordKeyMismatch => 'The active session does not match the current master key. Unlock again before retrying.';
+
+  @override
+  String get securityMessageRekeyFailed => 'We could not re-encrypt the vault. Your current key was kept to avoid inconsistencies.';
+
+  @override
+  String get securityMessageRecordSaveFailed => 'We could not save the new master password. Your current key was kept to avoid inconsistencies.';
+
+  @override
+  String get securityMessageRekeyRollbackFailed => 'Saving the new master password failed and we could not confirm a complete rollback. Vaulta stays locked for safety.';
+
+  @override
+  String get securityMessageRecordMigrationRollbackFailed => 'We could not upgrade the vault encryption and the rollback did not complete either. Vaulta stays locked for safety.';
+
+  @override
+  String get securityMessageItemsMigrationFailed => 'We could not upgrade the vault encryption. Your data is intact; unlock again to retry.';
+
+  @override
+  String get securityMessageMasterPasswordCreated => 'Master password created. Your local session is protected by the system.';
+
+  @override
+  String get securityMessageMasterPasswordChanged => 'Master password updated and the vault re-encrypted with a new key.';
+
+  @override
+  String get securityMessageVaultUnlocked => 'Vaulta unlocked.';
+
+  @override
+  String get securityMessageVaultUnlockedAndMigrated => 'Vaulta unlocked and migrated to v3 encryption.';
+
+  @override
+  String get securityMessageVaultUnlockedMigrationDeferred => 'Vaulta unlocked. The encryption upgrade will be retried on the next unlock.';
+
+  @override
+  String get securityMessageVaultUnlockedWithBiometrics => 'Vaulta unlocked with biometrics.';
+
+  @override
+  String get securityMessageBiometricNeedsPasswordFirst => 'Tap \"Enable biometric unlock\" below to prepare your fingerprint. The master password is never stored or sent to any server.';
+
+  @override
+  String get securityMessageBiometricEnabled => 'Biometrics enabled. Next time you can unlock Vaulta with your biometrics.';
+
+  @override
+  String get securityMessageBiometricDisabled => 'Biometrics disabled. Only the master password is left.';
+
+  @override
+  String get securityMessageBiometricEnrollmentReady => 'Done. Next time you can unlock Vaulta with your fingerprint.';
+
+  @override
+  String get securityMessageVaultLocked => 'Vaulta locked.';
+
+  @override
+  String securityMessageVaultLockedWithReason(String reason) {
+    return 'Vaulta locked. $reason';
+  }
+
+  @override
+  String get securityMessageVaultLockedOnBackground => 'Vaulta locked automatically when the app left the foreground.';
+
+  @override
+  String get securityMessageVaultLockedOnIdle => 'Vaulta locked automatically after the idle timeout.';
+
+  @override
+  String get securityMessageVaultLockedSessionRevoked => 'This device\'s session was revoked. Vaulta locked for safety.';
+
+  @override
+  String get securityMessageVaultLockedAllSessionsRevoked => 'Your account access was revoked for all sessions. Vaulta locked for safety.';
+
+  @override
+  String get securityMessageAutoLockBackgroundEnabled => 'Auto-lock on background enabled.';
+
+  @override
+  String get securityMessageAutoLockBackgroundDisabled => 'Auto-lock on background disabled.';
+
+  @override
+  String securityMessageIdleTimeoutEnabled(String duration) {
+    return 'Idle auto-lock enabled ($duration).';
+  }
+
+  @override
+  String get securityMessageIdleTimeoutDisabled => 'Idle auto-lock disabled.';
 }

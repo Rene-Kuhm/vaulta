@@ -7,11 +7,14 @@ import 'package:gestor_contrasenas/core/security/biometric_auth_service.dart';
 import 'package:gestor_contrasenas/core/security/master_password_service.dart';
 import 'package:gestor_contrasenas/core/security/secure_storage_service.dart';
 import 'package:gestor_contrasenas/core/security/vault_security_controller.dart';
+import 'package:gestor_contrasenas/core/security/vault_security_message.dart';
 import 'package:gestor_contrasenas/core/sync/device_registration_repository.dart';
 import 'package:gestor_contrasenas/core/sync/device_registration_service.dart';
 import 'package:gestor_contrasenas/core/sync/device_session_revocation_service.dart';
+import 'package:gestor_contrasenas/features/security/presentation/vault_security_message_l10n.dart';
 import 'package:gestor_contrasenas/features/settings/presentation/settings_screen.dart';
 import 'package:gestor_contrasenas/l10n/app_localizations.dart';
+import 'package:gestor_contrasenas/l10n/app_localizations_en.dart';
 
 import '../../backup/backup_test_support.dart' show InMemoryVaultRepository;
 
@@ -159,7 +162,12 @@ void main() {
         find.widgetWithText(AlertDialog, 'Change master password'),
         findsOneWidget,
       );
-      expect(find.textContaining('master password actual'), findsWidgets);
+      // English device: the dialog feedback comes from the controller's
+      // message code, localized by the screen.
+      expect(
+        find.textContaining('current master password does not match'),
+        findsWidgets,
+      );
     });
 
     testWidgets('shows the lockout message after too many wrong attempts', (
@@ -250,7 +258,10 @@ void main() {
       await _pumpUi(tester);
 
       expect(controller.idleTimeoutSeconds, 0);
-      expect(controller.message, contains('inactividad'));
+      expect(
+        controller.message?.code,
+        VaultSecurityMessageCode.idleTimeoutDisabled,
+      );
     });
 
     testWidgets('renders device sessions and revokes selected device', (
@@ -355,7 +366,72 @@ void main() {
       await _pumpUi(tester);
 
       expect(controller.stage, VaultSecurityStage.locked);
-      expect(controller.message, contains('no longer has an active session'));
+      // English device: the revoke flow locks with a message the screen
+      // renders in English, not with the Spanish literal the controller used
+      // to carry.
+      expect(
+        vaultSecurityMessageText(
+          AppLocalizationsEn(),
+          controller.message!,
+        ),
+        "This device's session was revoked. Vaulta locked for safety.",
+      );
+    });
+
+    testWidgets('keeps the all-sessions wording when every session is revoked', (
+      tester,
+    ) async {
+      final controller = await _buildUnlockedController();
+      final localeController = AppLocaleController(
+        storage: _InMemorySecureStorageService(),
+      );
+      await localeController.initialize();
+      final repository = _FakeDeviceRegistrationRepository(
+        devices: const [
+          VaultDeviceSession(
+            deviceId: 'current-device',
+            deviceName: 'Pixel 8',
+            platform: 'android',
+            appVersion: '1.0.4+5',
+            status: DeviceSessionStatus.revokedAll,
+            accessAllowed: false,
+          ),
+        ],
+      );
+      final revocationService = DeviceSessionRevocationService(
+        repository: repository,
+        identityService: const _FakeDeviceIdentityService('current-device'),
+      );
+      addTearDown(controller.dispose);
+      _setLargeViewport(tester);
+
+      await tester.pumpWidget(
+        _testApp(
+          SettingsScreen(
+            securityController: controller,
+            localeController: localeController,
+            revocationService: revocationService,
+          ),
+        ),
+      );
+      await _pumpUi(tester);
+
+      expect(find.text('Session revoked on all devices'), findsOneWidget);
+      await tester.tap(find.text('Lock now').last);
+      await _pumpUi(tester);
+
+      expect(controller.stage, VaultSecurityStage.locked);
+      // "All sessions revoked" is a different event from "this device
+      // revoked", so the lock message must not collapse them.
+      expect(
+        controller.message?.code,
+        VaultSecurityMessageCode.vaultLockedAllSessionsRevoked,
+      );
+      expect(
+        vaultSecurityMessageText(AppLocalizationsEn(), controller.message!),
+        'Your account access was revoked for all sessions. '
+        'Vaulta locked for safety.',
+      );
     });
 
     testWidgets('revokes all other devices with current device id', (
