@@ -1532,6 +1532,10 @@ class _FakeCapabilityPlatform {
           'weakCode': noneEnrolled,
           'strongOrCredentialCode': code,
           'deviceCredentialCode': noneEnrolled,
+          // The platform floor the native side owns: this fake models a
+          // modern Android, where the KeyStore can declare a key as
+          // biometric-only.
+          'supportsBiometricOnlyAuth': true,
         };
       default:
         throw MissingPluginException('no handler for ${call.method}');

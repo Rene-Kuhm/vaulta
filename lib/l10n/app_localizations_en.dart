@@ -74,6 +74,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsBiometricUnavailableSubtitle => 'Biometrics are not configured or supported in this environment.';
 
   @override
+  String get settingsBiometricRequiresAndroid11Subtitle => 'Biometric unlock requires Android 11 or newer: this Android version cannot enforce biometric-only authentication in the KeyStore.';
+
+  @override
   String get settingsAutoLockBackgroundTitle => 'Auto-lock on background';
 
   @override

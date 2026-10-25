@@ -148,9 +148,17 @@ class MainActivity : FlutterFragmentActivity() {
     // ---- Public helpers exposed to the BiometricChannel ----
 
     /**
-     * Returns a structured description of what the platform can do,
-     * mirroring the [KeystoreChannel.probeAvailability] shape so Dart
-     * can decide whether to show the unlock button at all.
+     * Returns a structured description of what the platform can do, so
+     * Dart can decide whether to show the unlock button at all.
+     *
+     * The map carries one fact that is not about the biometric hardware
+     * but about the platform floor: [KeyStoreChannel] refuses to mint a
+     * key it cannot declare as biometric-only (below API 30), so the UI
+     * has to be able to tell "this phone has no fingerprint enrolled"
+     * from "this Android is too old to enforce biometric-only auth at
+     * all". The decision comes from
+     * [KeystoreChannel.declaresBiometricOnlyAuth] so the API floor is
+     * written down once.
      */
     private fun probeAvailability(): Map<String, Any> {
         val manager = BiometricManager.from(this)
@@ -174,6 +182,11 @@ class MainActivity : FlutterFragmentActivity() {
             "canUseWeak" to (weakCode == BiometricManager.BIOMETRIC_SUCCESS),
             "canUseStrongOrCredential" to (strongOrCredCode == BiometricManager.BIOMETRIC_SUCCESS),
             "canUseDeviceCredential" to (credOnlyCode == BiometricManager.BIOMETRIC_SUCCESS),
+            // True only on API >= MIN_BIOMETRIC_ONLY_AUTH_SDK, where the
+            // KeyStore can declare a key as biometric-only. False below:
+            // there, a key would also be unlocked by the device PIN.
+            "supportsBiometricOnlyAuth" to
+                KeystoreChannel.declaresBiometricOnlyAuth(Build.VERSION.SDK_INT),
         )
         Log.i(
             TAG,

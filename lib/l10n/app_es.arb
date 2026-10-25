@@ -26,6 +26,7 @@
     }
   },
   "settingsBiometricUnavailableSubtitle": "No hay biometría configurada o soportada en este entorno.",
+  "settingsBiometricRequiresAndroid11Subtitle": "El desbloqueo biométrico requiere Android 11 o superior: esta versión de Android no puede exigir autenticación solo biométrica en el KeyStore.",
   "settingsAutoLockBackgroundTitle": "Auto-lock al pasar a background",
   "settingsAutoLockBackgroundSubtitle": "Bloquea Vaulta automaticamente si la app queda inactive, paused o detached.",
   "settingsIdleTimeoutLabel": "Auto-lock por inactividad en foreground",
