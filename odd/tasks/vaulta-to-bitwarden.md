@@ -26,7 +26,7 @@ gestor. Requisitos:
 
 S3. La pantalla de seguridad deja de reportar valores falsos. Hoy `biometricUnlock` y
 `hardwareBackedKeys` se reportan como `false` contradiciendo el camino real de Android KeyStore
-(`docs/security/hardening-status.md:167-171`). Debe reportar el estado real, y si no puede
+(`docs/reference/security-hardening-status.md:167-171`). Debe reportar el estado real, y si no puede
 determinarlo debe decir "desconocido", nunca `false` por defecto.
 
 S4. La documentación deja de contradecir al código:
@@ -45,7 +45,7 @@ riesgo de datos y por dependencia de orden.
 
 | ID | Specs | Ruta | Owns | Resultado |
 |----|-------|------|------|-----------|
-| T1 | S1,S3,S4,S5 | swarm | `lib/features/security/`, `lib/core/security/vault_security_controller.dart`, tests, `README.md`, `docs/security/hardening-status.md` | **hecho** · rama `swarm/make-the-security-screen-report-real-hardw` · `7c3b52f` · integrado `486b8b6` |
+| T1 | S1,S3,S4,S5 | swarm | `lib/features/security/`, `lib/core/security/vault_security_controller.dart`, tests, `README.md`, `docs/reference/security-hardening-status.md` | **hecho** · rama `swarm/make-the-security-screen-report-real-hardw` · `7c3b52f` · integrado `486b8b6` |
 | T2 | S1,S2,S5 | swarm | `lib/features/backup/`, `lib/core/security/vault_backup_service.dart`, `test/features/backup/`, `test/core/security/vault_backup_service_test.dart`, `lib/l10n/` | **hecho** · rama `swarm/add-clear-text-csv-and-json-export-of-the-` · `5591635` · integrado `b5785f3` |
 
 Rama de integración: `orq/20261021-090429` (worktree `~/proyectos/.herdr-worktrees/vaulta/orq-20261021-090429`).
@@ -64,7 +64,7 @@ Después de esta ola, en orden y no en paralelo:
 
 | Ola | Contenido | Por qué ese orden |
 |-----|-----------|-------------------|
-| 2 | Migración a base local cifrada — **diseño en `docs/architecture/ADR-007-encrypted-local-database.md` (Proposed)** | Techo arquitectónico: hoy todo el vault es un blob JSON en secure storage. Bloquea autofill, adjuntos y búsqueda con 5.000 ítems |
+| 2 | Migración a base local cifrada — **diseño en `docs/adr/0007-encrypted-local-database.md` (Proposed)** | Techo arquitectónico: hoy todo el vault es un blob JSON en secure storage. Bloquea autofill, adjuntos y búsqueda con 5.000 ítems |
 | 3 | AutofillService Android + Quick Settings tile | Depende de la ola 2 para responder en milisegundos |
 | 4 | Tipos de ítem, carpetas, favoritos, papelera, historial, TOTP | Tocan el modelo de datos: un solo dueño, secuencial |
 | 5 | Sync real: correr el SQL contra Postgres, encenderlo en build de test, conflictos automáticos | Hoy el SQL nunca corrió contra un Postgres real |
@@ -129,7 +129,7 @@ L10 (costo medido): T1 US$0,3416 en 9m50s; T2 US$0,2222 en 8m15s. Total ola 1: *
 L11 (cierre de ola 1): `orq/20261021-090429` mergeada a `feat/enterprise-closure` en `7a46090`, con
 **445 tests verdes** y `flutter analyze` sin issues en la rama. Reservas del run 2 liberadas.
 
-L12 (ola 2, diseño): `docs/architecture/ADR-007-encrypted-local-database.md`, estado **Proposed**.
+L12 (ola 2, diseño): `docs/adr/0007-encrypted-local-database.md`, estado **Proposed**.
 Decisión: SQLite vía `drift` + SQLCipher para el archivo, conservando el payload cifrado por ítem
 de ADR-001 como unidad de almacenamiento, con la clave de la base derivada por HKDF del DEK
 (`vaulta:db:v1`). El formato de sync no cambia: la migración es local. Migración en una
@@ -247,7 +247,7 @@ verificar, restaurar), que por `FLAG_SECURE` es genuinamente manual.
 L30 (corrección de prioridad): el pedido fue "vaulta es un gestor de contraseñas". Es un hecho, no
 una pregunta, y reordena el trabajo: lo que define a un gestor es **llenar** credenciales, y Vaulta
 no lo hace. El bloqueo real no era el flag de storage sino que **cuando Android pide la credencial el
-vault está bloqueado**. Diseño en `docs/architecture/ADR-008-autofill.md`: `AutofillService` con
+vault está bloqueado**. Diseño en `docs/adr/0008-android-autofill.md`: `AutofillService` con
 respuesta en dos fases (bloqueado → sin datasets, sólo intent de autenticación; desbloqueado →
 datasets), reusando `BiometricUnlockService` para no tener un segundo camino de desbloqueo, matching
 por host exacto y después por paquete y por último búsqueda — **nunca por coincidencia difusa**,

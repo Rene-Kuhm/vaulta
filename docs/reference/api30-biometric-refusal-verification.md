@@ -3,7 +3,7 @@
 Vaulta refuses to mint the biometric envelope key below Android 11 (API 30)
 instead of minting one that the device PIN could also authorize. Until this
 run that decision was verified by reading code only
-(`docs/security/hardening-status.md`, "Unverified"); it is now verified by
+(`docs/reference/security-hardening-status.md`, "Unverified"); it is now verified by
 execution on an API 29 device, and this page records the run, the device and
 what is still not covered.
 
@@ -130,7 +130,7 @@ aware!`). The throwaway AVD was deleted after the run.
 - No CI job runs this suite: it needs an emulator with KVM, which the current
   workflows do not provide. It is a manual/release check, reproducible with the
   script above.
-- `docs/security/hardening-status.md` still says the refusal is "not
+- `docs/reference/security-hardening-status.md` still says the refusal is "not
   test-covered"; that page is outside this change and needs its own update.
 
 ## Reproducing

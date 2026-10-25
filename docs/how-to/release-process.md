@@ -145,7 +145,7 @@ apksigner verify --print-certs vaulta.apk
 
 The certificate digest must be the same across releases. A different
 digest means the APK was not signed with Vaulta's key: do not install
-it, and report it as described in [`SECURITY.md`](../SECURITY.md).
+it, and report it as described in [`SECURITY.md`](../../SECURITY.md).
 
 The Windows bundle is not Authenticode-signed yet, so SmartScreen will
 warn on first launch. Matching `SHA256SUMS` only tells you the zip is

@@ -5,7 +5,7 @@
 /// should depend on the higher-level sync APIs in
 /// `device_registration_service.dart`.
 ///
-/// See `docs/architecture/ADR-004-roadmap-sync.md` for the rationale
+/// See `docs/adr/0004-sync-layer-roadmap.md` for the rationale
 /// (intent: discourage `lib/features/` from coupling to backend
 /// details).
 library;

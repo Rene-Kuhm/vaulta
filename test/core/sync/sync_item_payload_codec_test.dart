@@ -1,7 +1,7 @@
 // Wire contract of the `ciphertext` column: the record binding a
 // receiver must verify before it hands a payload to the vault, and the
 // payload version from which a row also needs the item key salt on its
-// own columns. See docs/architecture/ADR-002-sync.md.
+// own columns. See docs/adr/0002-sync-versioning-cas-idempotency-tombstones.md.
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:gestor_contrasenas/core/security/aes_gcm_vault_crypto_service.dart';

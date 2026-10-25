@@ -304,7 +304,8 @@ The user accepts the following risks by choosing Vaulta for the
 MVP:
 
 1. No third-party crypto review (this is the gap that
-   `vaulta-audit-external` is meant to close — see CRYPTO.md
+   `vaulta-audit-external` is meant to close — see
+   [`../reference/crypto-architecture.md`](../reference/crypto-architecture.md)
    for the audit index).
 2. Single-factor master password (no U2F, no hardware token).
 3. The biometric unlock path on Android is a UX shortcut, not

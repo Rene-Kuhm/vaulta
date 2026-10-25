@@ -40,7 +40,7 @@ class VaultKeyUnavailableException implements Exception {
 /// that asserts on `FLUTTER_TEST=true`.
 class MasterPasswordService {
   /// Builds a [MasterPasswordService] with the supplied parameters.
-  /// Defaults match `docs/architecture/ADR-001-crypto.md` (Argon2id
+  /// Defaults match `docs/adr/0001-crypto-key-derivation-and-encrypted-blob.md` (Argon2id
   /// 64 MiB, 3 iterations, parallelism 1, 64-byte output split with
   /// HKDF-SHA256). [useFastTestKdf] is gated to the test runner via an
   /// assertion.

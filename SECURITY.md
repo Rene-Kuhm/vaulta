@@ -58,8 +58,8 @@ In scope:
 - **Cryptography**: master password key derivation (Argon2id), DEK
   wrapping and item encryption (AES-256-GCM), nonce handling, blob
   format parsing and migrations — see
-  [`docs/architecture/CRYPTO.md`](docs/architecture/CRYPTO.md) and
-  [`ADR-001`](docs/architecture/ADR-001-crypto.md).
+  [`docs/reference/crypto-architecture.md`](docs/reference/crypto-architecture.md) and
+  [`ADR-001`](docs/adr/0001-crypto-key-derivation-and-encrypted-blob.md).
 - Key storage: Android Keystore envelope keys, Windows Credential
   Manager, secure storage, biometric unlock.
 - Unlock protections: attempt throttling and lockout, auto-lock,
@@ -94,5 +94,5 @@ release as the files. Authenticity comes from the APK signing
 certificate, which the Android app checks against the installed app
 before installing an update. The Windows zip has **no Authenticode
 signature yet**, so Windows downloads currently have an integrity
-check only. See [`docs/release-process.md`](docs/release-process.md)
+check only. See [`docs/how-to/release-process.md`](docs/how-to/release-process.md)
 for how to verify a download.
