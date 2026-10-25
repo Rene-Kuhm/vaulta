@@ -22,6 +22,8 @@ class NativeBiometricCapability {
     required this.weakErrorCode,
     required this.strongOrCredentialErrorCode,
     required this.deviceCredentialErrorCode,
+    this.supportsBiometricOnlyAuth = false,
+    this.isAndroid = false,
   });
 
   /// The user has a class-3 biometric enrolled AND the platform
@@ -58,6 +60,32 @@ class NativeBiometricCapability {
   /// Raw platform code for the "device credential" probe.
   final int deviceCredentialErrorCode;
 
+  /// True when this platform can declare a KeyStore key as
+  /// biometric-only — that is, when it can require a strong biometric
+  /// *and refuse the device PIN* as a substitute.
+  ///
+  /// The answer comes from the native side, which owns the API floor
+  /// (`MIN_BIOMETRIC_ONLY_AUTH_SDK`, API 30): the Dart side never reads
+  /// an SDK level of its own. Below that floor the platform cannot
+  /// express "biometric, never the PIN", so Vaulta refuses to mint the
+  /// envelope key there and the UI has to say so instead of blaming the
+  /// user's fingerprints.
+  ///
+  /// False whenever the question was not answered: a non-Android target
+  /// has no such channel, and a channel that did not answer (missing
+  /// plugin, platform exception) collapses into [empty].
+  final bool supportsBiometricOnlyAuth;
+
+  /// True when this capability was answered by the Android native
+  /// channel (`MainActivity.probeAvailability`).
+  ///
+  /// It is what tells "this Android is too old to enforce biometric-only
+  /// auth" ([supportsBiometricOnlyAuth] is false on an answered probe)
+  /// from "there is no Android channel to ask" (the [empty] sentinel
+  /// every other target returns). Without it, an iPhone would be told it
+  /// needs Android 11 to unlock with biometrics.
+  final bool isAndroid;
+
   /// The most actionable code that explains why the user cannot
   /// unlock with biometrics right now. Returns null when the
   /// platform is willing to open a prompt.
@@ -92,6 +120,8 @@ class NativeBiometricCapability {
     weakErrorCode: -1,
     strongOrCredentialErrorCode: -1,
     deviceCredentialErrorCode: -1,
+    supportsBiometricOnlyAuth: false,
+    isAndroid: false,
   );
 }
 
@@ -214,6 +244,11 @@ class NativeBiometricAuthService implements NonPromptingBiometricAuthService {
             (raw['strongOrCredentialCode'] as num?)?.toInt() ?? -1,
         deviceCredentialErrorCode:
             (raw['deviceCredentialCode'] as num?)?.toInt() ?? -1,
+        // The native side owns the API floor; Dart only reports it.
+        supportsBiometricOnlyAuth: raw['supportsBiometricOnlyAuth'] == true,
+        // A non-null map can only come from the Android channel: every
+        // other target returns [empty] before ever calling it.
+        isAndroid: true,
       );
     } on PlatformException catch (error, stack) {
       debugPrint('[Vaulta/Biometric] probe failed: ${error.code} ${error.message}\n$stack');

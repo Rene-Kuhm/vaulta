@@ -19,6 +19,7 @@ import '../../../core/sync/sync_conflict.dart';
 import '../../../core/sync/sync_conflict_resolver.dart';
 import '../../../core/sync/device_session_revocation_service.dart';
 import '../../../core/update/update_service.dart';
+import '../../../l10n/app_localizations.dart';
 import '../../backup/application/vault_backup_coordinator.dart';
 import '../../backup/presentation/backup_section.dart';
 import '../../security/presentation/security_capabilities_panel.dart';
@@ -105,15 +106,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _refreshBiometricCapability() async {
     final cap = await widget.securityController.probeBiometricCapability();
     if (!mounted) return;
-    if (cap.canUseStrongOrCredential !=
-            _biometricCapability.canUseStrongOrCredential ||
-        cap.needsEnrollment != _biometricCapability.needsEnrollment) {
+    if (_capabilityChanged(cap)) {
       setState(() => _biometricCapability = cap);
     } else if (!_biometricCapability.canUseStrong &&
         !_biometricCapability.canUseWeak &&
         (cap.canUseStrong || cap.canUseWeak)) {
       setState(() => _biometricCapability = cap);
     }
+  }
+
+  /// True when [cap] says something the rendered copy depends on.
+  ///
+  /// The platform-floor answer belongs here: it is what tells the user
+  /// "this Android is too old" apart from "you have no fingerprint
+  /// enrolled", so a change in it has to reach the screen even when the
+  /// enrollment flags did not move.
+  bool _capabilityChanged(NativeBiometricCapability cap) {
+    final current = _biometricCapability;
+    return cap.canUseStrongOrCredential != current.canUseStrongOrCredential ||
+        cap.needsEnrollment != current.needsEnrollment ||
+        cap.isAndroid != current.isAndroid ||
+        cap.supportsBiometricOnlyAuth != current.supportsBiometricOnlyAuth;
+  }
+
+  /// The subtitle under the biometric toggle.
+  ///
+  /// Three different situations answer it and the UI must not blur them:
+  ///
+  ///   * the platform cannot enforce biometric-only authentication at
+  ///     all — Android below API 30, where the KeyStore cannot declare
+  ///     a key as biometric-only and Vaulta refuses to mint one. The
+  ///     reason is the Android version, not the user's fingerprints;
+  ///   * the toggle can be offered, so the platform is fine;
+  ///   * the platform is fine but nothing is enrolled.
+  ///
+  /// The first case is answered by the native channel
+  /// ([NativeBiometricCapability.supportsBiometricOnlyAuth]), never by
+  /// an Android version read in Dart.
+  String _biometricSubtitle(
+    AppLocalizations l10n,
+    VaultSecurityController securityController,
+  ) {
+    final capability = _biometricCapability;
+    if (capability.isAndroid && !capability.supportsBiometricOnlyAuth) {
+      return l10n.settingsBiometricRequiresAndroid11Subtitle;
+    }
+    if (securityController.canOfferBiometricToggle) {
+      return l10n.settingsBiometricSupportedSubtitle(
+        securityController.biometricAvailability.label,
+      );
+    }
+    return l10n.settingsBiometricUnavailableSubtitle;
   }
 
   Future<void> _openBiometricEnrollment() async {
@@ -487,13 +530,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               },
                         title: Text(l10n.settingsUnlockWithBiometrics),
                         subtitle: Text(
-                          securityController.canOfferBiometricToggle
-                              ? l10n.settingsBiometricSupportedSubtitle(
-                                  securityController
-                                      .biometricAvailability
-                                      .label,
-                                )
-                              : l10n.settingsBiometricUnavailableSubtitle,
+                          _biometricSubtitle(l10n, securityController),
                         ),
                       ),
                     ),

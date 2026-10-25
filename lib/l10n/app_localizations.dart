@@ -221,6 +221,12 @@ abstract class AppLocalizations {
   /// **'Biometrics are not configured or supported in this environment.'**
   String get settingsBiometricUnavailableSubtitle;
 
+  /// No description provided for @settingsBiometricRequiresAndroid11Subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Biometric unlock requires Android 11 or newer: this Android version cannot enforce biometric-only authentication in the KeyStore.'**
+  String get settingsBiometricRequiresAndroid11Subtitle;
+
   /// No description provided for @settingsAutoLockBackgroundTitle.
   ///
   /// In en, this message translates to:
