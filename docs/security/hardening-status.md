@@ -122,6 +122,7 @@ not open the biometric gate"); the Kotlin half below API 30 is
 | In-app update verifies the APK against the release's published SHA-256 and against the signing certificate, and refuses to install (deleting the file) on mismatch | Shipped | `UpdateChannel.kt:499-508` (checksum and signer, delete on mismatch), `:393` (`sha256Hex`); `lib/core/update/update_service.dart:397-438` (fetch `SHA256SUMS`, refuse `checksumMissing` / `checksumMismatch` / `signatureMismatch`). `0492fc4`. **The `64b2260` snapshot claimed "the app does not verify a hash or signature itself"; that was false and is corrected here.** |
 | Windows code signing (Authenticode) | Planned | The `vaulta.exe` in `v1.0.22/vaulta-windows-bundle.zip` has an empty PE security directory (re-checked 2026-10-24, see below). `.github/workflows/release.yml:186` builds the Windows bundle, but no step signs it and no certificate is configured (`0492fc4`). |
 | Optional Supabase sync, off in published builds | Experimental, off | `lib/core/sync/supabase_client_resolver.dart:19-21` returns `null` without `SUPABASE_URL`/`SUPABASE_ANON_KEY`; both publishing workflows build with no `--dart-define` (`.github/workflows/dev-apk-release.yml:94`, `.github/workflows/release.yml:139`). |
+| Every SQL migration is applied to a clean PostgreSQL on each pull request | In progress (branch `swarm/issue-32-ci-aplicar-las-migraciones-de-sup`) | `.github/workflows/supabase-migrations-ci.yml:45` raises a `postgres:15` service container on every pull request and every push to `master`, with no secrets and no Supabase project, and applies `supabase/migrations/*.sql` in file-name order with `psql -v ON_ERROR_STOP=1` (`supabase/ci/apply_migrations.sh:52`), so a migration that does not apply fails the job instead of the deployment. The objects Supabase provides — the `auth` schema, `auth.users`, `auth.uid()`, `auth.jwt()` and the `anon` / `authenticated` / `service_role` roles — are stood in for by `supabase/ci/shim_supabase_objects.sql`, which is applied only to that throwaway container and never to a real project; the migrations themselves are not modified. `supabase/ci/excluded_migrations.txt` is the explicit list of migrations that cannot run outside Supabase, each with its reason; the runner fails when a listed file is stale or has no reason, so nothing is ever skipped silently. The job also proves on every run that a broken migration is rejected, so a green run is not green for the wrong reason. Issue #32. |
 | Sync carries the v4 item format (item key salt + item key version on the wire) | Shipped, exercised once against a real backend | Queue side `lib/core/security/local_encrypted_vault_repository.dart:165-179`, which reads the salt and version out of the sealed payload in `:389-424` and queues **nothing** when a v4 envelope lacks them; the pull side reads the same two columns at `lib/core/sync/remote_vault_blob_change.dart:176-192`; columns `item_key_salt` / `item_key_version` (`lib/core/sync/supabase_remote_vault_sync_repository.dart:60`, `:121-122`), migration `supabase/migrations/20261021120000_add_vault_item_key_salt.sql:24-26`. `0492fc4`. The manual cross-device run on 2026-10-23 pushed a v4 item (key_version 4 + salt) through this backend and opened it on a second device — see the run recorded below. |
 | Cross-device vault key: the wrapped DEK travels as `vault_keys` metadata and a second device adopts it | Shipped, exercised once against a real backend | `supabase/migrations/20261023140000_add_vault_key_sync.sql:23-28` (one row per user, `record_json` = the full `MasterPasswordRecord`), RPC calls at `lib/core/sync/supabase_vault_key_sync_repository.dart:19` (`rpc_vault_get_key`) and `:39` (`rpc_vault_put_key`), reconciliation in `lib/core/sync/vault_key_sync_service.dart:19`, wired at `lib/core/sync/device_sync_bootstrap.dart:103-104`. `0492fc4`. Verified on 2026-10-23 in one emulator with the vault backend running: device A pushed ciphertext and the wrapped DEK, then the "second device" was simulated in the same emulator with `pm clear` plus a fresh sign-in, which adopted the remote key, switched onboarding to "Unlock", and opened the item with the same master password (`odd/tasks/vault-key-cross-device-sync.md`, log L2). A newly adopted device does not refresh its dashboard until a pull-to-refresh — being fixed in issue #19. |
 | Encrypted export / backup (`.vaulta`, Argon2id, authenticated header) | Shipped | `lib/core/security/vault_backup_service.dart`, `lib/features/backup/`. `0492fc4`. The `64b2260` snapshot listed this as "Planned" and said "No export feature on `master`". Design: ADR-006. |
@@ -135,9 +136,12 @@ is the log entry, not this page: `odd/tasks/vault-key-cross-device-sync.md` L2
 `pm clear` + re-sign-in that simulated the second device, and the item opening
 there under the same master password. L3 records the dashboard refresh gap that
 issue #19 tracks. What this page adds is the state of the migrations and the CI:
-`ls .github/workflows/` lists `dev-apk-release.yml`, `flutter-ci.yml` and
-`release.yml`, and none of the three applies anything under
-`supabase/migrations/`.
+`ls .github/workflows/` lists `dev-apk-release.yml`, `flutter-ci.yml`,
+`release.yml` and — on branch
+`swarm/issue-32-ci-aplicar-las-migraciones-de-sup` — `supabase-migrations-ci.yml`,
+which applies everything under `supabase/migrations/` to a clean `postgres:15`
+container with `psql -v ON_ERROR_STOP=1`. The other three still apply nothing
+under `supabase/migrations/`.
 
 Windows binary signing:
 
@@ -188,17 +192,27 @@ which claims were checked and which were not.
   device so a person can exercise the fill flow by hand, and the Dart tests
   (`test/features/autofill/`) fake the platform channel; there is no artifact
   in the tree showing that a fill was executed on a device at this snapshot.
-- **The Supabase SQL migration has never been run by CI.** No workflow in
-  `.github/workflows/` applies `supabase/migrations/`, so which migration files
-  a given deployment has is not visible from the repository. The only execution
-  against a real Postgres recorded here is the manual run of 2026-10-23
-  (`odd/tasks/vault-key-cross-device-sync.md` L2), which pushed a v4 item with
-  its salt and read a `vault_keys` row — so those columns and RPCs accepted
-  writes on that backend — but the log does not say which migration files were
-  applied to it. A deployment that skips them fails closed: the client returns
-  `null` instead of queueing a v4 upsert whose columns are missing
-  (`local_encrypted_vault_repository.dart:402-407`), never a broken row. The Dart
-  side of that wire is tested.
+- **The CI run of the SQL migrations is not a run against Supabase.** Branch
+  `swarm/issue-32-ci-aplicar-las-migraciones-de-sup` (issue #32) adds
+  `.github/workflows/supabase-migrations-ci.yml`, which applies every file under
+  `supabase/migrations/` to a clean `postgres:15` container on each pull
+  request and each push to `master`, with `psql -v ON_ERROR_STOP=1`, no secrets
+  and no Supabase project. What that container is **not** is a Supabase
+  project: `supabase/ci/shim_supabase_objects.sql` stands in for the `auth`
+  schema, `auth.users`, `auth.uid()`, `auth.jwt()` and the `anon` /
+  `authenticated` / `service_role` roles, so the migrations are checked for
+  their SQL and their order, not against a live auth service — there is no
+  GoTrue, no PostgREST and no real JWT in it. Which migration files a given
+  deployment has is still not visible from the repository: the CI job proves
+  that the migrations apply, not that any particular backend was migrated. The
+  only execution against a real Postgres recorded here remains the manual run
+  of 2026-10-23 (`odd/tasks/vault-key-cross-device-sync.md` L2), which pushed a
+  v4 item with its salt and read a `vault_keys` row — so those columns and RPCs
+  accepted writes on that backend — but the log does not say which migration
+  files were applied to it. A deployment that skips them fails closed: the
+  client returns `null` instead of queueing a v4 upsert whose columns are
+  missing (`local_encrypted_vault_repository.dart:402-407`), never a broken row.
+  The Dart side of that wire is tested.
 - **The security screen's answers were never captured on real hardware at this
   snapshot.** The probe and the three states are tested with fakes; the
   real-device behaviour of `probeCapability` and
