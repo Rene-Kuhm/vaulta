@@ -96,7 +96,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `vaulta-windows-bundle.zip`) in CI, publishes them with a
   `SHA256SUMS` file, and uses this changelog section as the release
   notes. The tag must match the `pubspec.yaml` version. See
-  `docs/release-process.md`.
+  `docs/how-to/release-process.md`.
 - `SECURITY.md` with supported versions and private reporting through
   GitHub Security Advisories.
 - Dependabot for pub, Gradle and GitHub Actions dependencies.
@@ -113,8 +113,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - The README describes only what ships today, with unshipped work
   (autofill, Windows Hello unlock, signed Windows binary) moved to a
-  roadmap, and a security hardening status page was added under
-  `docs/security/` (#2).
+  roadmap, and a security hardening status page was added
+  (`docs/reference/security-hardening-status.md`, #2).
 
 ## [1.0.21] - 2026-06-10
 

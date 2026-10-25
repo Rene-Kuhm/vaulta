@@ -8,7 +8,7 @@
 # androidx.test.runner.AndroidJUnitRunner on that device, then prints which
 # test passed, failed or was skipped by assumption.
 #
-# The recording of the run this produced is docs/verification/api30-biometric-refusal.md.
+# The recording of the run this produced is docs/reference/api30-biometric-refusal-verification.md.
 #
 # Usage:
 #   bash scripts/verify_api30_biometric_refusal.sh [avd_name]

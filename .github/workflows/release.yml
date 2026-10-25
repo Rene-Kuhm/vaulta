@@ -79,7 +79,7 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     # Signing secrets live in the `release` environment, which requires
-    # a reviewer's approval (see docs/release-process.md).
+    # a reviewer's approval (see docs/how-to/release-process.md).
     environment: release
     steps:
       - name: Checkout

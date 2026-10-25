@@ -35,7 +35,7 @@ jobs:
         # Baseline 52.4% (medido 2026-06-11), umbral inicial 50%.
         # Subido a 60% con la medicion 60.5% (756/1249, 2026-10-19,
         # Flutter 3.47.7) redondeada hacia abajo al multiplo de 5
-        # (ver docs/architecture/ADR-005-repo-hygiene.md).
+        # (ver docs/adr/0005-repository-hygiene-lints-and-coverage.md).
         run: bash scripts/check_coverage.sh coverage/lcov.info lib/core/security 60
 
   build-windows:
