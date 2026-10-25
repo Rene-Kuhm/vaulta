@@ -15,7 +15,7 @@ you arrive with the goal, you follow the steps, you leave with it done.
 ## How to read these
 
 - Each guide starts from the state you are already in. They do not repeat the
-  project overview; read the [README](../README.md) for that.
+  project overview; read the [project README](../../README.md) for that.
 - Commands and file paths are literal. Where a guide names a secret, it names
   the environment variable rather than the value.
 - The release guides overlap on purpose: a release is signing, then QA, then

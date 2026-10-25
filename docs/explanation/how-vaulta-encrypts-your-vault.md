@@ -31,11 +31,21 @@ master password
                                                      DEK   (32 bytes, random per vault)
                                                          │
                                                          ├── HKDF-SHA256 ──▶ item key ──▶ one entry
-                                                         ├── HKDF-SHA256 ──▶ database key ──▶ the vault file (opt-in)
-                                                         └── HKDF-SHA256 ──▶ backup key ──▶ the .vaulta file
+                                                         └── HKDF-SHA256 ──▶ database key ──▶ the vault file (opt-in)
+
+backup password  (chosen at export time, never the master password)
+      │
+      │  Argon2id  (same cost as the vault)
+      ▼
+   backup key  (32 bytes) ──▶ the .vaulta file
 ```
 
-Four properties fall out of this shape, and they are the reason it looks
+The backup branch does not touch the DEK. A backup is encrypted under its
+own key, derived from a password the user picks at export time, so a
+backup survives a master-password change and can be stored under a
+different trust boundary. Step 6 below explains why.
+
+Five properties fall out of this shape, and they are the reason it looks
 like this:
 
 1. **The master password is never stored.** The vault stores a *verifier*,
@@ -46,9 +56,12 @@ like this:
 3. **Each item has its own key.** A bug that mishandles one item's
    plaintext cannot reach the vault key or any other item.
 4. **Every derivation is domain-separated.** The verifier, the KEK, the item
-   keys, the database key and the backup key come from different HKDF
-   `info` labels, so a key leaked from one place cannot be replayed in
-   another.
+   keys and the database key come from different HKDF `info` labels, so a
+   key leaked from one place cannot be replayed in another.
+5. **The backup key is independent of the vault.** It comes from its own
+   Argon2id run over a separate backup password, never from the DEK, so
+   compromising the vault does not open the backups and changing the master
+   password does not invalidate them.
 
 ## Step 1 — The master password becomes a key
 
@@ -104,9 +117,13 @@ be moved to a different record, relabelled as a different key version, or
 replayed with a different IV: any of those changes the GCM tag and the
 decryption fails instead of silently succeeding.
 
-**The title is encrypted too.** Search decrypts only titles, not whole
-entries, so looking for an entry does not decrypt every secret in the
-vault.
+**The title is encrypted too.** The title travels inside the same sealed
+item as the secret, so nothing readable is written to disk. It does *not*
+mean the title can be searched on its own: in the default build the vault
+is a single blob, so searching decrypts the entries it searches through.
+Searching only titles, without decrypting every secret, is what the
+encrypted database in [ADR 0007](../adr/0007-encrypted-local-database.md)
+adds — and that path is off by default.
 
 ## Step 4 — What is stored where
 
@@ -236,8 +253,11 @@ keys mean an exposure is contained to one item.
 
 **Why is the title encrypted separately?** Because search has to work. The
 alternative — decrypting every item to find one — turns a lookup into a
-full-vault operation and puts every secret in memory at once. A separate
-title ciphertext keeps search cheap without widening what is exposed.
+full-vault operation and puts every secret in memory at once. The encrypted
+database separates the title from the secret so a search can decrypt titles
+alone, without widening what is exposed. That separation is what
+[ADR 0007](../adr/0007-encrypted-local-database.md) buys, and it is the
+reason that storage change exists at all.
 
 **Why no blind indexes?** A blind index lets you test whether a value is
 present without decrypting, but it also leaks the *distribution* of your

@@ -12,7 +12,8 @@ finished result, in order, with nothing to look up on the side.
 ## How to read these
 
 - The tutorials assume the app is already installed. To install it, follow the
-  [README](../README.md); the first tutorial also covers the first launch.
+  [project README](../../README.md); the first tutorial also covers the first
+  launch.
 - They do not assume you know the internals. Where a tutorial mentions a
   cryptographic concept (master password, DEK, key derivation), it explains it
   inline and links to
