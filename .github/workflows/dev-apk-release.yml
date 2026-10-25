@@ -36,7 +36,7 @@ jobs:
     name: Build APK + publish to dev-latest
     runs-on: ubuntu-latest
     # Lets the owner scope the signing secrets to an environment that
-    # only the master branch can deploy to (see docs/how-to/release-process.md).
+    # only the master branch can deploy to (see docs/release-process.md).
     # Until the secrets are moved there, repository secrets still apply.
     environment: dev
     steps:
