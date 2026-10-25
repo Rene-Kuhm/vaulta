@@ -74,6 +74,9 @@ class AppLocalizationsEs extends AppLocalizations {
   String get settingsBiometricUnavailableSubtitle => 'No hay biometría configurada o soportada en este entorno.';
 
   @override
+  String get settingsBiometricRequiresAndroid11Subtitle => 'El desbloqueo biométrico requiere Android 11 o superior: esta versión de Android no puede exigir autenticación solo biométrica en el KeyStore.';
+
+  @override
   String get settingsAutoLockBackgroundTitle => 'Auto-lock al pasar a background';
 
   @override
