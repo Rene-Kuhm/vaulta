@@ -9,7 +9,7 @@
 -- and cannot open it. Until this migration the only columns available
 -- were ciphertext, nonce, gcm_tag and key_version, so the client refused
 -- to queue a v4 upsert at all (fail closed) and no v4 change could ever
--- reach a second device. See docs/architecture/ADR-002-sync.md,
+-- reach a second device. See docs/adr/0002-sync-versioning-cas-idempotency-tombstones.md,
 -- "Trabajo pendiente requerido" 1-4, and ADR-001 gap G1.
 --
 -- The two fields travel on their own columns instead of inside the

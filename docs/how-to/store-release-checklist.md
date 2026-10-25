@@ -8,7 +8,7 @@ This checklist tracks the external assets, secrets, accounts, and policy decisio
 - Android package/application ID: `com.insyd.gestor_contrasenas`.
 - iOS/macOS bundle ID: `com.insyd.gestorContrasenas`.
 - Flutter version source: `pubspec.yaml` `version: 1.0.12+13`.
-- Android release signing does not fall back to debug signing; see `docs/android-release-signing.md`.
+- Android release signing does not fall back to debug signing; see `docs/how-to/android-release-signing.md`.
 - Android backup/data extraction is disabled for local vault data.
 - Android cleartext traffic is disabled.
 - Android biometric vault unlock is implemented with Android KeyStore + `BiometricPrompt` / `BIOMETRIC_STRONG`; iOS/macOS biometric vault unlock remains pending unless a platform binding is added.
@@ -55,5 +55,5 @@ This checklist tracks the external assets, secrets, accounts, and policy decisio
 
 - [ ] Run `flutter analyze` and `flutter test` before every release candidate.
 - [ ] Manual QA matrix: fresh install, signed OTA update, master password create/unlock, biometric activation, biometric unlock, biometric removal/re-enrollment, master password change, CRUD, search, password generation, clipboard auto-clear, background/idle auto-lock, and optional Supabase sync if enabled.
-- [ ] Review `docs/architecture/ADR-001-crypto.md`, `ADR-002-sync.md`, and `ADR-003-session-revocation.md` for user-facing claims.
+- [ ] Review `docs/adr/0001-crypto-key-derivation-and-encrypted-blob.md`, `docs/adr/0002-sync-versioning-cas-idempotency-tombstones.md`, and `docs/adr/0003-session-policy-and-revocation.md` for user-facing claims.
 - [ ] Avoid claiming third-party audit, breach monitoring, autofill, passkeys, or non-Android biometric vault unlock unless implemented and verified.

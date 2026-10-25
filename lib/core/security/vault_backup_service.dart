@@ -8,7 +8,7 @@ import 'package:cryptography/cryptography.dart';
 import '../../features/vault/domain/vault_item.dart';
 
 /// Why a `.vaulta` backup could not be opened. See
-/// `docs/architecture/ADR-006-encrypted-backup.md`.
+/// `docs/adr/0006-encrypted-backup-format.md`.
 enum VaultBackupFailure {
   /// The file is not a well-formed `.vaulta` envelope (bad JSON,
   /// missing or mistyped fields, out-of-range sizes, oversized file).

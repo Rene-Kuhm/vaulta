@@ -58,7 +58,7 @@ android {
         // AndroidJUnitRunner. The suite drives the real KeystoreChannel
         // method-call surface on the device it runs on, so the API < 30
         // biometric refusal is verified by execution instead of by reading
-        // (see docs/verification/api30-biometric-refusal.md).
+        // (see docs/reference/api30-biometric-refusal-verification.md).
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

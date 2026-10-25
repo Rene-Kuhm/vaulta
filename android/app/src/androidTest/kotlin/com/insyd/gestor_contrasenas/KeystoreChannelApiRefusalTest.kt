@@ -29,7 +29,7 @@ import org.junit.runner.RunWith
  * instead of minting one that the device PIN could also authorize
  * ([KeystoreChannel.MIN_BIOMETRIC_ONLY_AUTH_SDK]). Until this suite existed
  * that decision was only verified by reading `KeystoreChannel.kt`; see
- * `docs/verification/api30-biometric-refusal.md`.
+ * `docs/reference/api30-biometric-refusal-verification.md`.
  *
  * The suite drives the production channel through its real method-call
  * surface ([KeystoreChannel.onMethodCall], the same entry point the Dart side
@@ -130,7 +130,7 @@ class KeystoreChannelApiRefusalTest {
      * The test installs such an entry itself — a plain RSA key, because an
      * auth-bound one needs a secure lock screen and an enrolled biometric that
      * a bare emulator does not have (the API 36 run recorded in
-     * `docs/verification/api30-biometric-refusal.md` shows the platform
+     * `docs/reference/api30-biometric-refusal-verification.md` shows the platform
      * refusing that keygen), and the ordering pinned here does not depend on
      * how the leftover key was created.
      */
