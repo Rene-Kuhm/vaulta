@@ -1,7 +1,7 @@
-name: Private beta bug report
-description: Report a Vaulta beta problem without touching code
-title: "[Beta bug]: "
-labels: [bug, beta]
+name: Bug report
+description: Report a Vaulta problem — a beta build, a published release, or your own build
+title: "[Bug]: "
+labels: [bug]
 body:
   - type: markdown
     attributes:
@@ -12,7 +12,7 @@ body:
     id: version
     attributes:
       label: App version/build
-      description: Example: 1.0.11+12, web preview date, APK filename.
+      description: "Example: 1.0.11+12, web preview date, APK filename."
       placeholder: "1.0.11+12"
     validations:
       required: true
