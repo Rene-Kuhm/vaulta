@@ -96,7 +96,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `vaulta-windows-bundle.zip`) in CI, publishes them with a
   `SHA256SUMS` file, and uses this changelog section as the release
   notes. The tag must match the `pubspec.yaml` version. See
-  `docs/how-to/release-process.md`.
+  `docs/release-process.md`.
 - `SECURITY.md` with supported versions and private reporting through
   GitHub Security Advisories.
 - Dependabot for pub, Gradle and GitHub Actions dependencies.

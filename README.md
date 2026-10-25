@@ -34,7 +34,7 @@ El objetivo es ofrecer un vault local para guardar, buscar y gestionar credencia
 - DEK aleatoria por vault y envelope protegido.
 - Desbloqueo con master password en todas las plataformas.
 - Desbloqueo biometrico real en Android: una clave RSA-2048 del Android KeyStore, atada a biometria fuerte, protege el envelope de la DEK y solo se libera tras un `BiometricPrompt` con `CryptoObject`.
-- Autofill nativo de Android: el servicio del sistema (`android/app/src/main/kotlin/com/insyd/gestor_contrasenas/autofill/VaultaAutofillService.kt`) responde a las solicitudes de llenado a traves del bridge al motor unico de la app (`VaultaAutofillBridge.kt`) y de una actividad de desbloqueo propia (`AutofillUnlockActivity.kt`), con la configuracion del servicio en `android/app/src/main/res/xml/autofill_service.xml` y el lado Dart en `lib/features/autofill/`. Llena inicios de sesion del navegador y de apps con sitio web verificado en Android 12 o superior, y cuando no hay coincidencia ofrece una busqueda dentro de Vaulta en vez de adivinar (ver [ADR-008](docs/adr/0008-android-autofill.md)).
+- Autofill nativo de Android: el servicio del sistema (`android/app/src/main/kotlin/com/insyd/gestor_contrasenas/autofill/VaultaAutofillService.kt`) responde a las solicitudes de llenado a traves del bridge al motor unico de la app (`VaultaAutofillBridge.kt`) y de una actividad de desbloqueo propia (`AutofillUnlockActivity.kt`), con la configuracion del servicio en `android/app/src/main/res/xml/autofill_service.xml` y el lado Dart en `lib/features/autofill/`. Llena inicios de sesion del navegador y de apps con sitio web verificado en Android 12 o superior, y cuando no hay coincidencia ofrece una busqueda dentro de Vaulta en vez de adivinar (ver [ADR-008](docs/architecture/ADR-008-autofill.md)).
 - CRUD de credenciales con busqueda interna.
 - Importacion local desde CSV y JSON con vista previa antes de guardar.
 - Importacion desde bases KeePass (`.kdbx` 3.1 y 4.x), con master password y key file opcionales.
@@ -85,7 +85,7 @@ Vaulta esta en etapa MVP release-ready para Android y Windows desktop. La app ya
 
 Plataformas soportadas:
 
-- **Android**: experiencia completa, incluye autofill del sistema, desbloqueo biometrico y canal de actualizaciones dentro de la app. El autofill esta implementado: el servicio, el bridge, la actividad de desbloqueo y el lado Dart existen y responden a las solicitudes de Android (ver la lista de funcionalidades y [ADR-008](docs/adr/0008-android-autofill.md)). La pestana "Acceso" (`lib/features/access/presentation/access_screen.dart`) muestra el estado del servicio en el dispositivo, la postura de desbloqueo que condiciona cada llenado y donde se elige Vaulta como servicio de autofill en los ajustes de Android; no cambia ajustes del sistema por su cuenta. Fuera de Android no hay autofill: no hay Credential Provider de iOS, ni llenado en el build de Windows, ni extension de navegador, ni passkeys.
+- **Android**: experiencia completa, incluye autofill del sistema, desbloqueo biometrico y canal de actualizaciones dentro de la app. El autofill esta implementado: el servicio, el bridge, la actividad de desbloqueo y el lado Dart existen y responden a las solicitudes de Android (ver la lista de funcionalidades y [ADR-008](docs/architecture/ADR-008-autofill.md)). La pestana "Acceso" (`lib/features/access/presentation/access_screen.dart`) muestra el estado del servicio en el dispositivo, la postura de desbloqueo que condiciona cada llenado y donde se elige Vaulta como servicio de autofill en los ajustes de Android; no cambia ajustes del sistema por su cuenta. Fuera de Android no hay autofill: no hay Credential Provider de iOS, ni llenado en el build de Windows, ni extension de navegador, ni passkeys.
 - **Windows desktop**: build nativo x64 (`vaulta.exe`) que reutiliza el mismo vault cifrado, persistencia local segura (Windows Credential Manager) y todas las funciones de gestion de credenciales. El desbloqueo es solo con master password: `local_auth` puede detectar Windows Hello, pero el desbloqueo biometrico del vault no esta conectado fuera de Android.
 
 El desbloqueo biometrico esta implementado solo para Android. En Windows, iOS, macOS, Linux y web se usa la master password hasta implementar bindings equivalentes por plataforma.
@@ -101,7 +101,7 @@ Lo siguiente **todavia no esta disponible** en ninguna version publicada:
 - Firma de codigo para el binario de Windows.
 - Auditoria criptografica externa.
 
-El estado detallado de cada control de seguridad, con evidencia en el codigo, esta en [docs/reference/security-hardening-status.md](docs/reference/security-hardening-status.md) (en ingles).
+El estado detallado de cada control de seguridad, con evidencia en el codigo, esta en [docs/security/hardening-status.md](docs/security/hardening-status.md) (en ingles).
 
 ## Stack tecnico
 
@@ -152,7 +152,7 @@ Vaulta implementa una postura de seguridad local basada en:
 - AES-256-GCM para cifrado autenticado.
 - Clave DEK independiente del password del usuario.
 - Envelope protegido para desbloqueo biometrico en Android.
-- Exportacion y restauracion de backup cifrado (`.vaulta`, Argon2id + AES-256-GCM, password propia distinta de la master password; ver [ADR-006](docs/adr/0006-encrypted-backup-format.md)).
+- Exportacion y restauracion de backup cifrado (`.vaulta`, Argon2id + AES-256-GCM, password propia distinta de la master password; ver [ADR-006](docs/architecture/ADR-006-encrypted-backup.md)).
 - La pantalla de seguridad reporta las capacidades del dispositivo consultando a los servicios que las implementan, con tres estados (disponible, no disponible, no se pudo determinar) en vez de asumir un `false`.
 - Bloqueo automatico al salir de primer plano o por inactividad.
 - Borrado automatico del portapapeles tras copiar un secreto.
@@ -227,7 +227,7 @@ flutter build windows --release
 
 El artefacto queda en `build/windows/x64/runner/Release/gestor_contrasenas.exe` y todas las DLLs de plugins en el mismo directorio. El nombre `vaulta.exe` del bundle publicado se asigna a mano al empaquetar; el build genera `gestor_contrasenas.exe` (`BINARY_NAME` en `windows/CMakeLists.txt`).
 
-La firma Android release requiere secretos fuera del repositorio. Ver [docs/how-to/android-release-signing.md](docs/how-to/android-release-signing.md).
+La firma Android release requiere secretos fuera del repositorio. Ver [docs/android-release-signing.md](docs/android-release-signing.md).
 
 ## Validacion
 
@@ -250,19 +250,13 @@ Ningun workflow compila ni firma el build de Windows. El bundle de Windows se su
 
 ## Documentacion relacionada
 
-La documentacion completa esta en [`docs/`](docs/README.md), organizada con el modelo Diataxis: `docs/tutorials/` (guias paso a paso), `docs/how-to/` (recetas para una tarea), `docs/reference/` (consulta), `docs/explanation/` (por que) y `docs/adr/` (una decision por archivo, numerada).
-
-- [Tutorial: crear tu primer vault](docs/tutorials/create-your-first-vault.md)
-- [Tutorial: importar tus contrasenas actuales](docs/tutorials/import-your-existing-passwords.md)
-- [Tutorial: preparar tu entorno de desarrollo](docs/tutorials/set-up-your-development-environment.md)
-- [Estado del hardening de seguridad](docs/reference/security-hardening-status.md)
-- [ADR-008: autofill en Android](docs/adr/0008-android-autofill.md)
-- [Modelo de amenaza](docs/explanation/threat-model.md)
-- [Contrato criptografico](docs/reference/crypto-architecture.md)
-- [Como cifra Vaulta tu vault](docs/explanation/how-vaulta-encrypts-your-vault.md)
-- [Firma y release Android](docs/how-to/android-release-signing.md)
-- [Checklist de publicacion en stores](docs/how-to/store-release-checklist.md)
-- [Plantilla de politica de privacidad](docs/reference/privacy-policy-template.md)
+- [Estado del hardening de seguridad](docs/security/hardening-status.md)
+- [ADR-008: autofill en Android](docs/architecture/ADR-008-autofill.md)
+- [Modelo de amenaza](docs/architecture/THREAT_MODEL.md)
+- [Contrato criptografico](docs/architecture/CRYPTO.md)
+- [Firma y release Android](docs/android-release-signing.md)
+- [Checklist de publicacion en stores](docs/store-release-checklist.md)
+- [Plantilla de politica de privacidad](docs/privacy-policy-template.md)
 
 ## TecnoDespegue
 
