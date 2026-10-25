@@ -38,6 +38,39 @@ jobs:
         # (ver docs/architecture/ADR-005-repo-hygiene.md).
         run: bash scripts/check_coverage.sh coverage/lcov.info lib/core/security 60
 
+  pr-title:
+    name: Conventional Commits title
+    # The merges into `master` are squash merges, so the title of the pull
+    # request is the commit message that lands on the branch. release-please
+    # reads those commits to compute the next SemVer version and to write the
+    # changelog, so a pull request whose title is not a Conventional Commit
+    # would be invisible to the release automation. The same rules run
+    # locally in the `commit-msg` hook of `lefthook.yml`.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+
+      - name: Install the commit tooling
+        # `--ignore-scripts` keeps `npm ci` from touching the git hooks of the
+        # runner, which are not used in CI.
+        run: npm ci --ignore-scripts
+
+      - name: Check the pull request title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$PR_TITLE" | npx commitlint || {
+            echo "::error::The title of the pull request has to be a Conventional Commit (for example 'feat(ui): add the vault filter'), because the squash merge turns it into the commit that lands on master."
+            exit 1
+          }
+
   build-windows:
     # Build-only smoke test so Windows-specific breakage (plugins,
     # CMake, runner) is caught on the PR instead of at release time.

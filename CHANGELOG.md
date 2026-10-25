@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project aims to follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## Unreleased
 
 ### Added
 
@@ -51,6 +51,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   2 encryptions and 277 bytes on a 500-item vault.
 - **Sync decoupled from the blob** through a narrow `RemoteSnapshotApplier`
   port, now implemented by both storages.
+- **Commit and release automation (#41).** Conventional Commits are now
+  enforced: `commitlint.config.js` holds the rules and `lefthook.yml` the
+  `commit-msg` and `pre-commit` hooks (format and lint of the staged Dart
+  files). CI validates the title of every pull request, because the merges
+  are squash merges and that title is the commit that lands on `master`.
+  `release-please` reads those commits to compute the next SemVer version:
+  it opens a pull request that bumps `version:` in `pubspec.yaml` (the build
+  number goes up by one) and writes the new section of this changelog. The
+  publication does not move: the maintainer tags `vX.Y.Z` and `release.yml`
+  still builds, signs and publishes it.
 
 ## [1.1.0] - 2026-10-19
 
