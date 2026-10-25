@@ -1,0 +1,133 @@
+name: Supabase migrations CI
+
+# Applies every file in `supabase/migrations/` to a clean PostgreSQL, in file
+# name order, exactly the way a deployment would. A migration that breaks
+# fails this job on the pull request instead of on the production database.
+#
+# The migrations are written against a Supabase backend and use objects that
+# Supabase provides (the `auth` schema, `auth.uid()`, `auth.jwt()` and the
+# `anon` / `authenticated` / `service_role` roles). `supabase/ci/` holds a
+# stand-in for those objects and the runner that applies the migrations; see
+# `supabase/ci/README.md`. The migrations themselves are not modified.
+#
+# There are no secrets here and no Supabase project: the database is a
+# throwaway `postgres:15` container that only exists for the length of the
+# job.
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      inject_broken_migration:
+        description: >-
+          Proof that the job goes red when a migration is broken. Adds a
+          deliberately broken migration to the workspace, so the run is
+          expected to FAIL.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes the older run pointless.
+concurrency:
+  group: supabase-migrations-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply-migrations:
+    name: Apply supabase/migrations to a clean Postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          # Trust authentication on an ephemeral container: there is no
+          # password to store, leak or rotate. The container is thrown away
+          # when the job ends.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGDATABASE: postgres
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Make sure the PostgreSQL client is there
+        run: |
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends postgresql-client
+          fi
+          psql --version
+
+      - name: Self-check - a broken migration must fail the runner
+        # Guards this job against being green for the wrong reason: it proves
+        # that the runner really does abort on a failing statement, so the
+        # green run of the migrations below means something. It runs on a
+        # scratch database, and the broken statement is expected to fail.
+        run: |
+          set -euo pipefail
+          scratch_db="ci_selfcheck"
+          runner_dir="$(mktemp -d)"
+          psql_dir="$(mktemp -d)"
+          cleanup() {
+            dropdb --if-exists "${scratch_db}" || true
+            rm -rf "${runner_dir}" "${psql_dir}"
+          }
+          trap cleanup EXIT
+          createdb "${scratch_db}"
+
+          # The exact invocation the runner uses has to abort on a broken
+          # statement, or the green run below would mean nothing.
+          cat > "${psql_dir}/broken.sql" <<'SQL'
+          create table public.ci_selfcheck_psql (id uuid primary key);
+          this is not valid sql;
+          SQL
+          if PGDATABASE="${scratch_db}" \
+              psql -v ON_ERROR_STOP=1 --no-psqlrc --quiet \
+                --file "${psql_dir}/broken.sql"; then
+            echo "::error::psql -v ON_ERROR_STOP=1 accepted a broken statement"
+            exit 1
+          fi
+
+          # And the runner has to abort on a broken migration too, and report
+          # the failure instead of carrying on.
+          cat > "${runner_dir}/99999999999999_selfcheck_broken.sql" <<'SQL'
+          create table public.ci_selfcheck_runner (id uuid primary key);
+          this is not valid sql;
+          SQL
+          if SUPABASE_MIGRATIONS_DIR="${runner_dir}" PGDATABASE="${scratch_db}" \
+              bash supabase/ci/apply_migrations.sh; then
+            echo "::error::the migration runner accepted a broken migration; this job cannot be trusted"
+            exit 1
+          fi
+          echo "the runner fails on a broken migration, as it must"
+
+      - name: Inject a deliberately broken migration
+        # Manual proof, for a reviewer who wants to watch the run go red.
+        # The file is written into the workspace only; it is never committed.
+        if: inputs.inject_broken_migration == true
+        run: |
+          cat > supabase/migrations/99999999999999_ci_broken_migration.sql <<'SQL'
+          -- Injected by the "inject_broken_migration" input of this workflow.
+          -- The run is expected to FAIL here.
+          create table public.ci_broken_migration (id uuid primary key);
+          this is not valid sql;
+          SQL
+
+      - name: Apply the Supabase stand-in and every migration, in order
+        run: bash supabase/ci/apply_migrations.sh
