@@ -8,7 +8,7 @@
 #
 #   mise install          # install the pinned tools
 #   mise run deps         # resolve the Dart and npm dependencies (needs network)
-#   mise run lint         # analyzer + format check of the changed files (offline)
+#   mise run lint         # analyzer + format check (offline)
 #   mise run test         # test suite (offline)
 #   mise run build        # Windows release smoke build (offline)
 #
@@ -48,31 +48,13 @@ fi
 """
 
 [tasks.lint]
-description = "Run the analyzer and the format check of the changed files (offline)"
+description = "Run the analyzer and the format check (offline)"
 run = """
 set -e
 flutter analyze --no-pub
-# The format check covers the Dart files this change touches, the same scope
-# as the pre-commit hook of lefthook.yml. The committed sources predate the
-# dart_style 3.x formatter that ships with the pinned Flutter, so a
-# whole-tree check would report files that this change does not touch; the
-# tree migrates to the new formatter file by file, as the files are touched.
-# The base of the comparison is the parent of the checked out commit, which
-# is the base of the pull request in the CI.
-base="${FORMAT_BASE:-HEAD^}"
-if ! git rev-parse --verify --quiet "$base" >/dev/null; then
-  echo "The revision '$base' does not exist. Set FORMAT_BASE to a revision of the repository." >&2
+if ! dart format --output=none --set-exit-if-changed lib test; then
+  echo "The Dart sources are not formatted. Run 'mise run format' and commit the result." >&2
   exit 1
-fi
-files=$(git diff --name-only --diff-filter=ACMR "$base" -- lib test | grep '\\.dart$' || true)
-if [ -n "$files" ]; then
-  # The file list is expanded on purpose: dart format takes one path per
-  # argument.
-  # shellcheck disable=SC2086
-  if ! dart format --output=none --set-exit-if-changed $files; then
-    echo "The Dart sources are not formatted. Run 'dart format' on them and commit the result." >&2
-    exit 1
-  fi
 fi
 """
 
