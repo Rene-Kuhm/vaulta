@@ -12,9 +12,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          # The lint task compares the sources against the base of the change
-          # (the parent of the checked out commit), so the history has to
-          # reach it.
+          # The format gate below compares the sources against the base of the
+          # change (the parent of the checked out commit), so the history has
+          # to reach it.
           fetch-depth: 0
 
       - name: Set up the hermetic toolchain
@@ -23,16 +23,42 @@ jobs:
         # next steps. The runner uses the same toolchain as the local clone.
         uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
         with:
-          # The mise that generated mise.lock, so the lockfile is resolved
-          # with the same rules in the CI and in the local clone.
-          version: 2026.10.17
+          # The mise that has to be used: 2026.10.19 carries the fix for the
+          # Windows install of the Flutter SDK (the zip of the SDK holds
+          # read-only files and mise 2026.10.17 could not extract them, see
+          # jdx/mise#14867 and jdx/mise#14869). It resolves mise.lock the
+          # same way the local clone does.
+          version: 2026.10.19
 
       - name: Install the dependencies
         run: mise run deps
 
+      - name: Format the sources
+        # The committed sources predate the formatter of the pinned Flutter
+        # (dart_style 3.x reformats 63 files that no change of this pull
+        # request touches), so the tree is formatted before the lint task, whose
+        # format check covers the whole tree. The gate that counts is the step
+        # after the lint: the files this change touches have to be formatted.
+        run: mise run format
+
       - name: Lint
-        # The analyzer and the format check of the files the change touches.
+        # The analyzer over the whole tree, plus the format check of the task.
         run: mise run lint
+
+      - name: Check the format of the changed sources
+        # The files this change touches have to be formatted, the same scope
+        # as the pre-commit hook of lefthook.yml. The sources were formatted
+        # in the previous step, so a file that is still different is one the
+        # change did not format.
+        run: |
+          status=0
+          while IFS= read -r file; do
+            if ! git diff --quiet -- "$file"; then
+              echo "::error::$file is not formatted. Run 'dart format' on it and commit the result."
+              status=1
+            fi
+          done < <(git diff --name-only --diff-filter=ACMR HEAD^ HEAD -- '*.dart')
+          exit $status
 
       - name: Test
         run: mise run test
@@ -98,9 +124,12 @@ jobs:
         # smoke test builds with the Flutter of the local clone.
         uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
         with:
-          # The mise that generated mise.lock, so the lockfile is resolved
-          # with the same rules in the CI and in the local clone.
-          version: 2026.10.17
+          # The mise that has to be used: 2026.10.19 carries the fix for the
+          # Windows install of the Flutter SDK (the zip of the SDK holds
+          # read-only files and mise 2026.10.17 could not extract them, see
+          # jdx/mise#14867 and jdx/mise#14869). It resolves mise.lock the
+          # same way the local clone does.
+          version: 2026.10.19
 
       - name: Install the dependencies
         run: mise run deps
