@@ -181,19 +181,11 @@ index = 2
 language = "sh"
 kind = "script"
 mode = "skip"
-reason = "It verifies the Sigstore attestations of a published release against the attestation store, which needs gh authentication, the network and the release artifacts."
-
-[[block]]
-file = "docs/how-to/release-process.md"
-index = 3
-language = "sh"
-kind = "script"
-mode = "skip"
 reason = "It verifies the downloaded release assets, which the repository does not have."
 
 [[block]]
 file = "docs/how-to/release-process.md"
-index = 4
+index = 3
 language = "powershell"
 kind = "powershell"
 mode = "skip"
@@ -201,7 +193,7 @@ reason = "It verifies a downloaded Windows bundle with PowerShell, which only ru
 
 [[block]]
 file = "docs/how-to/release-process.md"
-index = 5
+index = 4
 language = "sh"
 kind = "script"
 mode = "skip"
