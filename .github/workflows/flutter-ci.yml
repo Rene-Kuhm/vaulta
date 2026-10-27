@@ -30,6 +30,14 @@ jobs:
           # same way the local clone does.
           version: 2026.10.19
 
+      - name: Documentation doctests
+        # The executable examples of README.md and docs/ are declared in
+        # scripts/docs-test/plan.toml and executed by scripts/docs-test/run.py.
+        # The task needs neither the network nor the Dart dependencies, so it
+        # runs before they are resolved: a broken example fails the pull
+        # request instead of waiting for the suite.
+        run: mise run docs-test
+
       - name: Install the dependencies
         run: mise run deps
 
