@@ -37,14 +37,14 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   google_fonts: ^6.3.1
-  flutter_secure_storage: ^10.0.0
+  flutter_secure_storage: ^10.3.4
   sqlite3: ^3.7.1
   local_auth: ^3.0.1
   cryptography: ^2.9.0
   intl: ^0.20.2
-  package_info_plus: ^8.3.0
+  package_info_plus: ^9.0.1
   supabase_flutter: ^2.10.2
-  uuid: ^4.5.1
+  uuid: ^4.6.0
   file_picker: ^11.0.2
   path_provider: ^2.1.5
   unorm_dart: ^0.3.3
@@ -56,7 +56,7 @@ dev_dependencies:
 
   # Direct so tests can mock SharedPreferences for the Supabase auth storage
   # (it is otherwise only a transitive dep of supabase_flutter).
-  shared_preferences: ^2.5.4
+  shared_preferences: ^2.5.6
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
