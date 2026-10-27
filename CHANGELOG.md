@@ -62,6 +62,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   publication does not move: the maintainer tags `vX.Y.Z` and `release.yml`
   still builds, signs and publishes it.
 
+## [1.1.1](https://github.com/Rene-Kuhm/vaulta/compare/v1.1.0...v1.1.1) (2026-10-27)
+
+
+### Fixed
+
+* **sync:** usar publishableKey en vez de anonKey y subir supabase_flut ([#59](https://github.com/Rene-Kuhm/vaulta/issues/59)) ([9a43950](https://github.com/Rene-Kuhm/vaulta/commit/9a4395063f0686afb4df0dcca416672d5e2d2ed9))
+
+
+### Documentation
+
+* **repo:** doctests vivos con `mise run docs-test` y plan.toml ([#55](https://github.com/Rene-Kuhm/vaulta/issues/55)) ([a01bb37](https://github.com/Rene-Kuhm/vaulta/commit/a01bb37221f24be70458e8c194e95e154d667a12)), closes [#51](https://github.com/Rene-Kuhm/vaulta/issues/51)
+* **repo:** README, ARCHITECTURE y guías de agentes en inglés con diagramas Mermaid ([#48](https://github.com/Rene-Kuhm/vaulta/issues/48)) ([db32ca3](https://github.com/Rene-Kuhm/vaulta/commit/db32ca3117c2285df0f9ae8d25544b9e378a085e)), closes [#39](https://github.com/Rene-Kuhm/vaulta/issues/39)
+* **repo:** reestructurar docs/ en Diátaxis y migrar los ADR a docs/adr/ ([#47](https://github.com/Rene-Kuhm/vaulta/issues/47)) ([99fa5f7](https://github.com/Rene-Kuhm/vaulta/commit/99fa5f72c9c5bf879ea4bd54c8b0580efbafdd67)), closes [#38](https://github.com/Rene-Kuhm/vaulta/issues/38)
+
+
+### Internal
+
+* **deps:** bump actions/checkout from 4.4.0 to 7.0.1 ([#9](https://github.com/Rene-Kuhm/vaulta/issues/9)) ([e03016e](https://github.com/Rene-Kuhm/vaulta/commit/e03016ec2a41c49ac741632b919d0f512b317bda))
+* **deps:** bump actions/download-artifact from 4.3.0 to 8.0.2 ([#8](https://github.com/Rene-Kuhm/vaulta/issues/8)) ([f7ba0f6](https://github.com/Rene-Kuhm/vaulta/commit/f7ba0f6297cfc9c8b611626af218f131ed9694ec))
+* **deps:** bump actions/setup-java from 4.9.1 to 6.1.0 ([#6](https://github.com/Rene-Kuhm/vaulta/issues/6)) ([34c520a](https://github.com/Rene-Kuhm/vaulta/commit/34c520aae832bcfc32636fc1f111529988fa891b))
+* **deps:** bump actions/upload-artifact from 4.6.2 to 7.0.2 ([#11](https://github.com/Rene-Kuhm/vaulta/issues/11)) ([8d702fa](https://github.com/Rene-Kuhm/vaulta/commit/8d702fa66ee338ed6e913dc7d105c0a77ec4291c))
+* **deps:** bump androidx.fragment:fragment-ktx in /android ([#12](https://github.com/Rene-Kuhm/vaulta/issues/12)) ([f9b0c2f](https://github.com/Rene-Kuhm/vaulta/commit/f9b0c2f841f3c9f10aac01de7bbfa74393d3fdce))
+* **deps:** bump com.android.application in /android ([#10](https://github.com/Rene-Kuhm/vaulta/issues/10)) ([c2810a6](https://github.com/Rene-Kuhm/vaulta/commit/c2810a6f60f310d606cb9b7d328967bde8a0ed5c))
+* **deps:** bump flutter_secure_storage from 10.0.0 to 10.3.4 ([#15](https://github.com/Rene-Kuhm/vaulta/issues/15)) ([1bf5634](https://github.com/Rene-Kuhm/vaulta/commit/1bf5634d562f77ca666ea598e82f6a1a61c3c741))
+* **deps:** bump gradle-wrapper from 9.4.1 to 9.8.2 in /android ([#7](https://github.com/Rene-Kuhm/vaulta/issues/7)) ([5374d76](https://github.com/Rene-Kuhm/vaulta/commit/5374d76d2bf85c40125a73a87532fb0c5651a161))
+* **deps:** bump package_info_plus from 8.3.1 to 9.0.1 ([#14](https://github.com/Rene-Kuhm/vaulta/issues/14)) ([9f167a7](https://github.com/Rene-Kuhm/vaulta/commit/9f167a7669b2ba9a6a17d94a5d2886731f1ec2f9))
+* **deps:** bump shared_preferences from 2.5.4 to 2.5.6 ([#16](https://github.com/Rene-Kuhm/vaulta/issues/16)) ([345922b](https://github.com/Rene-Kuhm/vaulta/commit/345922b13f0b74c745501a53ed4a45da85f764ed))
+* **deps:** bump uuid from 4.5.3 to 4.6.0 ([#17](https://github.com/Rene-Kuhm/vaulta/issues/17)) ([5b9af71](https://github.com/Rene-Kuhm/vaulta/commit/5b9af714cf60fb843929d82d1019e28c12f93178))
+* **repo:** CI hermético con jdx/mise-action en vez de subosito/flutter-action ([#54](https://github.com/Rene-Kuhm/vaulta/issues/54)) ([7aef6ed](https://github.com/Rene-Kuhm/vaulta/commit/7aef6ed8d82ae8736eb68c05635b601ce4dacd26)), closes [#50](https://github.com/Rene-Kuhm/vaulta/issues/50)
+* **repo:** commitlint, lefthook, CI por PR y release-please ([#46](https://github.com/Rene-Kuhm/vaulta/issues/46)) ([35d4a80](https://github.com/Rene-Kuhm/vaulta/commit/35d4a80c41bc5a5673bacd047c2491a17cba74f1)), closes [#41](https://github.com/Rene-Kuhm/vaulta/issues/41)
+* **repo:** entorno hermético con mise, versiones exactas y mise.lock ([#53](https://github.com/Rene-Kuhm/vaulta/issues/53)) ([ee2865e](https://github.com/Rene-Kuhm/vaulta/commit/ee2865eee3031e7e66abf85738f7ee57a222c2d5)), closes [#49](https://github.com/Rene-Kuhm/vaulta/issues/49)
+* **repo:** guías de contribución y seguridad, Issue Forms y CODEOWNERS ([#45](https://github.com/Rene-Kuhm/vaulta/issues/45)) ([cf037c3](https://github.com/Rene-Kuhm/vaulta/commit/cf037c3699427e580b6e68ca98a64658080b3120)), closes [#40](https://github.com/Rene-Kuhm/vaulta/issues/40)
+* **repo:** mapa del repo agent-first y AGENTS.md por módulo ([#58](https://github.com/Rene-Kuhm/vaulta/issues/58)) ([422395a](https://github.com/Rene-Kuhm/vaulta/commit/422395a4407a4fbea911e77e34c0347e44026b37)), closes [#52](https://github.com/Rene-Kuhm/vaulta/issues/52)
+* **repo:** supply chain endurecida y releases verificables SLSA L3 ([#60](https://github.com/Rene-Kuhm/vaulta/issues/60)) ([85b565d](https://github.com/Rene-Kuhm/vaulta/commit/85b565d8347cf7e04220018db85dd40add15550f))
+
 ## [1.1.0] - 2026-10-19
 
 ### Security
