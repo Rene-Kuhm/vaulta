@@ -221,6 +221,12 @@ abstract class AppLocalizations {
   /// **'Biometrics are not configured or supported in this environment.'**
   String get settingsBiometricUnavailableSubtitle;
 
+  /// No description provided for @settingsBiometricRequiresAndroid11Subtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Biometric unlock requires Android 11 or newer: this Android version cannot enforce biometric-only authentication in the KeyStore.'**
+  String get settingsBiometricRequiresAndroid11Subtitle;
+
   /// No description provided for @settingsAutoLockBackgroundTitle.
   ///
   /// In en, this message translates to:
@@ -803,6 +809,24 @@ abstract class AppLocalizations {
   /// **'Delete entry'**
   String get entryDeleteTooltip;
 
+  /// No description provided for @entryFavoriteLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorite'**
+  String get entryFavoriteLabel;
+
+  /// No description provided for @entryMarkFavoriteTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Mark as favorite'**
+  String get entryMarkFavoriteTooltip;
+
+  /// No description provided for @entryUnmarkFavoriteTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from favorites'**
+  String get entryUnmarkFavoriteTooltip;
+
   /// No description provided for @entryUsernameLabel.
   ///
   /// In en, this message translates to:
@@ -1121,6 +1145,12 @@ abstract class AppLocalizations {
   /// **'Entries with notes'**
   String get filterWithNotes;
 
+  /// No description provided for @filterFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorites'**
+  String get filterFavorites;
+
   /// No description provided for @resetFilters.
   ///
   /// In en, this message translates to:
@@ -1246,6 +1276,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Infrastructure'**
   String get editorCategoryInfrastructure;
+
+  /// No description provided for @editorFavoriteLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorite entry'**
+  String get editorFavoriteLabel;
+
+  /// No description provided for @editorFavoriteHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorites appear under the Favorites filter on the dashboard.'**
+  String get editorFavoriteHint;
 
   /// No description provided for @editorSecretTitle.
   ///
@@ -2164,6 +2206,294 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sign in to sync this vault.'**
   String get syncSignInRequired;
+
+  /// No description provided for @securityMessageStateUnreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'Vaulta could not read the secure state of this device. Restart the setup.'**
+  String get securityMessageStateUnreadable;
+
+  /// No description provided for @securityMessagePasswordConfirmationMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The confirmation does not match the master password.'**
+  String get securityMessagePasswordConfirmationMismatch;
+
+  /// No description provided for @securityMessageNewPasswordConfirmationMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The confirmation does not match the new master password.'**
+  String get securityMessageNewPasswordConfirmationMismatch;
+
+  /// No description provided for @securityMessageNewPasswordMustDifferFromCurrent.
+  ///
+  /// In en, this message translates to:
+  /// **'The new master password must be different from the current one.'**
+  String get securityMessageNewPasswordMustDifferFromCurrent;
+
+  /// Lower bound of the password policy, as a number.
+  ///
+  /// In en, this message translates to:
+  /// **'Use at least {minimum} characters.'**
+  String securityMessageMasterPasswordTooShort(String minimum);
+
+  /// Upper bound of the password policy, as a number.
+  ///
+  /// In en, this message translates to:
+  /// **'Use at most {maximum} characters.'**
+  String securityMessageMasterPasswordTooLong(String maximum);
+
+  /// No description provided for @securityMessageMasterPasswordBreached.
+  ///
+  /// In en, this message translates to:
+  /// **'That password appears in breached-password lists. Pick another one.'**
+  String get securityMessageMasterPasswordBreached;
+
+  /// No description provided for @securityMessageBiometricNotAvailableOnDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Biometric unlock is not available on this device.'**
+  String get securityMessageBiometricNotAvailableOnDevice;
+
+  /// No description provided for @securityMessageBiometricNotEnrolled.
+  ///
+  /// In en, this message translates to:
+  /// **'No biometrics are enrolled on this device. Set up the fingerprint or face unlock in the system settings and try again.'**
+  String get securityMessageBiometricNotEnrolled;
+
+  /// No description provided for @securityMessageNoMasterPasswordConfigured.
+  ///
+  /// In en, this message translates to:
+  /// **'No master password has been set up yet.'**
+  String get securityMessageNoMasterPasswordConfigured;
+
+  /// No description provided for @securityMessagePasswordMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The master password does not match.'**
+  String get securityMessagePasswordMismatch;
+
+  /// No description provided for @securityMessageCurrentPasswordMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The current master password does not match.'**
+  String get securityMessageCurrentPasswordMismatch;
+
+  /// No description provided for @securityMessageBiometricUnlockNotWired.
+  ///
+  /// In en, this message translates to:
+  /// **'Biometric unlock is not connected on this device.'**
+  String get securityMessageBiometricUnlockNotWired;
+
+  /// No description provided for @securityMessageBiometricIdentityRejected.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not verify your identity. Enter the master password.'**
+  String get securityMessageBiometricIdentityRejected;
+
+  /// Diagnostic token reported by the platform key provider.
+  ///
+  /// In en, this message translates to:
+  /// **'The platform rejected the biometric key ({reason}). Re-enroll biometrics or use the master password.'**
+  String securityMessageBiometricKeyRejected(String reason);
+
+  /// No description provided for @securityMessageBiometricKeyInconsistent.
+  ///
+  /// In en, this message translates to:
+  /// **'The platform returned an inconsistent key. Enter the master password and re-enroll biometrics.'**
+  String get securityMessageBiometricKeyInconsistent;
+
+  /// No description provided for @securityMessageBiometricSessionRecoveryFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not recover your session with biometrics. Re-enroll biometrics or use the master password.'**
+  String get securityMessageBiometricSessionRecoveryFailed;
+
+  /// No description provided for @securityMessageVaultCannotBeOpened.
+  ///
+  /// In en, this message translates to:
+  /// **'This vault cannot be opened: the stored key is damaged. Restore a backup or import the vault again.'**
+  String get securityMessageVaultCannotBeOpened;
+
+  /// No description provided for @securityMessageMasterPasswordNeedsMigration.
+  ///
+  /// In en, this message translates to:
+  /// **'Your master password uses an older format. Unlock once with it so Vaulta can re-encrypt the vault, then try again.'**
+  String get securityMessageMasterPasswordNeedsMigration;
+
+  /// Diagnostic token reported by the platform key provider.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not prepare the fingerprint on this device. Retry or use the master password. [{reason}]'**
+  String securityMessageBiometricEnrollmentFailed(String reason);
+
+  /// No description provided for @securityMessageUnlockBeforeChangingMasterPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock Vaulta before changing the master password.'**
+  String get securityMessageUnlockBeforeChangingMasterPassword;
+
+  /// No description provided for @securityMessageSessionNotInMemory.
+  ///
+  /// In en, this message translates to:
+  /// **'There is no valid vault session in memory. Unlock again.'**
+  String get securityMessageSessionNotInMemory;
+
+  /// No description provided for @securityMessageSessionRecordKeyMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The active session does not match the current master key. Unlock again before retrying.'**
+  String get securityMessageSessionRecordKeyMismatch;
+
+  /// No description provided for @securityMessageRekeyFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not re-encrypt the vault. Your current key was kept to avoid inconsistencies.'**
+  String get securityMessageRekeyFailed;
+
+  /// No description provided for @securityMessageRecordSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not save the new master password. Your current key was kept to avoid inconsistencies.'**
+  String get securityMessageRecordSaveFailed;
+
+  /// No description provided for @securityMessageRekeyRollbackFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Saving the new master password failed and we could not confirm a complete rollback. Vaulta stays locked for safety.'**
+  String get securityMessageRekeyRollbackFailed;
+
+  /// No description provided for @securityMessageRecordMigrationRollbackFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not upgrade the vault encryption and the rollback did not complete either. Vaulta stays locked for safety.'**
+  String get securityMessageRecordMigrationRollbackFailed;
+
+  /// No description provided for @securityMessageItemsMigrationFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not upgrade the vault encryption. Your data is intact; unlock again to retry.'**
+  String get securityMessageItemsMigrationFailed;
+
+  /// No description provided for @securityMessageMasterPasswordCreated.
+  ///
+  /// In en, this message translates to:
+  /// **'Master password created. Your local session is protected by the system.'**
+  String get securityMessageMasterPasswordCreated;
+
+  /// No description provided for @securityMessageMasterPasswordChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'Master password updated and the vault re-encrypted with a new key.'**
+  String get securityMessageMasterPasswordChanged;
+
+  /// No description provided for @securityMessageVaultUnlocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Vaulta unlocked.'**
+  String get securityMessageVaultUnlocked;
+
+  /// No description provided for @securityMessageVaultUnlockedAndMigrated.
+  ///
+  /// In en, this message translates to:
+  /// **'Vaulta unlocked and migrated to v3 encryption.'**
+  String get securityMessageVaultUnlockedAndMigrated;
+
+  /// No description provided for @securityMessageVaultUnlockedMigrationDeferred.
+  ///
+  /// In en, this message translates to:
+  /// **'Vaulta unlocked. The encryption upgrade will be retried on the next unlock.'**
+  String get securityMessageVaultUnlockedMigrationDeferred;
+
+  /// No description provided for @securityMessageVaultUnlockedWithBiometrics.
+  ///
+  /// In en, this message translates to:
+  /// **'Vaulta unlocked with biometrics.'**
+  String get securityMessageVaultUnlockedWithBiometrics;
+
+  /// No description provided for @securityMessageBiometricNeedsPasswordFirst.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap \"Enable biometric unlock\" below to prepare your fingerprint. The master password is never stored or sent to any server.'**
+  String get securityMessageBiometricNeedsPasswordFirst;
+
+  /// No description provided for @securityMessageBiometricEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Biometrics enabled. Next time you can unlock Vaulta with your biometrics.'**
+  String get securityMessageBiometricEnabled;
+
+  /// No description provided for @securityMessageBiometricDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Biometrics disabled. Only the master password is left.'**
+  String get securityMessageBiometricDisabled;
+
+  /// No description provided for @securityMessageBiometricEnrollmentReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Done. Next time you can unlock Vaulta with your fingerprint.'**
+  String get securityMessageBiometricEnrollmentReady;
+
+  /// No description provided for @securityMessageVaultLocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Vaulta locked.'**
+  String get securityMessageVaultLocked;
+
+  /// Pre-formatted explanation supplied by the caller that locked the vault.
+  ///
+  /// In en, this message translates to:
+  /// **'Vaulta locked. {reason}'**
+  String securityMessageVaultLockedWithReason(String reason);
+
+  /// No description provided for @securityMessageVaultLockedOnBackground.
+  ///
+  /// In en, this message translates to:
+  /// **'Vaulta locked automatically when the app left the foreground.'**
+  String get securityMessageVaultLockedOnBackground;
+
+  /// No description provided for @securityMessageVaultLockedOnIdle.
+  ///
+  /// In en, this message translates to:
+  /// **'Vaulta locked automatically after the idle timeout.'**
+  String get securityMessageVaultLockedOnIdle;
+
+  /// No description provided for @securityMessageVaultLockedSessionRevoked.
+  ///
+  /// In en, this message translates to:
+  /// **'This device\'s session was revoked. Vaulta locked for safety.'**
+  String get securityMessageVaultLockedSessionRevoked;
+
+  /// No description provided for @securityMessageVaultLockedAllSessionsRevoked.
+  ///
+  /// In en, this message translates to:
+  /// **'Your account access was revoked for all sessions. Vaulta locked for safety.'**
+  String get securityMessageVaultLockedAllSessionsRevoked;
+
+  /// No description provided for @securityMessageAutoLockBackgroundEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-lock on background enabled.'**
+  String get securityMessageAutoLockBackgroundEnabled;
+
+  /// No description provided for @securityMessageAutoLockBackgroundDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto-lock on background disabled.'**
+  String get securityMessageAutoLockBackgroundDisabled;
+
+  /// The configured idle timeout, formatted as a number plus a unit.
+  ///
+  /// In en, this message translates to:
+  /// **'Idle auto-lock enabled ({duration}).'**
+  String securityMessageIdleTimeoutEnabled(String duration);
+
+  /// No description provided for @securityMessageIdleTimeoutDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Idle auto-lock disabled.'**
+  String get securityMessageIdleTimeoutDisabled;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

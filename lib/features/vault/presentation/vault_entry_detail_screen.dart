@@ -32,20 +32,32 @@ class VaultEntryDetailScreen extends StatefulWidget {
     required this.item,
     this.onEdit,
     this.onDelete,
+    this.onToggleFavorite,
     this.clipboardService,
   });
 
-  /// The entry being shown. The screen does not mutate it directly;
-  /// edits flow through the [onEdit] callback.
+  /// The entry being shown. The screen never mutates it: the favorite
+  /// toggle persists through [onToggleFavorite] and updates a local
+  /// copy, and edits flow through the [onEdit] callback.
   final VaultItem item;
 
-  /// Invoked when the user taps the edit action. The returned
-  /// `true` value signals the dashboard that the entry changed and
-  /// the list should be refreshed.
-  final Future<bool> Function()? onEdit;
+  /// Invoked when the user taps the edit action. The argument is the
+  /// entry as this screen currently shows it, so an edit opened right
+  /// after a favorite toggle edits the toggled value instead of the
+  /// one this screen was built with. The returned `true` value signals
+  /// the dashboard that the entry changed and the list should be
+  /// refreshed.
+  final Future<bool> Function(VaultItem item)? onEdit;
 
   /// Invoked when the user confirms the delete action.
   final Future<void> Function()? onDelete;
+
+  /// Invoked when the user marks or unmarks this entry as a favorite.
+  /// The argument is the requested new value of
+  /// [VaultItem.isFavorite]; the dashboard persists it through the
+  /// repository. When `null`, the favorite action is disabled (the
+  /// preview case).
+  final Future<void> Function(bool isFavorite)? onToggleFavorite;
 
   /// Writes copied secrets to the clipboard flagged as sensitive.
   /// Defaults to [SensitiveClipboardService.shared], the instance the
@@ -59,6 +71,13 @@ class VaultEntryDetailScreen extends StatefulWidget {
 
 class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
   bool _obscureSecret = true;
+
+  /// The entry as this screen currently shows it. Seeded from
+  /// [VaultEntryDetailScreen.item] and updated in place when the user
+  /// marks or unmarks it as a favorite, so the new state is visible
+  /// without waiting for the dashboard to reload.
+  late VaultItem _item = widget.item;
+
   late final SensitiveClipboardService _clipboard =
       widget.clipboardService ?? SensitiveClipboardService.shared;
 
@@ -68,16 +87,37 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
   final Set<int> _revealedHistory = <int>{};
 
   @override
+  void didUpdateWidget(covariant VaultEntryDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The dashboard re-reads the vault after an edit, so a rebuilt
+    // screen receives the stored item and must not keep showing the
+    // previous one.
+    if (oldWidget.item != widget.item) {
+      _item = widget.item;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = context.l10n;
-    final item = widget.item;
+    final item = _item;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: Text(l10n.entryDetailTitle),
         actions: [
+          IconButton(
+            onPressed: widget.onToggleFavorite == null ? null : _toggleFavorite,
+            icon: Icon(
+              item.isFavorite ? Icons.star_rounded : Icons.star_border_rounded,
+              color: item.isFavorite ? AppColors.warning : null,
+            ),
+            tooltip: item.isFavorite
+                ? l10n.entryUnmarkFavoriteTooltip
+                : l10n.entryMarkFavoriteTooltip,
+          ),
           IconButton(
             onPressed: widget.onEdit == null ? null : _runEdit,
             icon: const Icon(Icons.edit_rounded),
@@ -132,10 +172,22 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
                               ),
                             ),
                             const SizedBox(height: 4),
-                            AppPill(
-                              label: item.category.label,
-                              tint: _categoryTint(item.category),
-                              compact: true,
+                            Wrap(
+                              spacing: AppSpacing.xs,
+                              runSpacing: AppSpacing.xxs,
+                              children: [
+                                AppPill(
+                                  label: item.category.label,
+                                  tint: _categoryTint(item.category),
+                                  compact: true,
+                                ),
+                                if (item.isFavorite)
+                                  AppPill(
+                                    label: l10n.entryFavoriteLabel,
+                                    tint: AppPillTint.warning,
+                                    compact: true,
+                                  ),
+                              ],
                             ),
                           ],
                         ),
@@ -277,7 +329,7 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
   Widget _passwordHistoryPanel(BuildContext context) {
     final l10n = context.l10n;
     final theme = Theme.of(context);
-    final entries = widget.item.passwordHistoryNewestFirst;
+    final entries = _item.passwordHistoryNewestFirst;
 
     return AppPanel(
       child: ExpansionTile(
@@ -392,8 +444,23 @@ class _VaultEntryDetailScreenState extends State<VaultEntryDetailScreen> {
     return '$hidden${secret.substring(secret.length - 4)}';
   }
 
+  /// Flips [VaultItem.isFavorite] through the dashboard callback and
+  /// applies it locally so the star, the pill, and the tooltip all
+  /// reflect the saved value right away.
+  Future<void> _toggleFavorite() async {
+    final next = !_item.isFavorite;
+    await widget.onToggleFavorite?.call(next);
+    if (!mounted) {
+      return;
+    }
+    setState(() => _item = _item.copyWith(isFavorite: next));
+  }
+
   Future<void> _runEdit() async {
-    final changed = await widget.onEdit?.call() ?? false;
+    // [_item] carries any favorite toggle the user already made on this
+    // screen; passing it keeps the editor from reopening a stale copy
+    // and silently reverting that toggle on save.
+    final changed = await widget.onEdit?.call(_item) ?? false;
     if (changed && mounted) {
       Navigator.of(context).pop(true);
     }

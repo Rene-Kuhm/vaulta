@@ -8,7 +8,7 @@
 `lib/core/sync/` tiene 11 archivos (device_registration, incremental pull/push,
 sync_conflict_resolver, hardening, remote_vault_sync_repository, supabase_*,
 local_remote_vault_store, etc.) etiquetados como "experimental" en el README
-y en `docs/store-release-checklist.md`. El codigo esta limpio: cero
+y en `docs/how-to/store-release-checklist.md`. El codigo esta limpio: cero
 `TODO|FIXME|XXX|HACK|DEPRECATED` y tests unitarios reales sobre los servicios
 criticos. Sin embargo, la superficie es grande para un feature que el
 proyecto desactiva por defecto en el MVP publico.
@@ -52,7 +52,7 @@ Concretamente:
 ## Alternativas consideradas
 
 - **(a) Promover sync a feature de primera clase.** Asume sprint dedicado
-  para pasar el QA que pide `docs/store-release-checklist.md:16-23`
+  para pasar el QA que pide `docs/how-to/store-release-checklist.md:16-23`
   (sessions, conflicts, revocation, restore, offline/online, privacy).
   Descartado por ahora: hay que terminar el hardening de hygiene
   (`vaulta-hygiene-hardening`) y la cobertura de tests del core antes de

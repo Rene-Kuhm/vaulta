@@ -11,8 +11,10 @@ import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../core/security/native_biometric_auth_service.dart';
 import '../../../core/security/vault_security_controller.dart';
+import '../../../core/security/vault_security_message.dart';
 import '../../../core/sync/device_registration_service.dart';
 import 'unlock_throttle_text.dart';
+import 'vault_security_message_l10n.dart';
 
 /// Top-level gate that swaps between loading / onboarding / locked
 /// / unlocked and animates the transition.
@@ -756,9 +758,11 @@ class _OnboardingForm extends StatelessWidget {
             if (controller.message case final message?) ...[
               const SizedBox(height: AppSpacing.sm),
               AppBanner(
-                message: message,
-                tone: _bannerToneFor(controller.message),
-                icon: controller.messageIsError == true
+                message: vaultSecurityMessageText(l10n, message),
+                tone: message.isError
+                    ? AppBannerTone.danger
+                    : AppBannerTone.info,
+                icon: message.isError
                     ? Icons.error_outline_rounded
                     : Icons.info_outline_rounded,
               ),
@@ -779,17 +783,6 @@ class _OnboardingForm extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  AppBannerTone _bannerToneFor(String? message) {
-    if (message == null) return AppBannerTone.info;
-    final lower = message.toLowerCase();
-    if (lower.contains('error') ||
-        lower.contains('fail') ||
-        lower.contains('inv')) {
-      return AppBannerTone.danger;
-    }
-    return AppBannerTone.info;
   }
 
   Future<void> _submit() async {
@@ -827,7 +820,7 @@ class _UnlockScreenState extends State<_UnlockScreen> {
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _canOfferBiometricButton = false;
-  String? _biometricStatusMessage;
+  VaultSecurityMessageCode? _biometricStatusHint;
   NativeBiometricCapability _biometricCapability =
       NativeBiometricCapability.empty;
   bool _enrollingBiometric = false;
@@ -877,7 +870,7 @@ class _UnlockScreenState extends State<_UnlockScreen> {
 
   Future<void> _refreshBiometricUnlockAvailability() async {
     final nextOffer = widget.controller.canOfferBiometricUnlockButton;
-    final nextMessage = await widget.controller.biometricUnlockStatusMessage();
+    final nextHint = await widget.controller.biometricUnlockStatusHint();
     final nextCap = await widget.controller.probeBiometricCapability();
     final nextEnvelopeEnrolled = widget.controller.isBiometricEnvelopeEnrolled;
     if (!mounted) return;
@@ -888,12 +881,12 @@ class _UnlockScreenState extends State<_UnlockScreen> {
         nextCap.canUseWeak != _biometricCapability.canUseWeak ||
         nextCap.needsEnrollment != _biometricCapability.needsEnrollment;
     if (nextOffer != _canOfferBiometricButton ||
-        nextMessage != _biometricStatusMessage ||
+        nextHint != _biometricStatusHint ||
         capChanged ||
         nextEnvelopeEnrolled != _envelopeEnrolled) {
       setState(() {
         _canOfferBiometricButton = nextOffer;
-        _biometricStatusMessage = nextMessage;
+        _biometricStatusHint = nextHint;
         _envelopeEnrolled = nextEnvelopeEnrolled;
         _biometricCapability = nextCap;
       });
@@ -945,15 +938,19 @@ class _UnlockScreenState extends State<_UnlockScreen> {
     try {
       final ok = await widget.controller.setupBiometricFromPassword(password);
       if (!mounted) return;
+      final l10n = context.l10n;
+      final controllerMessage = widget.controller.message;
+      final localized = controllerMessage == null
+          ? null
+          : vaultSecurityMessageText(l10n, controllerMessage);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             ok
-                ? widget.controller.message ??
-                      context.l10n.securitySetupBiometricSuccess
-                : widget.controller.message ??
-                      unlockThrottleMessage(context.l10n, widget.controller) ??
-                      context.l10n.securitySetupBiometricError,
+                ? localized ?? l10n.securitySetupBiometricSuccess
+                : localized ??
+                      unlockThrottleMessage(l10n, widget.controller) ??
+                      l10n.securitySetupBiometricError,
           ),
         ),
       );
@@ -971,12 +968,18 @@ class _UnlockScreenState extends State<_UnlockScreen> {
     final controller = widget.controller;
     final isWide = MediaQuery.sizeOf(context).width >= 880;
 
+    final biometricHint = _biometricStatusHint;
     final form = _UnlockForm(
       controller: controller,
       passwordController: _passwordController,
       obscurePassword: _obscurePassword,
       canOfferBiometricButton: _canOfferBiometricButton,
-      biometricStatusMessage: _biometricStatusMessage,
+      biometricStatusMessage: biometricHint == null
+          ? null
+          : vaultSecurityMessageText(
+              l10n,
+              VaultSecurityMessage(biometricHint),
+            ),
       biometricCapability: _biometricCapability,
       envelopeEnrolled: _envelopeEnrolled,
       enrollingBiometric: _enrollingBiometric,
@@ -1296,14 +1299,14 @@ class _UnlockForm extends StatelessWidget {
               tone: AppBannerTone.info,
             ),
           ],
-          if (controller.message != null) ...[
+          if (controller.message case final message?) ...[
             const SizedBox(height: AppSpacing.md),
             AppBanner(
-              message: controller.message!,
-              tone: controller.messageIsError == true
+              message: vaultSecurityMessageText(l10n, message),
+              tone: message.isError
                   ? AppBannerTone.danger
                   : AppBannerTone.info,
-              icon: controller.messageIsError == true
+              icon: message.isError
                   ? Icons.error_outline_rounded
                   : Icons.info_outline_rounded,
             ),

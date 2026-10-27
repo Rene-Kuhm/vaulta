@@ -15,7 +15,7 @@ Las specs provienen de dos fuentes, citadas literalmente:
   para retomar:** "mañana seguimos".
 
 - **S1 — Sync debe poder llevar un payload v4.** El gap G1 de
-  `docs/architecture/ADR-001-crypto.md` dice: "add the item key salt to the
+  `docs/adr/0001-crypto-key-derivation-and-encrypted-blob.md` dice: "add the item key salt to the
   wire (`ciphertext` column encoding or a new column) and to the Supabase
   schema, then lift the `>= 4` refusal". Hoy
   `_extractSyncPayload` devuelve `null` para todo payload v4+
@@ -57,9 +57,9 @@ Las specs provienen de dos fuentes, citadas literalmente:
   pasan en el device, y el de cancelación pasa de verdad (el prompt se
   cancela, no se deja autenticar).
 - **S7 — Docs que no contradigan el código.** Pendiente 5 de obs 209:
-  `docs/architecture/ADR-006-encrypted-backup.md:45` afirma la regla de
+  `docs/adr/0006-encrypted-backup-format.md:45` afirma la regla de
   composición y `dk_len = 32` (ambos falsos);
-  `docs/security/hardening-status.md` está congelado en `64b2260` con features
+  `docs/reference/security-hardening-status.md` está congelado en `64b2260` con features
   ya shipeadas marcadas "Planned". Además G2 y G2b de ADR-001 describen como
   vigente un defecto ya corregido por `e12e71a`. Criterio de aceptación: cada
   afirmación de esas páginas se puede chequear contra el código en el commit

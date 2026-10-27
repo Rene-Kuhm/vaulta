@@ -11,7 +11,7 @@ import 'remote_vault_blob_change.dart';
 ///
 /// The interface is shaped around the sync contract, not around the
 /// underlying transport: see
-/// `docs/architecture/ADR-002-sync.md` for the CAS + idempotency
+/// `docs/adr/0002-sync-versioning-cas-idempotency-tombstones.md` for the CAS + idempotency
 /// rules.
 abstract interface class RemoteVaultSyncRepository {
   /// Returns the currently authenticated user id, or `null` if the
@@ -147,7 +147,7 @@ class RemoteVaultPushResult {
   bool get isSuccess => applied || idempotentReplay;
 
   /// Parses the standard backend RPC row shape. See
-  /// `docs/setup/supabase-migrations.md` for the row contract.
+  /// `docs/how-to/apply-supabase-migrations.md` for the row contract.
   factory RemoteVaultPushResult.fromRpcRow(Map<String, dynamic> row) {
     final rawCode = row['result_code'] as String?;
     return RemoteVaultPushResult(

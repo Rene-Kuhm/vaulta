@@ -758,6 +758,10 @@ void main() {
 /// answers that probe with `BIOMETRIC_STRONG or DEVICE_CREDENTIAL`, which
 /// succeeds iff a strong biometric is enrolled or a credential is set. A
 /// fixture could otherwise describe a platform that does not exist.
+///
+/// `supportsBiometricOnlyAuth` is the platform floor the native side
+/// owns (`MIN_BIOMETRIC_ONLY_AUTH_SDK`): these fixtures model a modern
+/// Android, where the KeyStore can declare a key as biometric-only.
 Map<String, dynamic> _capability({
   required bool strong,
   required bool weak,
@@ -775,6 +779,7 @@ Map<String, dynamic> _capability({
     'weakCode': weak ? success : noneEnrolled,
     'strongOrCredentialCode': strongOrCredential ? success : noneEnrolled,
     'deviceCredentialCode': deviceCredential ? success : noneEnrolled,
+    'supportsBiometricOnlyAuth': true,
   };
 }
 

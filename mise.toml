@@ -1,4 +1,90 @@
+# Hermetic toolchain for Vaulta.
+#
+# The versions are exact on purpose: the local clone, the CI runner and the
+# release runner have to use the same compiler, formatter and test runner.
+# `mise.lock` (committed) pins the artifact of every tool for every supported
+# platform (URL + sha256), so `mise install` reproduces the same bytes
+# everywhere instead of resolving "whatever is latest today".
+#
+#   mise install          # install the pinned tools
+#   mise run deps         # resolve the Dart and npm dependencies (needs network)
+#   mise run lint         # analyzer + format check (offline)
+#   mise run test         # test suite (offline)
+#   mise run docs-test    # doctests of the executable documentation (offline)
+#   mise run build        # Windows release smoke build (offline)
+#
+# Every task except `deps` runs without network: they use `--no-pub` over the
+# dependencies that `mise run deps` already resolved, so a hermetic checkout
+# never reaches the network to build, test or lint.
+
 [tools]
-# Toolchain del proyecto: sin esto el shim de mise no resuelve y `flutter test` falla.
-# pubspec.yaml pide Dart SDK ^3.11.3, que es el que trae Flutter 3.47.7.
+# Dart SDK 3.13.5; the Flutter version CI installs
+# (.github/workflows/flutter-ci.yml) and the one pubspec.yaml resolves against.
 flutter = "3.47.7"
+# Node 24: the version CI uses for the commit tooling (commitlint, lefthook).
+node = "24.22.1"
+# Python 3.13: the interpreter the scripts under scripts/ run on
+# (for example scripts/generate_brand_icons.py).
+python = "3.13.17"
+
+[tasks.deps]
+description = "Resolve the Dart and npm dependencies (needs network)"
+run = [
+  "flutter pub get",
+  "npm ci --ignore-scripts",
+]
+
+[tasks.deps-check]
+description = "Check that the dependencies are resolved (offline)"
+run = """
+set -e
+if [ ! -f .dart_tool/package_config.json ]; then
+  echo "The Dart dependencies are not resolved. Run 'mise run deps' (it needs network)." >&2
+  exit 1
+fi
+if [ ! -d node_modules ]; then
+  echo "The npm dependencies are not installed. Run 'mise run deps' (it needs network)." >&2
+  exit 1
+fi
+"""
+
+[tasks.lint]
+description = "Run the analyzer and the format check (offline)"
+run = """
+set -e
+flutter analyze --no-pub
+if ! dart format --output=none --set-exit-if-changed lib test; then
+  echo "The Dart sources are not formatted. Run 'mise run format' and commit the result." >&2
+  exit 1
+fi
+"""
+
+[tasks.format]
+description = "Format the Dart sources (writes files)"
+run = "dart format lib test"
+
+[tasks.test]
+description = "Run the test suite (offline)"
+run = "flutter test --no-pub"
+
+[tasks.docs-test]
+description = "Run the doctests of the executable documentation (offline)"
+run = [
+  "python scripts/docs-test/test_run.py",
+  "python scripts/docs-test/run.py",
+]
+
+[tasks.coverage]
+description = "Run the suite with coverage and check the core threshold (offline)"
+run = [
+  "flutter test --coverage --no-pub",
+  "bash scripts/check_coverage.sh coverage/lcov.info lib/core/security 60",
+]
+
+[tasks.build]
+description = "Windows release smoke build (offline; CI runs it on windows-2022)"
+run = "flutter build windows --release --no-pub"
+
+[tasks.commit-lint]
+description = "Check a Conventional Commit title (offline); reads PR_TITLE"
+run = "printf '%s\\n' \"${PR_TITLE:-}\" | npx --no-install commitlint"

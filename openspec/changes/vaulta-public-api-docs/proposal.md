@@ -12,7 +12,7 @@ docstrings a todas las APIs públicas que la regla considere
 subdocumentadas. Resultado: cualquier contribuidor que agregue
 una API pública en `lib/core/` sin documentar rompe CI.
 
-Referencia: `docs/architecture/ADR-005-repo-hygiene.md` sección
+Referencia: `docs/adr/0005-repository-hygiene-lints-and-coverage.md` sección
 "Política de lints".
 
 ## Scope

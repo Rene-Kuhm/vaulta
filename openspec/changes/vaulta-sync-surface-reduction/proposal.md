@@ -12,7 +12,7 @@ servicios de sync incremental
 uno solo bidireccional, y marcando los concerns internos como
 tales vía docstrings + barrel.
 
-Referencia: `docs/architecture/ADR-004-roadmap-sync.md` sección
+Referencia: `docs/adr/0004-sync-layer-roadmap.md` sección
 "Decisión" e "Implementación por lotes".
 
 ## Scope

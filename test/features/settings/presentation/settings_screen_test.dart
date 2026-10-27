@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_auth/local_auth.dart';
 
 import 'package:gestor_contrasenas/app/localization/app_locale_controller.dart';
 import 'package:gestor_contrasenas/core/security/biometric_auth_service.dart';
 import 'package:gestor_contrasenas/core/security/master_password_service.dart';
+import 'package:gestor_contrasenas/core/security/native_biometric_auth_service.dart';
 import 'package:gestor_contrasenas/core/security/secure_storage_service.dart';
 import 'package:gestor_contrasenas/core/security/vault_security_controller.dart';
+import 'package:gestor_contrasenas/core/security/vault_security_message.dart';
 import 'package:gestor_contrasenas/core/sync/device_registration_repository.dart';
 import 'package:gestor_contrasenas/core/sync/device_registration_service.dart';
 import 'package:gestor_contrasenas/core/sync/device_session_revocation_service.dart';
+import 'package:gestor_contrasenas/features/security/presentation/vault_security_message_l10n.dart';
 import 'package:gestor_contrasenas/features/settings/presentation/settings_screen.dart';
 import 'package:gestor_contrasenas/l10n/app_localizations.dart';
+import 'package:gestor_contrasenas/l10n/app_localizations_en.dart';
 
 import '../../backup/backup_test_support.dart' show InMemoryVaultRepository;
 
@@ -159,7 +164,12 @@ void main() {
         find.widgetWithText(AlertDialog, 'Change master password'),
         findsOneWidget,
       );
-      expect(find.textContaining('master password actual'), findsWidgets);
+      // English device: the dialog feedback comes from the controller's
+      // message code, localized by the screen.
+      expect(
+        find.textContaining('current master password does not match'),
+        findsWidgets,
+      );
     });
 
     testWidgets('shows the lockout message after too many wrong attempts', (
@@ -250,7 +260,10 @@ void main() {
       await _pumpUi(tester);
 
       expect(controller.idleTimeoutSeconds, 0);
-      expect(controller.message, contains('inactividad'));
+      expect(
+        controller.message?.code,
+        VaultSecurityMessageCode.idleTimeoutDisabled,
+      );
     });
 
     testWidgets('renders device sessions and revokes selected device', (
@@ -355,7 +368,72 @@ void main() {
       await _pumpUi(tester);
 
       expect(controller.stage, VaultSecurityStage.locked);
-      expect(controller.message, contains('no longer has an active session'));
+      // English device: the revoke flow locks with a message the screen
+      // renders in English, not with the Spanish literal the controller used
+      // to carry.
+      expect(
+        vaultSecurityMessageText(
+          AppLocalizationsEn(),
+          controller.message!,
+        ),
+        "This device's session was revoked. Vaulta locked for safety.",
+      );
+    });
+
+    testWidgets('keeps the all-sessions wording when every session is revoked', (
+      tester,
+    ) async {
+      final controller = await _buildUnlockedController();
+      final localeController = AppLocaleController(
+        storage: _InMemorySecureStorageService(),
+      );
+      await localeController.initialize();
+      final repository = _FakeDeviceRegistrationRepository(
+        devices: const [
+          VaultDeviceSession(
+            deviceId: 'current-device',
+            deviceName: 'Pixel 8',
+            platform: 'android',
+            appVersion: '1.0.4+5',
+            status: DeviceSessionStatus.revokedAll,
+            accessAllowed: false,
+          ),
+        ],
+      );
+      final revocationService = DeviceSessionRevocationService(
+        repository: repository,
+        identityService: const _FakeDeviceIdentityService('current-device'),
+      );
+      addTearDown(controller.dispose);
+      _setLargeViewport(tester);
+
+      await tester.pumpWidget(
+        _testApp(
+          SettingsScreen(
+            securityController: controller,
+            localeController: localeController,
+            revocationService: revocationService,
+          ),
+        ),
+      );
+      await _pumpUi(tester);
+
+      expect(find.text('Session revoked on all devices'), findsOneWidget);
+      await tester.tap(find.text('Lock now').last);
+      await _pumpUi(tester);
+
+      expect(controller.stage, VaultSecurityStage.locked);
+      // "All sessions revoked" is a different event from "this device
+      // revoked", so the lock message must not collapse them.
+      expect(
+        controller.message?.code,
+        VaultSecurityMessageCode.vaultLockedAllSessionsRevoked,
+      );
+      expect(
+        vaultSecurityMessageText(AppLocalizationsEn(), controller.message!),
+        'Your account access was revoked for all sessions. '
+        'Vaulta locked for safety.',
+      );
     });
 
     testWidgets('revokes all other devices with current device id', (
@@ -476,6 +554,157 @@ void main() {
       expect(find.text(l10n.settingsCapabilityUnknown), findsNothing);
     });
   });
+
+  group('SettingsScreen biometric subtitle', () {
+    const biometricChannel = MethodChannel('test/vaulta/biometric');
+
+    /// Installs the answer the Android probe gives.
+    ///
+    /// [supportsBiometricOnlyAuth] is the platform floor the native side
+    /// owns (`MIN_BIOMETRIC_ONLY_AUTH_SDK`): false on Android 6-10,
+    /// where the KeyStore cannot declare a key as biometric-only, true
+    /// from Android 11 on. [strongEnrolled] is a different fact — it
+    /// says whether the user has a fingerprint, which decides whether
+    /// the toggle can be offered, not why the vault's biometric unlock
+    /// is refused.
+    void installAndroidProbe({
+      required bool supportsBiometricOnlyAuth,
+      required bool strongEnrolled,
+    }) {
+      const noneEnrolled = 11;
+      const success = 0;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(biometricChannel, (call) async {
+        if (call.method != 'probeAvailability') {
+          throw MissingPluginException('no handler for ${call.method}');
+        }
+        return <String, dynamic>{
+          'canUseStrong': strongEnrolled,
+          'canUseWeak': false,
+          'canUseStrongOrCredential': true,
+          'canUseDeviceCredential': true,
+          'strongCode': strongEnrolled ? success : noneEnrolled,
+          'weakCode': noneEnrolled,
+          'strongOrCredentialCode': success,
+          'deviceCredentialCode': success,
+          'supportsBiometricOnlyAuth': supportsBiometricOnlyAuth,
+        };
+      });
+      addTearDown(() {
+        messenger.setMockMethodCallHandler(biometricChannel, null);
+      });
+    }
+
+    Future<void> renderSettings(
+      WidgetTester tester, {
+      BiometricAuthService? biometricAuthService,
+    }) async {
+      final controller = await _buildUnlockedController(
+        biometricAuthService: biometricAuthService,
+      );
+      final localeController = AppLocaleController(
+        storage: _InMemorySecureStorageService(),
+      );
+      await localeController.initialize();
+      addTearDown(controller.dispose);
+      _setLargeViewport(tester);
+
+      await tester.pumpWidget(
+        _testApp(
+          SettingsScreen(
+            securityController: controller,
+            localeController: localeController,
+          ),
+        ),
+      );
+      await _pumpUi(tester);
+    }
+
+    testWidgets(
+      'says Android 11 is required when the platform cannot enforce biometric-only auth',
+      (tester) async {
+        final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+        // Android 6-10 with a fingerprint enrolled: the biometric is
+        // there, the platform just cannot bind the KeyStore key to it,
+        // so the reason is the Android version — not the user's
+        // fingerprints.
+        installAndroidProbe(
+          supportsBiometricOnlyAuth: false,
+          strongEnrolled: true,
+        );
+
+        await renderSettings(
+          tester,
+          biometricAuthService: NativeBiometricAuthService(
+            biometricChannel: biometricChannel,
+            isAndroid: true,
+          ),
+        );
+
+        expect(
+          find.text(l10n.settingsBiometricRequiresAndroid11Subtitle),
+          findsOneWidget,
+        );
+        // The old copy blamed the device's biometrics; it must be gone.
+        expect(find.text(l10n.settingsBiometricUnavailableSubtitle), findsNothing);
+        // ... and the copy that promises a working biometric unlock must
+        // not be shown either: the platform cannot deliver it.
+        expect(
+          find.textContaining('unlock the vault on Android'),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'keeps saying no biometrics are configured when the platform is new enough',
+      (tester) async {
+        final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+        // Android 11+ with nothing enrolled: the platform can enforce
+        // biometric-only auth, so the reason is the missing enrollment.
+        installAndroidProbe(
+          supportsBiometricOnlyAuth: true,
+          strongEnrolled: false,
+        );
+
+        await renderSettings(
+          tester,
+          biometricAuthService: NativeBiometricAuthService(
+            biometricChannel: biometricChannel,
+            isAndroid: true,
+          ),
+        );
+
+        expect(
+          find.text(l10n.settingsBiometricUnavailableSubtitle),
+          findsOneWidget,
+        );
+        expect(
+          find.text(l10n.settingsBiometricRequiresAndroid11Subtitle),
+          findsNothing,
+        );
+        // No version is mentioned: nothing about this device is wrong.
+        expect(find.textContaining('Android 11'), findsNothing);
+      },
+    );
+
+    testWidgets('never tells a non-Android target that it needs Android 11', (
+      tester,
+    ) async {
+      final l10n = await AppLocalizations.delegate.load(const Locale('en'));
+      // No Android probe to ask (iOS, desktop, or a channel that is not
+      // there): the platform floor was never answered, so there is no
+      // version to name and nothing to blame.
+      await renderSettings(tester);
+
+      expect(
+        find.text(l10n.settingsBiometricRequiresAndroid11Subtitle),
+        findsNothing,
+      );
+      expect(find.text(l10n.settingsBiometricUnavailableSubtitle), findsNothing);
+    });
+  });
 }
 
 Widget _testApp(Widget home) {
@@ -505,11 +734,13 @@ void _setLargeViewport(WidgetTester tester) {
 
 Future<VaultSecurityController> _buildUnlockedController({
   VaultRekeyEntries? rekeyEntries,
+  BiometricAuthService? biometricAuthService,
 }) async {
   final controller = VaultSecurityController(
     storage: _InMemorySecureStorageService(),
     masterPasswordService: MasterPasswordService.test(),
-    biometricAuthService: const _FakeBiometricAuthService(),
+    biometricAuthService:
+        biometricAuthService ?? const _FakeBiometricAuthService(),
     rekeyEntries: rekeyEntries,
   );
 
