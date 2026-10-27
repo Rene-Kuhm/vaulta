@@ -107,7 +107,7 @@ dependencies {
     // on compileSdk 36 and is the version AndroidX now recommends for
     // projects targeting Android 14/15.
     implementation("androidx.biometric:biometric:1.4.0-alpha07")
-    implementation("androidx.fragment:fragment-ktx:1.6.2")
+    implementation("androidx.fragment:fragment-ktx:1.9.1")
 
     // Instrumented test entry point. `runner` brings AndroidJUnitRunner and
     // InstrumentationRegistry (through androidx.test:monitor); `ext:junit`
