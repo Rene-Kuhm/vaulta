@@ -10,7 +10,8 @@ Before this change Vaulta had no way to get data out. The vault lives
 in device secure storage, wrapped under a DEK that is itself wrapped by
 a KEK derived from the master password (ADR-001). Lose the device, or
 lose its secure storage (factory reset, Keystore wipe), and the vault
-is gone. Sync is opt-in and off by default (THREAT_MODEL.md, "Residual
+is gone. Sync is opt-in and off by default
+([`../explanation/threat-model.md`](../explanation/threat-model.md), "Residual
 risk acceptance" item 4), so most users have no second copy at all.
 That is also why `UnlockAttemptLimiter` refuses to auto-wipe after
 repeated failures: a wipe would be unrecoverable data loss.
@@ -246,7 +247,8 @@ screen for little gain.
   package returns one. This is best effort: Dart `String`s (item
   secrets, typed passwords) are immutable and cannot be wiped, and the
   GC may have copied buffers. That limitation is the same one the
-  vault itself already accepts (THREAT_MODEL.md, "compromised device
+  vault itself already accepts
+  ([`../explanation/threat-model.md`](../explanation/threat-model.md), "compromised device
   with the master password in memory").
 - No log line contains backup content, passwords or item fields; the
   backup code does not log at all.
@@ -284,7 +286,7 @@ with the real Argon2id parameters (about 1 s on a desktop VM).
   second secret the user must keep; we say so in the UI.
 - A stolen backup file is an offline brute-force target protected by
   Argon2id at vault cost. That is the same exposure as a leaked vault
-  blob (THREAT_MODEL.md, "Replay of a leaked ciphertext"), but now it
+  blob ([`../explanation/threat-model.md`](../explanation/threat-model.md), "Replay of a leaked ciphertext"), but now it
   is a file the user deliberately moves around.
 - Restore does not delete or overwrite, so restoring the same file
   twice is idempotent (second run skips everything as duplicates).

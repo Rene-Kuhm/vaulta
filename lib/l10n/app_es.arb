@@ -26,6 +26,7 @@
     }
   },
   "settingsBiometricUnavailableSubtitle": "No hay biometría configurada o soportada en este entorno.",
+  "settingsBiometricRequiresAndroid11Subtitle": "El desbloqueo biométrico requiere Android 11 o superior: esta versión de Android no puede exigir autenticación solo biométrica en el KeyStore.",
   "settingsAutoLockBackgroundTitle": "Auto-lock al pasar a background",
   "settingsAutoLockBackgroundSubtitle": "Bloquea Vaulta automaticamente si la app queda inactive, paused o detached.",
   "settingsIdleTimeoutLabel": "Auto-lock por inactividad en foreground",
@@ -152,6 +153,9 @@
   "entryDetailTitle": "Detalle de entrada",
   "entryEditTooltip": "Editar entrada",
   "entryDeleteTooltip": "Eliminar entrada",
+  "entryFavoriteLabel": "Favorita",
+  "entryMarkFavoriteTooltip": "Marcar como favorita",
+  "entryUnmarkFavoriteTooltip": "Quitar de favoritas",
   "entryUsernameLabel": "Usuario",
   "entryWebsiteLabel": "Sitio web",
   "entryStrengthLabel": "Fortaleza",
@@ -219,6 +223,7 @@
   "filterAllEntries": "Todas las entradas",
   "filterWeakOnly": "Solo passwords debiles",
   "filterWithNotes": "Entradas con notas",
+  "filterFavorites": "Favoritas",
   "resetFilters": "Restablecer filtros",
   "noResultsTitle": "Ninguna entrada coincide con los filtros",
   "noResultsSubtitle": "Probá otra búsqueda o reiniciá filtros para ver todo otra vez.",
@@ -257,6 +262,8 @@
   "editorCategoryFinance": "Finanzas",
   "editorCategoryPersonal": "Personal",
   "editorCategoryInfrastructure": "Infraestructura",
+  "editorFavoriteLabel": "Entrada favorita",
+  "editorFavoriteHint": "Las favoritas aparecen bajo el filtro Favoritas del tablero.",
   "editorSecretTitle": "Secreto",
   "editorSecretDescription": "Vaulta recalcula la fortaleza localmente antes de recifrar la entrada.",
   "editorSecretLabel": "Password o secreto",
@@ -450,5 +457,101 @@
   "syncSignInAction": "Entrar",
   "syncSignInInvalid": "Correo o contrasena incorrectos.",
   "syncSignInOffline": "No se pudo llegar al servidor. Revisa tu conexion.",
-  "syncSignInRequired": "Inicia sesion para sincronizar este vault."
+  "syncSignInRequired": "Inicia sesion para sincronizar este vault.",
+  "securityMessageStateUnreadable": "No pudimos leer el estado seguro del dispositivo. Reiniciá la configuración.",
+  "securityMessagePasswordConfirmationMismatch": "La confirmación no coincide con la master password.",
+  "securityMessageNewPasswordConfirmationMismatch": "La confirmación no coincide con la nueva master password.",
+  "securityMessageNewPasswordMustDifferFromCurrent": "La nueva master password debe ser distinta de la actual.",
+  "securityMessageMasterPasswordTooShort": "Usá al menos {minimum} caracteres.",
+  "@securityMessageMasterPasswordTooShort": {
+    "description": "Lower bound of the password policy, as a number.",
+    "placeholders": {
+      "minimum": {
+        "type": "String"
+      }
+    }
+  },
+  "securityMessageMasterPasswordTooLong": "Usá como máximo {maximum} caracteres.",
+  "@securityMessageMasterPasswordTooLong": {
+    "description": "Upper bound of the password policy, as a number.",
+    "placeholders": {
+      "maximum": {
+        "type": "String"
+      }
+    }
+  },
+  "securityMessageMasterPasswordBreached": "Esa contraseña aparece en listas de contraseñas filtradas. Elegí otra.",
+  "securityMessageBiometricNotAvailableOnDevice": "El desbloqueo biométrico no está disponible en este dispositivo.",
+  "securityMessageBiometricNotEnrolled": "No hay biometría registrada en este dispositivo. Configurá la huella o el reconocimiento facial en los ajustes del sistema y reintentá.",
+  "securityMessageNoMasterPasswordConfigured": "Todavía no configuraste una master password.",
+  "securityMessagePasswordMismatch": "La master password no coincide.",
+  "securityMessageCurrentPasswordMismatch": "La master password actual no coincide.",
+  "securityMessageBiometricUnlockNotWired": "El desbloqueo biométrico no está conectado en este dispositivo.",
+  "securityMessageBiometricIdentityRejected": "No pudimos verificar tu identidad. Ingresá la master password.",
+  "securityMessageBiometricKeyRejected": "La plataforma rechazó la clave biométrica ({reason}). Re-enrolá biometría o usá la master password.",
+  "@securityMessageBiometricKeyRejected": {
+    "description": "Diagnostic token reported by the platform key provider.",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "securityMessageBiometricKeyInconsistent": "La plataforma devolvió una clave inconsistente. Ingresá la master password y re-enrolá biometría.",
+  "securityMessageBiometricSessionRecoveryFailed": "No pudimos recuperar tu sesión con biometría. Re-enrolá biometría o usá la master password.",
+  "securityMessageVaultCannotBeOpened": "Este vault no se puede abrir: la clave guardada está dañada. Restaurá una copia o volvé a importar el vault.",
+  "securityMessageMasterPasswordNeedsMigration": "Tu master password es de un formato anterior. Desbloqueá una vez con ella para que Vaulta vuelva a cifrar el vault y reintentá.",
+  "securityMessageBiometricEnrollmentFailed": "No pudimos preparar la huella en este dispositivo. Reintentá o usá la master password. [{reason}]",
+  "@securityMessageBiometricEnrollmentFailed": {
+    "description": "Diagnostic token reported by the platform key provider.",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "securityMessageUnlockBeforeChangingMasterPassword": "Desbloqueá Vaulta antes de cambiar la master password.",
+  "securityMessageSessionNotInMemory": "No hay una sesión de vault válida en memoria. Volvé a desbloquear.",
+  "securityMessageSessionRecordKeyMismatch": "La sesión activa no coincide con la clave maestra vigente. Volvé a desbloquear antes de reintentar.",
+  "securityMessageRekeyFailed": "No pudimos completar el re-cifrado del vault. Se mantuvo tu clave actual para evitar inconsistencias.",
+  "securityMessageRecordSaveFailed": "No pudimos guardar la nueva master password. Se mantuvo tu clave actual para evitar inconsistencias.",
+  "securityMessageRekeyRollbackFailed": "Falló el guardado de la nueva master password y no pudimos confirmar un rollback completo. Vaulta queda bloqueada por seguridad.",
+  "securityMessageRecordMigrationRollbackFailed": "No pudimos actualizar el cifrado del vault y el rollback tampoco se completó. Vaulta queda bloqueada por seguridad.",
+  "securityMessageItemsMigrationFailed": "No pudimos actualizar el cifrado del vault. Tus datos siguen intactos; volvé a desbloquear para reintentar.",
+  "securityMessageMasterPasswordCreated": "Master password creada. Tu sesión local queda protegida por el sistema.",
+  "securityMessageMasterPasswordChanged": "Master password actualizada y vault re-cifrado con una nueva clave.",
+  "securityMessageVaultUnlocked": "Vaulta desbloqueada.",
+  "securityMessageVaultUnlockedAndMigrated": "Vaulta desbloqueada y migrada a cifrado v3.",
+  "securityMessageVaultUnlockedMigrationDeferred": "Vaulta desbloqueada. La mejora de cifrado se reintentará en el próximo desbloqueo.",
+  "securityMessageVaultUnlockedWithBiometrics": "Vaulta desbloqueada con biometría.",
+  "securityMessageBiometricNeedsPasswordFirst": "Tocá \"Activar desbloqueo biométrico\" abajo para preparar tu huella. La master password no se guarda ni se envía a ningún servidor.",
+  "securityMessageBiometricEnabled": "Biometría activada. La próxima vez podrás desbloquear Vaulta con tu biometría.",
+  "securityMessageBiometricDisabled": "Biometría desactivada. Solo queda la master password.",
+  "securityMessageBiometricEnrollmentReady": "Listo. La próxima vez podrás desbloquear Vaulta con tu huella.",
+  "securityMessageVaultLocked": "Vaulta bloqueada.",
+  "securityMessageVaultLockedWithReason": "Vaulta bloqueada. {reason}",
+  "@securityMessageVaultLockedWithReason": {
+    "description": "Pre-formatted explanation supplied by the caller that locked the vault.",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "securityMessageVaultLockedOnBackground": "Vaulta bloqueada automáticamente al salir de primer plano.",
+  "securityMessageVaultLockedOnIdle": "Vaulta bloqueada automáticamente por inactividad.",
+  "securityMessageVaultLockedSessionRevoked": "La sesión de este dispositivo se revocó. Vaulta se bloqueó por seguridad.",
+  "securityMessageVaultLockedAllSessionsRevoked": "Se revocaron todas las sesiones de tu cuenta. Vaulta se bloqueó por seguridad.",
+  "securityMessageAutoLockBackgroundEnabled": "Auto-lock al ir a background activado.",
+  "securityMessageAutoLockBackgroundDisabled": "Auto-lock al ir a background desactivado.",
+  "securityMessageIdleTimeoutEnabled": "Auto-lock por inactividad activado ({duration}).",
+  "@securityMessageIdleTimeoutEnabled": {
+    "description": "The configured idle timeout, formatted as a number plus a unit.",
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "securityMessageIdleTimeoutDisabled": "Auto-lock por inactividad desactivado."
 }

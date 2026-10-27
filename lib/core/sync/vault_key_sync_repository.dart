@@ -6,7 +6,7 @@
 /// because every item key is derived from the DEK.
 ///
 /// Shaped around the sync need, not the transport. See
-/// `docs/architecture/ADR-001-crypto.md` and `odd/tasks/vault-key-cross-device-sync.md`.
+/// `docs/adr/0001-crypto-key-derivation-and-encrypted-blob.md` and `odd/tasks/vault-key-cross-device-sync.md`.
 abstract interface class VaultKeySyncRepository {
   /// Returns the remote `record_json` for the current user, or `null` when the
   /// user has never pushed a vault key.

@@ -547,6 +547,16 @@ class VaultImportParser {
       'categoría',
       'type',
     ]);
+    // Bitwarden JSON exports carry `favorite`; the CSV paths simply have
+    // no such column, which reads as an empty string and therefore as
+    // "not a favorite".
+    final favoriteValue = _first(row, const [
+      'favorite',
+      'favourite',
+      'fav',
+      'favorito',
+      'favorita',
+    ]);
 
     if (title.isEmpty && secret.isEmpty) return null;
 
@@ -583,6 +593,7 @@ class VaultImportParser {
       website: website.isEmpty ? null : website,
       notes: notes.isEmpty ? null : notes,
       updatedAt: now,
+      isFavorite: _isTruthy(favoriteValue),
     );
 
     return VaultImportCandidate(
@@ -591,6 +602,17 @@ class VaultImportParser {
       row: rowNumber,
       issues: issues,
     );
+  }
+
+  /// Interprets the spellings vendor exports use for a boolean column.
+  /// Anything else, including an absent column, means `false`.
+  bool _isTruthy(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized == 'true' ||
+        normalized == '1' ||
+        normalized == 'yes' ||
+        normalized == 'si' ||
+        normalized == 'sí';
   }
 
   VaultCategory _categoryFromImport(String value) {

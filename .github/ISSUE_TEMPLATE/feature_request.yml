@@ -1,0 +1,83 @@
+name: Feature request
+description: Propose a new capability or an improvement to Vaulta
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tell us what is missing and why it matters. Do not include real passwords, recovery codes, secrets, or private vault data.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and motivation
+      description: What can you not do today, and why does it matter? Describe the situation, not only the solution.
+      placeholder: |
+        As a user of the vault on two devices, I cannot ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should Vaulta do? Describe the behavior from the user's point of view.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use today, or other approaches you weighed.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Unlock and master password
+        - Vault items and search
+        - Password generator and health
+        - Import / export
+        - Sync
+        - Autofill and integrations
+        - Biometrics and device security
+        - Settings and updates
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platforms affected
+      options:
+        - Android
+        - Windows
+        - Android and Windows
+        - All platforms
+    validations:
+      required: true
+
+  - type: dropdown
+    id: security
+    attributes:
+      label: Does this touch security or privacy?
+      description: Cryptography, key storage, unlock protections, clipboard, logs, backups, autofill, sync permissions, updater.
+      options:
+        - No
+        - Yes, it touches a security-sensitive path
+        - Not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched the existing issues and this is not already tracked.
+        - label: I did not include real passwords, recovery codes, or secrets in this report.

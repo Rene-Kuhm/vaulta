@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -10,10 +11,12 @@ import 'biometric_unlock_service.dart';
 import 'master_password_record.dart';
 import 'master_password_service.dart';
 import 'native_biometric_auth_service.dart';
+import 'password_policy.dart';
 import 'platform_security_plan.dart';
 import 'secure_storage_service.dart';
 import 'sensitive_clipboard_service.dart';
 import 'unlock_attempt_limiter.dart';
+import 'vault_security_message.dart';
 import 'vault_session.dart';
 
 /// Function signature for the repository rekey hook. The controller
@@ -131,7 +134,7 @@ class VaultSecurityController extends ChangeNotifier {
   );
   bool _biometricEnabled = false;
   bool _busy = false;
-  String? _message;
+  VaultSecurityMessage? _message;
   VaultSession? _vaultSession;
   bool _autoLockOnBackgroundEnabled = true;
   int _idleTimeoutSeconds = defaultIdleTimeoutSeconds;
@@ -180,42 +183,20 @@ class VaultSecurityController extends ChangeNotifier {
   /// True while a long-running unlock / rekey operation is in flight.
   bool get busy => _busy;
 
-  /// Latest human-readable status message (success or error). Cleared
-  /// on the next user action.
-  String? get message => _message;
-
-  /// Heuristic tone for the current [message]. The controller itself
-  /// does not store a flag because the existing 40+ `_message = …`
-  /// sites all use natural-language strings; classifying the tone
-  /// here keeps the call sites simple and the visual layer out of
-  /// the controller's contract.
+  /// Latest status message (success or failure) as a code plus optional
+  /// machine detail, never as copy. Cleared on the next user action.
   ///
-  /// The rule is intentionally narrow: only surface a "danger" tone
-  /// for phrases that clearly read as a failure, and an
-  /// "info/positive" tone otherwise.
-  bool get messageIsError {
-    final m = _message;
-    if (m == null || m.isEmpty) return false;
-    final lower = m.toLowerCase();
-    const negative = [
-      'no coincide',
-      'no pudimos',
-      'no se pudo',
-      'todavia no',
-      'no hay biometria',
-      'no esta conectado',
-      'error',
-      'fail',
-      'inv',
-      'rechaz',
-      'cancel',
-      'deneg',
-    ];
-    for (final word in negative) {
-      if (lower.contains(word)) return true;
-    }
-    return false;
-  }
+  /// The UI resolves it to the user's language; see
+  /// `vaultSecurityMessageText` in
+  /// `lib/features/security/presentation/vault_security_message_l10n.dart`.
+  VaultSecurityMessage? get message => _message;
+
+  /// True when [message] reports a failure, so the UI paints an error tone.
+  ///
+  /// The classification travels with the code
+  /// ([VaultSecurityMessageCode.isError]) instead of being guessed from the
+  /// wording, which is what the previous Spanish-substring heuristic did.
+  bool get messageIsError => _message?.isError ?? false;
 
   /// Time left before another master-password attempt is allowed, or
   /// `null` when an attempt is allowed now. The unlock screen polls
@@ -297,26 +278,21 @@ class VaultSecurityController extends ChangeNotifier {
     return _biometricUnlockService != null;
   }
 
-  /// Single source of truth for the "you have to unlock with the
-  /// master password once before biometrics will work" hint. The
-  /// proactive unlock-screen banner and the post-failure message
-  /// both reference this constant so the user only sees the line
-  /// once, no matter which path surfaced it.
-  static const biometricNeedsPasswordFirstMessage =
-      'Toca el boton "Activar desbloqueo biometrico" abajo para '
-      'preparar tu huella. La master password no se guarda ni se envia '
-      'a ningun servidor.';
-
-  /// Latest human-readable status of the biometric unlock path, for
-  /// the unlock screen to surface when the button is offered but the
-  /// underlying envelope is not yet on disk. Returns null when there
-  /// is nothing useful to say.
-  Future<String?> biometricUnlockStatusMessage() async {
+  /// Latest status of the biometric unlock path, for the unlock screen
+  /// to surface when the button is offered but the underlying envelope
+  /// is not yet on disk. Returns `null` when there is nothing useful to
+  /// say.
+  ///
+  /// The single source of truth for the "unlock with the master password
+  /// once first" hint: the proactive unlock-screen banner and the
+  /// post-failure message both come from this code, so the user only sees
+  /// the line once no matter which path surfaced it.
+  Future<VaultSecurityMessageCode?> biometricUnlockStatusHint() async {
     if (!canOfferBiometricUnlockButton) return null;
     if (await _biometricEnvelopeService.isEnrolled()) {
       return null;
     }
-    return biometricNeedsPasswordFirstMessage;
+    return VaultSecurityMessageCode.biometricNeedsPasswordFirst;
   }
 
   /// Returns the raw native platform capability, when the active
@@ -487,8 +463,9 @@ class VaultSecurityController extends ChangeNotifier {
       }
     } catch (_) {
       _stage = VaultSecurityStage.onboarding;
-      _message =
-          'No pudimos leer el estado seguro del dispositivo. Reinicia la configuracion.';
+      _message = const VaultSecurityMessage(
+        VaultSecurityMessageCode.stateUnreadable,
+      );
     } finally {
       _setBusy(false);
       notifyListeners();
@@ -503,21 +480,25 @@ class VaultSecurityController extends ChangeNotifier {
     required String confirmation,
     required bool enableBiometrics,
   }) async {
-    final validationError = _masterPasswordService.validate(password);
-    if (validationError != null) {
-      _message = validationError;
+    final validationMessage = _validateMasterPassword(password);
+    if (validationMessage != null) {
+      _message = validationMessage;
       notifyListeners();
       return false;
     }
 
     if (password != confirmation) {
-      _message = 'La confirmacion no coincide con la master password.';
+      _message = const VaultSecurityMessage(
+        VaultSecurityMessageCode.passwordConfirmationMismatch,
+      );
       notifyListeners();
       return false;
     }
 
     if (enableBiometrics && !canOfferBiometricToggle) {
-      _message = 'La biometria todavia no esta disponible en este dispositivo.';
+      _message = const VaultSecurityMessage(
+        VaultSecurityMessageCode.biometricNotAvailableOnDevice,
+      );
       notifyListeners();
       return false;
     }
@@ -540,8 +521,9 @@ class VaultSecurityController extends ChangeNotifier {
       await _persistBiometricPreference(enableBiometrics);
       await _enrollBiometricEnvelopeIfNeeded(record);
 
-      _message =
-          'Master password creada. Tu sesion local queda protegida por el sistema.';
+      _message = const VaultSecurityMessage(
+        VaultSecurityMessageCode.masterPasswordCreated,
+      );
       _stage = VaultSecurityStage.unlocked;
       _restartIdleTimer();
       return true;
@@ -566,25 +548,32 @@ class VaultSecurityController extends ChangeNotifier {
       final record = await _readRecord();
       if (record == null) {
         _stage = VaultSecurityStage.onboarding;
-        _message = 'Todavia no configuraste una master password.';
+        _message = const VaultSecurityMessage(
+          VaultSecurityMessageCode.noMasterPasswordConfigured,
+        );
         return false;
       }
 
       final verified = await _verifyThrottled(
         record: record,
         password: password,
-        mismatchMessage: 'La master password no coincide.',
+        mismatch: VaultSecurityMessageCode.passwordMismatch,
       );
       if (!verified) {
         return false;
       }
 
+      final secretKey = await _deriveVaultKey(
+        record: record,
+        password: password,
+      );
+      if (secretKey == null) {
+        return false;
+      }
+
       final sourceSession = VaultSession(
         keyId: record.keyId,
-        secretKey: await _masterPasswordService.deriveVaultKey(
-          record: record,
-          password: password,
-        ),
+        secretKey: secretKey,
         kdf: record.kdf,
         dekWrap: record.dekWrap,
       );
@@ -605,9 +594,9 @@ class VaultSecurityController extends ChangeNotifier {
           // only honest state is locked with an explanation.
           _vaultSession = null;
           _stage = VaultSecurityStage.locked;
-          _message =
-              'No pudimos actualizar el cifrado del vault y el rollback '
-              'tampoco se completo. Vaulta queda bloqueada por seguridad.';
+          _message = const VaultSecurityMessage(
+            VaultSecurityMessageCode.recordMigrationRollbackFailed,
+          );
           return false;
         }
         activeRecord = rewrite.record;
@@ -649,12 +638,13 @@ class VaultSecurityController extends ChangeNotifier {
       }
       _envelopeEnrolled = await _biometricEnvelopeService.isEnrolled();
 
-      _message = activeRecord != record
-          ? 'Vaulta desbloqueada y migrada a cifrado v3.'
-          : rewriteDeferred
-          ? 'Vaulta desbloqueada. La mejora de cifrado se reintentara en '
-                'el proximo desbloqueo.'
-          : 'Vaulta desbloqueada.';
+      _message = VaultSecurityMessage(
+        activeRecord != record
+            ? VaultSecurityMessageCode.vaultUnlockedAndMigrated
+            : rewriteDeferred
+            ? VaultSecurityMessageCode.vaultUnlockedMigrationDeferred
+            : VaultSecurityMessageCode.vaultUnlocked,
+      );
       _stage = VaultSecurityStage.unlocked;
       _restartIdleTimer();
       return true;
@@ -669,8 +659,9 @@ class VaultSecurityController extends ChangeNotifier {
   Future<bool> unlockWithBiometrics() async {
     final unlocker = _biometricUnlockService;
     if (unlocker == null) {
-      _message =
-          'El desbloqueo biometrico todavia no esta conectado en este dispositivo.';
+      _message = const VaultSecurityMessage(
+        VaultSecurityMessageCode.biometricUnlockNotWired,
+      );
       notifyListeners();
       return false;
     }
@@ -679,7 +670,9 @@ class VaultSecurityController extends ChangeNotifier {
       final record = await _readRecord();
       if (record == null) {
         _stage = VaultSecurityStage.onboarding;
-        _message = 'Todavia no configuraste una master password.';
+        _message = const VaultSecurityMessage(
+          VaultSecurityMessageCode.noMasterPasswordConfigured,
+        );
         return false;
       }
 
@@ -697,35 +690,40 @@ class VaultSecurityController extends ChangeNotifier {
           }
           _stage = VaultSecurityStage.unlocked;
           _envelopeEnrolled = true;
-          _message = 'Vaulta desbloqueada con biometria.';
+          _message = const VaultSecurityMessage(
+            VaultSecurityMessageCode.vaultUnlockedWithBiometrics,
+          );
           _restartIdleTimer();
           return true;
-        case BiometricUnlockNeedsPasswordFirst(:final reason):
-          // The unlock screen already shows
-          // [biometricNeedsPasswordFirstMessage] as the proactive
-          // banner. Repeating it in [message] would render two
-          // identical banners stacked on top of each other, which
-          // is exactly the layout the user reported in the bug
-          // capture. We leave [message] null so the unlock screen
-          // renders only the proactive banner.
+        case BiometricUnlockNeedsPasswordFirst(:final message):
+          // The unlock screen already shows the
+          // [VaultSecurityMessageCode.biometricNeedsPasswordFirst] hint as
+          // the proactive banner. Repeating it in [message] would render
+          // two identical banners stacked on top of each other, which is
+          // exactly the layout the user reported in the bug capture. We
+          // leave [message] null so the unlock screen renders only the
+          // proactive banner.
           _message = null;
           debugPrint('[Vaulta] biometric unlock needs password-first '
-              'enrollment: $reason');
+              'enrollment: ${message.code}');
           return false;
-        case BiometricUnlockRejected(:final reason):
-          _message = reason;
-          // A rejection that looks like a stale envelope should be
-          // cleared so the next attempt is a clean password unlock
-          // and the user is not stuck retrying a broken path.
-          if (reason.contains('inconsistente') ||
-              reason.contains('rechazo')) {
-            await unlocker.invalidate();
-            _biometricEnabled = false;
-            await _storage.save(biometricEnabledKey, 'false');
+        case BiometricUnlockRejected(:final message):
+          _message = message;
+          // A rejection caused by a stale or inconsistent envelope should
+          // be cleared so the next attempt is a clean password unlock and
+          // the user is not stuck retrying a broken path.
+          switch (message.code) {
+            case VaultSecurityMessageCode.biometricKeyInconsistent:
+            case VaultSecurityMessageCode.biometricKeyRejected:
+              await unlocker.invalidate();
+              _biometricEnabled = false;
+              await _storage.save(biometricEnabledKey, 'false');
+            default:
+              break;
           }
           return false;
-        case BiometricUnlockUnavailable(:final reason):
-          _message = reason;
+        case BiometricUnlockUnavailable(:final message):
+          _message = message;
           return false;
       }
     });
@@ -737,7 +735,9 @@ class VaultSecurityController extends ChangeNotifier {
   /// platform key slot are wiped.
   Future<void> setBiometricEnabled(bool enabled) async {
     if (enabled && !canOfferBiometricToggle) {
-      _message = 'No hay biometria configurada en este dispositivo.';
+      _message = const VaultSecurityMessage(
+        VaultSecurityMessageCode.biometricNotEnrolled,
+      );
       notifyListeners();
       return;
     }
@@ -749,19 +749,32 @@ class VaultSecurityController extends ChangeNotifier {
         if (record != null) {
           await _enrollBiometricEnvelopeIfNeeded(record);
         }
-        _message =
-            'Biometria activada. La proxima vez podras desbloquear Vaulta con tu biometria.';
+        _message = const VaultSecurityMessage(
+          VaultSecurityMessageCode.biometricEnabled,
+        );
       } else {
         await _biometricEnvelopeService.clear();
-        _message = 'Biometria desactivada. Solo queda la master password.';
+        _message = const VaultSecurityMessage(
+          VaultSecurityMessageCode.biometricDisabled,
+        );
       }
       return true;
     });
   }
 
   /// Drops the in-memory [VaultSession] and transitions to
-  /// [VaultSecurityStage.locked]. The optional [reason] is shown in
-  /// the lock screen (e.g. "auto-lock on background", "idle timeout").
+  /// [VaultSecurityStage.locked]. [code] selects the message the unlock
+  /// screen shows (`vaultLocked` by default; the idle timer and the
+  /// background handler pass their own).
+  ///
+  /// [reason] is a caller-supplied explanation kept for one legacy path:
+  /// the device-revocation bridge in
+  /// `lib/app/bootstrap/password_manager_app.dart` still builds its own
+  /// sentence from the sync layer's `DeviceAccessStatus`, which lives
+  /// outside this layer. It is carried as a message *detail* and shown
+  /// verbatim next to the localized line; this controller never authors
+  /// copy. When that bridge emits a
+  /// [VaultSecurityMessageCode] instead, this parameter goes away.
   ///
   /// Locking also clears a secret Vaulta copied to the clipboard,
   /// unless [clearClipboard] is false. The background auto-lock passes
@@ -770,12 +783,16 @@ class VaultSecurityController extends ChangeNotifier {
   /// copied. In that case the clipboard's own 30-second timer (native
   /// "clear if owned", which works from the background) removes it.
   /// Manual, idle-timeout and device-revoked locks clear immediately.
-  Future<void> lock({String? reason, bool clearClipboard = true}) async {
+  Future<void> lock({
+    VaultSecurityMessageCode code = VaultSecurityMessageCode.vaultLocked,
+    String? reason,
+    bool clearClipboard = true,
+  }) async {
     _cancelIdleTimer();
     _lastInteractionAt = null;
     _vaultSession = null;
     _stage = VaultSecurityStage.locked;
-    _message = reason ?? 'Vaulta bloqueada.';
+    _message = VaultSecurityMessage(code, detail: reason);
     // Safety net: if a screen died without releasing its long-running
     // flow counter, we do not want the next unlock to inherit a stuck
     // pause. The user explicitly chose to lock the vault, so the
@@ -793,9 +810,11 @@ class VaultSecurityController extends ChangeNotifier {
     await _runBusy(() async {
       _autoLockOnBackgroundEnabled = enabled;
       await _storage.save(autoLockOnBackgroundEnabledKey, enabled.toString());
-      _message = enabled
-          ? 'Auto-lock al ir a background activado.'
-          : 'Auto-lock al ir a background desactivado.';
+      _message = VaultSecurityMessage(
+        enabled
+            ? VaultSecurityMessageCode.autoLockBackgroundEnabled
+            : VaultSecurityMessageCode.autoLockBackgroundDisabled,
+      );
       return true;
     });
   }
@@ -812,11 +831,16 @@ class VaultSecurityController extends ChangeNotifier {
       await _storage.save(idleTimeoutSecondsKey, seconds.toString());
       if (_idleTimeoutSeconds == 0) {
         _cancelIdleTimer();
-        _message = 'Auto-lock por inactividad desactivado.';
+        _message = const VaultSecurityMessage(
+          VaultSecurityMessageCode.idleTimeoutDisabled,
+        );
       } else {
         _restartIdleTimer();
-        _message =
-            'Auto-lock por inactividad activado (${_formatIdleTimeoutLabel(_idleTimeoutSeconds)}).';
+        _message = VaultSecurityMessage(
+          VaultSecurityMessageCode.idleTimeoutEnabled,
+          // Seconds, formatted by the presentation layer.
+          detail: _idleTimeoutSeconds.toString(),
+        );
       }
       return true;
     });
@@ -854,26 +878,32 @@ class VaultSecurityController extends ChangeNotifier {
     required String confirmation,
   }) async {
     if (!isUnlocked || _vaultSession == null) {
-      _message = 'Desbloquea Vaulta antes de cambiar la master password.';
+      _message = const VaultSecurityMessage(
+        VaultSecurityMessageCode.unlockBeforeChangingMasterPassword,
+      );
       notifyListeners();
       return false;
     }
 
-    final validationError = _masterPasswordService.validate(newPassword);
-    if (validationError != null) {
-      _message = validationError;
+    final validationMessage = _validateMasterPassword(newPassword);
+    if (validationMessage != null) {
+      _message = validationMessage;
       notifyListeners();
       return false;
     }
 
     if (newPassword != confirmation) {
-      _message = 'La confirmacion no coincide con la nueva master password.';
+      _message = const VaultSecurityMessage(
+        VaultSecurityMessageCode.newPasswordConfirmationMismatch,
+      );
       notifyListeners();
       return false;
     }
 
     if (currentPassword == newPassword) {
-      _message = 'La nueva master password debe ser distinta de la actual.';
+      _message = const VaultSecurityMessage(
+        VaultSecurityMessageCode.newPasswordMustDifferFromCurrent,
+      );
       notifyListeners();
       return false;
     }
@@ -890,14 +920,16 @@ class VaultSecurityController extends ChangeNotifier {
       final currentRecord = await _readRecord();
       if (currentRecord == null) {
         _stage = VaultSecurityStage.onboarding;
-        _message = 'Todavia no configuraste una master password.';
+        _message = const VaultSecurityMessage(
+          VaultSecurityMessageCode.noMasterPasswordConfigured,
+        );
         return false;
       }
 
       final verified = await _verifyThrottled(
         record: currentRecord,
         password: currentPassword,
-        mismatchMessage: 'La master password actual no coincide.',
+        mismatch: VaultSecurityMessageCode.currentPasswordMismatch,
       );
       if (!verified) {
         return false;
@@ -906,16 +938,18 @@ class VaultSecurityController extends ChangeNotifier {
       final sourceSession = _vaultSession;
       if (sourceSession == null) {
         _stage = VaultSecurityStage.locked;
-        _message =
-            'No hay una sesion de vault valida en memoria. Volve a desbloquear.';
+        _message = const VaultSecurityMessage(
+          VaultSecurityMessageCode.sessionNotInMemory,
+        );
         return false;
       }
 
       if (sourceSession.keyId != currentRecord.keyId) {
         _vaultSession = null;
         _stage = VaultSecurityStage.locked;
-        _message =
-            'La sesion activa no coincide con la clave maestra vigente. Volve a desbloquear antes de reintentar.';
+        _message = const VaultSecurityMessage(
+          VaultSecurityMessageCode.sessionRecordKeyMismatch,
+        );
         return false;
       }
 
@@ -938,18 +972,21 @@ class VaultSecurityController extends ChangeNotifier {
 
       switch (write) {
         case _RecordWrite.rekeyFailed:
-          _message =
-              'No pudimos completar el re-cifrado del vault. Se mantuvo tu clave actual para evitar inconsistencias.';
+          _message = const VaultSecurityMessage(
+            VaultSecurityMessageCode.rekeyFailed,
+          );
           return false;
         case _RecordWrite.saveFailed:
-          _message =
-              'No pudimos guardar la nueva master password. Se mantuvo tu clave actual para evitar inconsistencias.';
+          _message = const VaultSecurityMessage(
+            VaultSecurityMessageCode.recordSaveFailed,
+          );
           return false;
         case _RecordWrite.rollbackFailed:
           _vaultSession = null;
           _stage = VaultSecurityStage.locked;
-          _message =
-              'Fallo al persistir la nueva master password y no pudimos confirmar rollback completo. Vaulta queda bloqueada por seguridad.';
+          _message = const VaultSecurityMessage(
+            VaultSecurityMessageCode.rekeyRollbackFailed,
+          );
           return false;
         case _RecordWrite.persisted:
           break;
@@ -961,8 +998,9 @@ class VaultSecurityController extends ChangeNotifier {
       // the new DEK if the user still has biometrics enabled.
       await _biometricEnvelopeService.clear();
       await _enrollBiometricEnvelopeIfNeeded(newRecord);
-      _message =
-          'Master password actualizada y vault re-cifrado con una nueva clave.';
+      _message = const VaultSecurityMessage(
+        VaultSecurityMessageCode.masterPasswordChanged,
+      );
       return true;
     });
   }
@@ -992,8 +1030,7 @@ class VaultSecurityController extends ChangeNotifier {
         }
         if (_autoLockOnBackgroundEnabled) {
           await lock(
-            reason:
-                'Vaulta bloqueada automaticamente al salir de primer plano.',
+            code: VaultSecurityMessageCode.vaultLockedOnBackground,
             // Keep copy-then-paste-in-another-app working; the
             // clipboard timer clears it. See [lock].
             clearClipboard: false,
@@ -1173,43 +1210,54 @@ class VaultSecurityController extends ChangeNotifier {
     return _runBusy(() async {
       final record = await _readRecord();
       if (record == null) {
-        _message = 'Todavia no configuraste una master password.';
+        _message = const VaultSecurityMessage(
+          VaultSecurityMessageCode.noMasterPasswordConfigured,
+        );
         return false;
       }
 
       if (!canOfferBiometricToggle) {
-        _message = 'No hay biometria configurada en este dispositivo.';
+        _message = const VaultSecurityMessage(
+          VaultSecurityMessageCode.biometricNotEnrolled,
+        );
         return false;
       }
 
       final verified = await _verifyThrottled(
         record: record,
         password: password,
-        mismatchMessage: 'La master password no coincide.',
+        mismatch: VaultSecurityMessageCode.passwordMismatch,
       );
       if (!verified) {
         return false;
       }
 
       if (_needsRecordMigration(record)) {
-        _message = 'Tu master password es de una version anterior. '
-            'Desbloquea una vez para migrar y vuelve a intentar.';
+        _message = const VaultSecurityMessage(
+          VaultSecurityMessageCode.masterPasswordNeedsMigration,
+        );
         return false;
       }
 
       final unlocker = _biometricUnlockService;
       if (unlocker == null) {
-        _message = 'El desbloqueo biometrico no esta conectado '
-            'en este dispositivo.';
+        _message = const VaultSecurityMessage(
+          VaultSecurityMessageCode.biometricUnlockNotWired,
+        );
+        return false;
+      }
+
+      final secretKey = await _deriveVaultKey(
+        record: record,
+        password: password,
+      );
+      if (secretKey == null) {
         return false;
       }
 
       final session = VaultSession.v2(
         keyId: record.keyId,
-        secretKey: await _masterPasswordService.deriveVaultKey(
-          record: record,
-          password: password,
-        ),
+        secretKey: secretKey,
         kdf: record.kdf!,
         dekWrap: record.dekWrap!,
       );
@@ -1224,15 +1272,19 @@ class VaultSecurityController extends ChangeNotifier {
         // tell us exactly what their device reported. The technical
         // code (e.g. `ensure_key_failed:KEYSTORE_ERROR`) is in
         // brackets; the leading sentence stays user-friendly.
-        _message = 'No pudimos preparar la huella en este dispositivo. '
-            'Reintenta o usa la master password. '
-            '[${enrollResult.reason ?? "unknown"}]';
+        _message = VaultSecurityMessage(
+          VaultSecurityMessageCode.biometricEnrollmentFailed,
+          // Diagnostic token from the platform, not a sentence.
+          detail: enrollResult.reason ?? 'unknown',
+        );
         return false;
       }
 
       await _persistBiometricPreference(true);
       _envelopeEnrolled = true;
-      _message = 'Listo. La proxima vez podras desbloquear Vaulta con tu huella.';
+      _message = const VaultSecurityMessage(
+        VaultSecurityMessageCode.biometricEnrollmentReady,
+      );
       // Drop the throwaway session — we are NOT unlocking the vault.
       return true;
     });
@@ -1260,7 +1312,7 @@ class VaultSecurityController extends ChangeNotifier {
       final verified = await _verifyThrottled(
         record: record,
         password: password,
-        mismatchMessage: '',
+        mismatch: null,
       );
       _message = null;
       // The vault may have been locked while the KDF ran.
@@ -1273,11 +1325,13 @@ class VaultSecurityController extends ChangeNotifier {
   ///
   /// Lockout and storage-failure rejections leave [message] null: the
   /// UI renders localized text from [unlockLockoutRemaining] and
-  /// [unlockAttemptStateUnavailable] instead.
+  /// [unlockAttemptStateUnavailable] instead. A `null` [mismatch] means
+  /// the caller discards the mismatch outcome entirely
+  /// ([reauthenticateWithPassword] renders its own feedback).
   Future<bool> _verifyThrottled({
     required MasterPasswordRecord record,
     required String password,
-    required String mismatchMessage,
+    required VaultSecurityMessageCode? mismatch,
   }) async {
     _unlockAttemptStateUnavailable = false;
     final outcome = await _unlockAttemptLimiter.runAttempt(
@@ -1287,7 +1341,7 @@ class VaultSecurityController extends ChangeNotifier {
       case UnlockAttemptOutcome.succeeded:
         return true;
       case UnlockAttemptOutcome.failed:
-        _message = mismatchMessage;
+        _message = mismatch == null ? null : VaultSecurityMessage(mismatch);
         return false;
       case UnlockAttemptOutcome.rejected:
         _message = null;
@@ -1452,8 +1506,9 @@ class VaultSecurityController extends ChangeNotifier {
       );
       _vaultSession = null;
       _stage = VaultSecurityStage.locked;
-      _message =
-          'No pudimos actualizar el cifrado del vault. Tus datos siguen intactos; volve a desbloquear para reintentar.';
+      _message = const VaultSecurityMessage(
+        VaultSecurityMessageCode.itemsMigrationFailed,
+      );
       return false;
     }
   }
@@ -1577,9 +1632,7 @@ class VaultSecurityController extends ChangeNotifier {
         return;
       }
 
-      unawaited(
-        lock(reason: 'Vaulta bloqueada automaticamente por inactividad.'),
-      );
+      unawaited(lock(code: VaultSecurityMessageCode.vaultLockedOnIdle));
     });
   }
 
@@ -1588,13 +1641,57 @@ class VaultSecurityController extends ChangeNotifier {
     _idleTimer = null;
   }
 
-  String _formatIdleTimeoutLabel(int seconds) {
-    if (seconds < 60) {
-      return '${seconds}s';
-    }
+  /// Maps the password policy verdict onto a message code, or `null` when
+  /// [password] is acceptable.
+  ///
+  /// The controller asks the policy for a verdict and owns the code; the
+  /// copy lives in the ARB files. It used to forward
+  /// `PasswordPolicy.explain`, which is Spanish-only, so an English user
+  /// read Spanish on the create and change-password screens.
+  VaultSecurityMessage? _validateMasterPassword(String password) {
+    final policy = _masterPasswordService.passwordPolicy;
+    return switch (policy.evaluate(password)) {
+      PasswordPolicyVerdict.acceptable => null,
+      PasswordPolicyVerdict.tooShort => VaultSecurityMessage(
+        VaultSecurityMessageCode.masterPasswordTooShort,
+        detail: policy.minimumLength.toString(),
+      ),
+      PasswordPolicyVerdict.tooLong => VaultSecurityMessage(
+        VaultSecurityMessageCode.masterPasswordTooLong,
+        detail: policy.maximumLength.toString(),
+      ),
+      PasswordPolicyVerdict.breached => const VaultSecurityMessage(
+        VaultSecurityMessageCode.masterPasswordBreached,
+      ),
+    };
+  }
 
-    final minutes = seconds ~/ 60;
-    return '$minutes min';
+  /// Derives the vault key, turning a damaged record into a typed
+  /// [VaultSecurityMessageCode.vaultCannotBeOpened] message instead of an
+  /// exception escaping the unlock flow. Returns `null` when the stored
+  /// record cannot produce the key; the caller stays locked.
+  ///
+  /// The password is already verified when this runs, so a
+  /// [VaultKeyUnavailableException] means the record is corrupt (a missing
+  /// or tampered `dek_wrap`), not that the user typed the wrong password.
+  /// Before this existed the exception left [unlockWithPassword] for every
+  /// record version and the user saw a raw crypto string.
+  Future<SecretKey?> _deriveVaultKey({
+    required MasterPasswordRecord record,
+    required String password,
+  }) async {
+    try {
+      return await _masterPasswordService.deriveVaultKey(
+        record: record,
+        password: password,
+      );
+    } on VaultKeyUnavailableException catch (error) {
+      debugPrint('[Vaulta] vault key unavailable: ${error.reason}');
+      _message = const VaultSecurityMessage(
+        VaultSecurityMessageCode.vaultCannotBeOpened,
+      );
+      return null;
+    }
   }
 
   static Future<void> _unsupportedRekey({

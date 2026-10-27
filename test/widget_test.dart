@@ -144,8 +144,9 @@ void main() {
                       MaterialPageRoute(
                         builder: (_) => VaultEntryDetailScreen(
                           item: item,
-                          onEdit: () async {
+                          onEdit: (VaultItem currentItem) async {
                             editCalls += 1;
+                            expect(currentItem.id, item.id);
                             return true;
                           },
                           onDelete: () async {

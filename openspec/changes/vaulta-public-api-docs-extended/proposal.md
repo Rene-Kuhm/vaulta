@@ -103,7 +103,7 @@ umbral del 50% — en algunas corridas de CI.
 | `lib/app/**` (8 archivos) | Modified | +152 docstrings o supresiones justificadas |
 | `lib/features/**` (14 archivos) | Modified | +124 docstrings |
 | `test/core/security/aes_gcm_vault_crypto_service_test.dart` | Created | +9 tests, +11 líneas de cobertura |
-| ADR-005 (`docs/architecture/ADR-005-repo-hygiene.md`) | Unchanged | La política de suppressions per-file ya estaba documentada |
+| ADR-005 (`docs/adr/0005-repository-hygiene-lints-and-coverage.md`) | Unchanged | La política de suppressions per-file ya estaba documentada |
 
 ## Risks
 

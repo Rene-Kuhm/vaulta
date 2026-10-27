@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gestor_contrasenas/core/security/master_password_record.dart';
+import 'package:gestor_contrasenas/core/sync/vault_change_signal.dart';
 import 'package:gestor_contrasenas/core/sync/vault_key_sync_repository.dart';
 import 'package:gestor_contrasenas/core/sync/vault_key_sync_service.dart';
 
@@ -112,5 +113,49 @@ void main() {
 
     expect(repository.puts, isEmpty, reason: 'no key id, so nothing pushed');
     expect(adopted, isEmpty);
+  });
+
+  test('publishes a change event when it adopts a remote record', () async {
+    final repository = _FakeRepository()
+      ..remote = _record('remote-key').encode();
+    final adopted = <String>[];
+    final signal = VaultChangeSignal();
+    final published = <VaultChange>[];
+    signal.addListener(() => published.add(signal.lastChange!));
+    final service = VaultKeySyncService(
+      repository: repository,
+      readLocalRecordJson: () async => null,
+      adoptRemoteRecord: (r) async => adopted.add(r),
+      vaultChanges: signal,
+    );
+
+    await service.syncOnce();
+
+    expect(adopted, hasLength(1));
+    expect(published, hasLength(1));
+    expect(published.single.origin, VaultChangeOrigin.vaultKeyAdoption);
+    // No key material crosses the signal: the event only says "the vault this
+    // device reads changed".
+    expect(published.single.toString(), isNot(contains('remote-key')));
+    expect(published.single.toString(), isNot(contains('dmVyaWZpZXI=')));
+  });
+
+  test('stays silent when it only pushes the local record', () async {
+    final repository = _FakeRepository();
+    final signal = VaultChangeSignal();
+    var notified = 0;
+    signal.addListener(() => notified += 1);
+    final service = VaultKeySyncService(
+      repository: repository,
+      readLocalRecordJson: () async => _record('local-key').encode(),
+      adoptRemoteRecord: (r) async {},
+      vaultChanges: signal,
+    );
+
+    await service.syncOnce();
+
+    expect(repository.puts, hasLength(1));
+    // A push does not change the local vault, so the UI has nothing to re-read.
+    expect(notified, 0);
   });
 }
