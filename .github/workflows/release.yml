@@ -10,8 +10,12 @@ name: Release
 #                 dev-apk-release.yml (same key => in-place updates).
 #   3. windows  - build the Windows release bundle and zip it with the
 #                 executable renamed to `vaulta.exe`.
-#   4. publish  - generate SHA256SUMS over every asset and create the
-#                 GitHub Release with the CHANGELOG section as notes.
+#   4. publish  - generate a CycloneDX SBOM of the Dart dependencies,
+#                 sign every asset with a keyless Sigstore build
+#                 provenance attestation (OIDC, no stored signing key),
+#                 attest the SBOM to the artifacts, generate SHA256SUMS
+#                 and create the GitHub Release with the CHANGELOG
+#                 section as notes.
 #
 # The in-app updater reads /releases/latest and refuses any APK whose
 # SHA-256 is not listed in the release's SHA256SUMS, so publishing
@@ -210,8 +214,13 @@ jobs:
     needs: [verify, android, windows]
     runs-on: ubuntu-latest
     environment: release
+    # contents: publish the release. id-token + attestations: the keyless
+    # Sigstore signing of actions/attest-* needs a fresh OIDC token and
+    # the write half of the artifact attestation API.
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -222,11 +231,28 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # cdxgen parses pubspec.lock directly (no `pub get`, no Dart SDK
+      # needed), so the SBOM is reproducible in this job without a
+      # Flutter toolchain. The generator is installed into $RUNNER_TEMP
+      # and pinned by version so the SBOM does not drift with `npx`.
+      - name: Generate CycloneDX SBOM
+        env:
+          CDXGEN_VERSION: 12.9.0
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          npm install "@cyclonedx/cdxgen@$CDXGEN_VERSION" --no-audit --no-fund
+          cd "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/node_modules/.bin/cdxgen" \
+            -t pub --no-install-deps \
+            -o "$RUNNER_TEMP/sbom.cdx.json" .
+          cp "$RUNNER_TEMP/sbom.cdx.json" dist/sbom.cdx.json
+
       - name: Generate SHA256SUMS
         working-directory: dist
         run: |
           set -euo pipefail
-          sha256sum vaulta.apk vaulta-windows-bundle.zip > SHA256SUMS
+          sha256sum vaulta.apk vaulta-windows-bundle.zip sbom.cdx.json > SHA256SUMS
           cat SHA256SUMS
 
       - name: Extract release notes from CHANGELOG
@@ -254,7 +280,41 @@ jobs:
             echo '```'
             echo 'sha256sum --check --ignore-missing SHA256SUMS'
             echo '```'
+            echo
+            echo "## Software supply chain"
+            echo
+            echo "Every artifact carries a keyless Sigstore build provenance attestation"
+            echo "(SLSA v1.0, signed with the workflow's OIDC identity — no stored signing"
+            echo "key) and a CycloneDX SBOM attestation of the Dart dependencies. Verify"
+            echo "with the GitHub CLI:"
+            echo
+            echo '```'
+            echo "gh attestation verify vaulta.apk -R $GITHUB_REPOSITORY"
+            echo "gh attestation verify vaulta-windows-bundle.zip -R $GITHUB_REPOSITORY"
+            echo '```'
+            echo
+            echo "\`sbom.cdx.json\` is the plain CycloneDX SBOM; the attested copy is in the"
+            echo "repository's attestation store."
           } > release-notes.md
+
+      # Keyless signing: the actions/attest-* actions mint a short-lived
+      # OIDC token for this exact workflow run, sign with Sigstore, and
+      # store the attestation in the repository's attestation store.
+      # There is no long-lived signing key to leak or rotate.
+      - name: Attest build provenance (Sigstore, keyless)
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-path: |
+            dist/vaulta.apk
+            dist/vaulta-windows-bundle.zip
+
+      - name: Attest SBOM to the artifacts
+        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3.0.0
+        with:
+          subject-path: |
+            dist/vaulta.apk
+            dist/vaulta-windows-bundle.zip
+          sbom-path: dist/sbom.cdx.json
 
       - name: Create GitHub Release
         env:
@@ -263,6 +323,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             dist/vaulta.apk \
             dist/vaulta-windows-bundle.zip \
+            dist/sbom.cdx.json \
             dist/SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \

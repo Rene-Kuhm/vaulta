@@ -5,6 +5,12 @@ on:
     branches: [main, master]
   pull_request:
 
+# Nothing in CI needs to write anything. The explicit read keeps the
+# GITHUB_TOKEN at the least privilege the repository settings allow
+# (read-only here) instead of the default.
+permissions:
+  contents: read
+
 jobs:
   analyze-test:
     runs-on: ubuntu-latest

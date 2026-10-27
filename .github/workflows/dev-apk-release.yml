@@ -26,7 +26,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -35,6 +35,11 @@ jobs:
   build-and-release:
     name: Build APK + publish to dev-latest
     runs-on: ubuntu-latest
+    # The only job that publishes: it overwrites the dev-latest release.
+    # Scoped here instead of workflow-wide so a future second job
+    # cannot inherit the write permission by accident.
+    permissions:
+      contents: write
     # Lets the owner scope the signing secrets to an environment that
     # only the master branch can deploy to (see docs/release-process.md).
     # Until the secrets are moved there, repository secrets still apply.
