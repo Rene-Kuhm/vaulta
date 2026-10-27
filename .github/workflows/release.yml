@@ -171,7 +171,11 @@ jobs:
   windows:
     name: Build Windows bundle
     needs: verify
-    runs-on: windows-latest
+    # windows-latest ships VS 18 (MSVC 14.51), where <experimental/coroutine> — still used by
+    # local_auth_windows — is a hard C2338 error instead of a warning. Pin the image so the
+    # release bundle keeps building; the real fix is bumping local_auth_windows when it drops
+    # experimental/<coroutine>.
+    runs-on: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
