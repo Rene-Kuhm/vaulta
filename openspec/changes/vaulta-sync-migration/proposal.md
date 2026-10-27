@@ -2,7 +2,7 @@
 
 > Migración de los dos consumidores de los servicios viejos
 > de sync al nuevo `BidirectionalSyncService`. T4 del
-> roadmap de `docs/architecture/ADR-004-roadmap-sync.md`.
+> roadmap de `docs/adr/0004-sync-layer-roadmap.md`.
 
 ## Intent
 

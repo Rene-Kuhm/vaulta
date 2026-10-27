@@ -136,10 +136,10 @@ puntos con las siguientes politicas:
   pasa.
 - `flutter test test/features/sync/presentation/sync_conflicts_sheet_test.dart`
   pasa.
-- `docs/architecture/ADR-004-roadmap-sync.md` existe y referencia este
+- `docs/adr/0004-sync-layer-roadmap.md` existe y referencia este
   ADR como prerequisito.
-- `docs/architecture/ADR-005-repo-hygiene.md` (este archivo) esta
-  indexado en `docs/architecture/README.md`.
+- `docs/adr/0005-repository-hygiene-lints-and-coverage.md` (este archivo) esta
+  indexado en `docs/adr/README.md`.
 
 ## Implementacion por lotes
 

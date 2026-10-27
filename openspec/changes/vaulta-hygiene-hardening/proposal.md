@@ -37,8 +37,8 @@ Endurecer el repositorio en dimensiones concretas y medibles:
 - `.github/workflows/flutter-ci.yml`: step de coverage.
 - `scripts/check_coverage.sh`: script bash que valida
   `coverage/lcov.info` contra umbral sobre `lib/core/security/`.
-- `docs/architecture/ADR-004-roadmap-sync.md`: decisión de roadmap.
-- `docs/architecture/ADR-005-repo-hygiene.md`: política de lints.
+- `docs/adr/0004-sync-layer-roadmap.md`: decisión de roadmap.
+- `docs/adr/0005-repository-hygiene-lints-and-coverage.md`: política de lints.
 - 3 tests de widget siguiendo el patrón de
   `vault_dashboard_screen_test.dart`.
 
@@ -82,7 +82,7 @@ Endurecer el repositorio en dimensiones concretas y medibles:
   preexistente queda ignorado retroactivamente.
 - T2: README sección Licencia reescrita. Frase obsoleta sobre
   "definir licencia formal" eliminada.
-- T6: ADR-005 (`docs/architecture/ADR-005-repo-hygiene.md`)
+- T6: ADR-005 (`docs/adr/0005-repository-hygiene-lints-and-coverage.md`)
   documenta la política de lints gradual con
   `// ignore_for_file:` y la estrategia de coverage gate.
 
@@ -136,8 +136,8 @@ Endurecer el repositorio en dimensiones concretas y medibles:
 | 14 archivos en `lib/**` y `test/**` | Modified | `// ignore_for_file: <rule>` con justificación |
 | `.github/workflows/flutter-ci.yml` | Modified | +1 step de coverage |
 | `scripts/check_coverage.sh` | New | 58 líneas, valida `lcov.info` con awk |
-| `docs/architecture/ADR-004-roadmap-sync.md` | New | 110 líneas, decisión de roadmap sync |
-| `docs/architecture/ADR-005-repo-hygiene.md` | New | 154 líneas, política de hygiene |
+| `docs/adr/0004-sync-layer-roadmap.md` | New | 110 líneas, decisión de roadmap sync |
+| `docs/adr/0005-repository-hygiene-lints-and-coverage.md` | New | 154 líneas, política de hygiene |
 | `test/features/access/presentation/access_screen_test.dart` | New | 108 líneas, widget test |
 | `test/features/home/presentation/app_shell_test.dart` | New | 118 líneas, widget test |
 | `test/features/sync/presentation/sync_conflicts_sheet_test.dart` | New | 61 líneas, widget test |

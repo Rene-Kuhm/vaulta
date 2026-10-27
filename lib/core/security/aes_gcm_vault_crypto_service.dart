@@ -9,7 +9,7 @@ import 'vault_crypto_service.dart';
 
 /// AES-256-GCM implementation of [VaultCryptoService] for vault item
 /// payloads. Decrypts the legacy v1 and v2 envelope shapes defined in
-/// `docs/architecture/ADR-001-crypto.md`, decrypts v3, and always
+/// `docs/adr/0001-crypto-key-derivation-and-encrypted-blob.md`, decrypts v3, and always
 /// encrypts v4, which gives every item its own key (see [itemKeyFor]).
 class AesGcmVaultCryptoService implements VaultCryptoService {
   /// Optional [algorithm] override for tests. Production code should

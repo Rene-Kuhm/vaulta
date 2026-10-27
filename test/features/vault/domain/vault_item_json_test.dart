@@ -120,4 +120,69 @@ void main() {
       expect(itemWithoutOtp.otpAuthUri, isNull);
     });
   });
+
+  group('VaultItem isFavorite', () {
+    test('defaults to false and never emits the key when not favorite', () {
+      final json = itemWithoutOtp.toJson();
+
+      expect(itemWithoutOtp.isFavorite, isFalse);
+      expect(json.containsKey('isFavorite'), isFalse);
+    });
+
+    test('decodes a payload written before favorites existed as false', () {
+      final decoded = VaultItem.fromJson(<String, dynamic>{
+        'id': 'gh',
+        'title': 'GitHub',
+        'username': 'leo',
+        'secret': 'StrongPass!2026',
+        'category': 'work',
+        'strengthScore': 80,
+        'lastUpdatedLabel': 'Updated now',
+      });
+
+      expect(decoded.isFavorite, isFalse);
+      expect(decoded.toJson().containsKey('isFavorite'), isFalse);
+    });
+
+    test('round-trips a favorite through JSON', () {
+      final favorite = itemWithoutOtp.copyWith(isFavorite: true);
+      final decoded = VaultItem.fromJson(
+        Map<String, dynamic>.from(
+          jsonDecode(jsonEncode(favorite.toJson())) as Map,
+        ),
+      );
+
+      expect(favorite.toJson()['isFavorite'], isTrue);
+      expect(decoded.isFavorite, isTrue);
+      // Only the favorite key is added: every pre-existing key keeps its
+      // position, so the payload version needs no bump.
+      expect(favorite.toJson().keys.toList(), [
+        ...itemWithoutOtp.toJson().keys,
+        'isFavorite',
+      ]);
+    });
+
+    test('treats a non-boolean isFavorite value as false', () {
+      final decoded = VaultItem.fromJson(<String, dynamic>{
+        'id': 'gh',
+        'title': 'GitHub',
+        'username': 'leo',
+        'secret': 'StrongPass!2026',
+        'category': 'work',
+        'strengthScore': 80,
+        'lastUpdatedLabel': 'Updated now',
+        'isFavorite': 'true',
+      });
+
+      expect(decoded.isFavorite, isFalse);
+    });
+
+    test('copyWith preserves the flag and can flip it', () {
+      final favorite = itemWithoutOtp.copyWith(isFavorite: true);
+
+      expect(favorite.copyWith(title: 'GitHub work').isFavorite, isTrue);
+      expect(favorite.copyWith(isFavorite: false).isFavorite, isFalse);
+      expect(itemWithoutOtp.isFavorite, isFalse);
+    });
+  });
 }

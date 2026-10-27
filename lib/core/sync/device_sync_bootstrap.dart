@@ -11,6 +11,7 @@ import 'sync_conflict_resolver.dart';
 import 'remote_snapshot_applier.dart';
 import 'supabase_client_resolver.dart';
 import 'supabase_vault_key_sync_repository.dart';
+import 'vault_change_signal.dart';
 import 'vault_key_sync_service.dart';
 
 /// Builds a fully-wired [DeviceSyncLifecycle] for the Supabase
@@ -54,6 +55,13 @@ Future<DeviceSyncLifecycle?> buildDeviceSyncLifecycle({
   /// second device. When either of the two vault-key callbacks is missing,
   /// vault-key sync is disabled (degrading to the pre-sync behaviour).
   Future<void> Function(String recordJson)? adoptRemoteVaultKeyRecord,
+
+  /// Optional signal published whenever the sync layer changes the local
+  /// vault on its own (a pull that applied snapshots, or a remote vault-key
+  /// adoption). The UI subscribes to it and re-reads the repository, so a
+  /// pulled entry shows up without a pull-to-refresh. `null` keeps sync
+  /// silent, which is what tests and headless builds want.
+  VaultChangeSignal? vaultChanges,
 }) async {
   final client = await resolveSupabaseClient(
     url: const String.fromEnvironment('SUPABASE_URL'),
@@ -85,6 +93,7 @@ Future<DeviceSyncLifecycle?> buildDeviceSyncLifecycle({
     repository: pullRepository,
     localStore: localStore,
     readDeviceId: identityService.getOrCreateDeviceId,
+    vaultChanges: vaultChanges,
     applyLocalSnapshots: vaultRepository == null
         ? null
         : (snapshots) =>
@@ -104,6 +113,7 @@ Future<DeviceSyncLifecycle?> buildDeviceSyncLifecycle({
           repository: SupabaseVaultKeySyncRepository(client: client),
           readLocalRecordJson: readLocalVaultKey,
           adoptRemoteRecord: adoptRemoteVaultKey,
+          vaultChanges: vaultChanges,
         )
       : null;
 

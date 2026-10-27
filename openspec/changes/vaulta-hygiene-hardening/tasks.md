@@ -84,7 +84,7 @@
 
 ### T5 — ADR-004: decisión de roadmap para la capa sync
 
-- **File**: `docs/architecture/ADR-004-roadmap-sync.md` (new,
+- **File**: `docs/adr/0004-sync-layer-roadmap.md` (new,
   110 líneas)
 - **Decisión del usuario**: **(b) Reducir superficie**.
 - **Alternativas documentadas**:
@@ -105,7 +105,7 @@
 
 ### T6 — ADR menor: registrar este change
 
-- **File**: `docs/architecture/ADR-005-repo-hygiene.md` (new,
+- **File**: `docs/adr/0005-repository-hygiene-lints-and-coverage.md` (new,
   154 líneas)
 - **Purpose**: dejar registro de por qué se decidió el rollout
   de lints gradual, el umbral de coverage conservador y la

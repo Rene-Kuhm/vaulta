@@ -1,0 +1,59 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "df0bf89bf0ae74e7f5ae1a758ccbf8e72bc3dfa6",
+  "packages": {
+    ".": {
+      "release-type": "dart",
+      "package-name": "vaulta",
+      "changelog-path": "CHANGELOG.md",
+      "include-component-in-tag": false,
+      "include-v-in-tag": true,
+      "changelog-sections": [
+        {
+          "type": "feat",
+          "section": "Added"
+        },
+        {
+          "type": "fix",
+          "section": "Fixed"
+        },
+        {
+          "type": "perf",
+          "section": "Changed"
+        },
+        {
+          "type": "refactor",
+          "section": "Changed"
+        },
+        {
+          "type": "docs",
+          "section": "Documentation"
+        },
+        {
+          "type": "revert",
+          "section": "Reverted"
+        },
+        {
+          "type": "chore",
+          "section": "Internal"
+        },
+        {
+          "type": "ci",
+          "section": "Internal"
+        },
+        {
+          "type": "build",
+          "section": "Internal"
+        },
+        {
+          "type": "test",
+          "section": "Internal"
+        },
+        {
+          "type": "style",
+          "section": "Internal"
+        }
+      ]
+    }
+  }
+}

@@ -5,7 +5,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:gestor_contrasenas/app/design_system/metric_card.dart';
 import 'package:gestor_contrasenas/core/security/vault_repository.dart';
+import 'package:gestor_contrasenas/core/sync/vault_change_signal.dart';
 import 'package:gestor_contrasenas/features/vault/domain/vault_item.dart';
 import 'package:gestor_contrasenas/features/vault/domain/vault_summary.dart';
 import 'package:gestor_contrasenas/features/vault/presentation/vault_dashboard_screen.dart';
@@ -290,6 +292,98 @@ void main() {
     });
   });
 
+  group('VaultDashboardScreen sync changes', () {
+    testWidgets(
+      're-reads the vault on the sync signal, with no pull-to-refresh',
+      (tester) async {
+        final repository = _MutableVaultRepository(
+          items: [_item('1', 'Alfa')],
+        );
+        final vaultChanges = VaultChangeSignal();
+        _setTallViewport(tester);
+
+        await tester.pumpWidget(
+          _testApp(
+            VaultDashboardScreen(
+              repository: repository,
+              vaultChanges: vaultChanges,
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 16));
+
+        expect(find.text('Alfa'), findsOneWidget);
+        expect(_vaultEntriesCard(tester).value, '1');
+        expect(repository.fetchItemsCalls, 1);
+        // The gesture-based path exists but is never used below.
+        expect(find.byType(RefreshIndicator), findsOneWidget);
+
+        // A pull landed: the repository now holds one more entry.
+        repository.replaceItems([_item('1', 'Alfa'), _item('2', 'Bravo')]);
+        vaultChanges.notifyVaultChanged(origin: VaultChangeOrigin.pull);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 16));
+
+        expect(repository.fetchItemsCalls, 2);
+        expect(find.text('Bravo'), findsOneWidget);
+        expect(_vaultEntriesCard(tester).value, '2');
+
+        // A remote vault-key adoption is the other external change: same
+        // reaction, no gesture either.
+        repository.replaceItems([
+          _item('1', 'Alfa'),
+          _item('2', 'Bravo'),
+          _item('3', 'Charlie'),
+        ]);
+        vaultChanges.notifyVaultChanged(
+          origin: VaultChangeOrigin.vaultKeyAdoption,
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 16));
+
+        expect(repository.fetchItemsCalls, 3);
+        expect(find.text('Charlie'), findsOneWidget);
+        expect(_vaultEntriesCard(tester).value, '3');
+      },
+    );
+
+    testWidgets('keeps the last entries on screen while a reload is in flight', (
+      tester,
+    ) async {
+      final repository = _MutableVaultRepository(items: [_item('1', 'Alfa')]);
+      final vaultChanges = VaultChangeSignal();
+      _setTallViewport(tester);
+
+      await tester.pumpWidget(
+        _testApp(
+          VaultDashboardScreen(
+            repository: repository,
+            vaultChanges: vaultChanges,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(find.text('Alfa'), findsOneWidget);
+
+      repository.holdLoads = true;
+      repository.replaceItems([_item('1', 'Alfa'), _item('2', 'Bravo')]);
+      vaultChanges.notifyVaultChanged(origin: VaultChangeOrigin.pull);
+      await tester.pump();
+
+      // Mid-reload the spinner must not replace data the user is looking at.
+      expect(_dashboardLoadingSpinner(), findsNothing);
+      expect(find.text('Alfa'), findsOneWidget);
+
+      repository.releaseLoads();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bravo'), findsOneWidget);
+      expect(_vaultEntriesCard(tester).value, '2');
+    });
+  });
+
   group('VaultEntryDetailScreen', () {
     testWidgets('obscures the secret by default and reveals on tap', (
       tester,
@@ -425,6 +519,28 @@ Finder _dashboardLoadingSpinner() {
   );
 }
 
+/// The "Vault entries" metric card, i.e. the number the issue reports as
+/// stale after a pull.
+MetricCard _vaultEntriesCard(WidgetTester tester) {
+  return tester.widget<MetricCard>(
+    find.byWidgetPredicate(
+      (widget) => widget is MetricCard && widget.label == 'Vault entries',
+    ),
+  );
+}
+
+VaultItem _item(String id, String title) {
+  return VaultItem(
+    id: id,
+    title: title,
+    username: '$title-user',
+    secret: 'Pass!2026',
+    category: VaultCategory.personal,
+    strengthScore: 80,
+    lastUpdatedLabel: 'Updated now',
+  );
+}
+
 List<VaultItem> _seedItems() {
   return const [
     VaultItem(
@@ -543,6 +659,73 @@ class _DelayedVaultRepository implements VaultRepository {
 
   @override
   Future<VaultItem?> fetchItemById(String id) async => null;
+
+  @override
+  Future<VaultItem> saveItem(VaultItem item) async => item;
+
+  @override
+  Future<void> deleteItem(String id) async {}
+}
+
+/// Repository whose contents change under the widget, standing in for the sync
+/// pull that writes into the vault behind the dashboard's back. [holdLoads]
+/// lets a test sit inside a reload instead of after it.
+class _MutableVaultRepository implements VaultRepository {
+  _MutableVaultRepository({required List<VaultItem> items})
+    : _items = [...items];
+
+  List<VaultItem> _items;
+  int fetchItemsCalls = 0;
+  bool holdLoads = false;
+  Completer<void>? _gate;
+
+  void replaceItems(List<VaultItem> items) {
+    _items = [...items];
+  }
+
+  void releaseLoads() {
+    final gate = _gate;
+    _gate = null;
+    holdLoads = false;
+    gate?.complete();
+  }
+
+  Future<void> _awaitGate() async {
+    if (!holdLoads) return;
+    _gate ??= Completer<void>();
+    await _gate!.future;
+  }
+
+  @override
+  Future<List<VaultItem>> fetchItems() async {
+    fetchItemsCalls += 1;
+    await _awaitGate();
+    return [..._items];
+  }
+
+  @override
+  Future<VaultSummary> fetchSummary() async {
+    await _awaitGate();
+    final items = _items;
+    return VaultSummary(
+      totalItems: items.length,
+      weakItems: items.where((i) => i.strengthScore < 80).length,
+      reusedItems: 0,
+      securityScore: items.isEmpty
+          ? 0
+          : items.fold<int>(0, (s, i) => s + i.strengthScore) ~/ items.length,
+      connectedDevices: 1,
+      syncEnabled: true,
+    );
+  }
+
+  @override
+  Future<VaultItem?> fetchItemById(String id) async {
+    for (final item in _items) {
+      if (item.id == id) return item;
+    }
+    return null;
+  }
 
   @override
   Future<VaultItem> saveItem(VaultItem item) async => item;
