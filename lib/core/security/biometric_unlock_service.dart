@@ -10,6 +10,7 @@ import 'biometric_auth_service.dart';
 import 'biometric_key_envelope_service.dart';
 import 'master_password_record.dart';
 import 'secure_storage_service.dart';
+import 'vault_security_message.dart';
 import 'vault_session.dart';
 
 /// Result of asking the platform for an envelope key. Carries
@@ -111,23 +112,25 @@ class BiometricUnlockSuccess extends BiometricUnlockOutcome {
 /// The user (or the platform) rejected the biometric prompt. The
 /// caller should fall back to the master password flow.
 class BiometricUnlockRejected extends BiometricUnlockOutcome {
-  /// Builds a rejection outcome with a human-readable [reason].
-  const BiometricUnlockRejected(this.reason);
+  /// Builds a rejection outcome with a typed [message].
+  const BiometricUnlockRejected(this.message);
 
   /// Why the prompt was rejected (canceled, lockout, platform
-  /// refused, etc.). Suitable for surfacing in the unlock UI.
-  final String reason;
+  /// refused, etc.), as a code the UI localizes. Never copy: this
+  /// service runs under the security layer, which does not own the
+  /// user's language.
+  final VaultSecurityMessage message;
 }
 
 /// The biometric path is not usable on this device or in this state.
 /// The caller should fall back to the master password flow.
 class BiometricUnlockUnavailable extends BiometricUnlockOutcome {
-  /// Builds an "unavailable" outcome with a human-readable [reason].
-  const BiometricUnlockUnavailable(this.reason);
+  /// Builds an "unavailable" outcome with a typed [message].
+  const BiometricUnlockUnavailable(this.message);
 
   /// Why biometrics can't be tried right now (no hardware, no
-  /// enrolled biometric, OS-level block, etc.).
-  final String reason;
+  /// enrolled biometric, OS-level block, etc.), as a message code.
+  final VaultSecurityMessage message;
 }
 
 /// Specialization of [BiometricUnlockUnavailable] for the first-run
@@ -138,8 +141,8 @@ class BiometricUnlockUnavailable extends BiometricUnlockOutcome {
 /// single, non-redundant hint instead of a generic "biometrics
 /// unavailable" message.
 class BiometricUnlockNeedsPasswordFirst extends BiometricUnlockUnavailable {
-  /// Forwards [reason] to [BiometricUnlockUnavailable].
-  const BiometricUnlockNeedsPasswordFirst(super.reason);
+  /// Forwards [message] to [BiometricUnlockUnavailable].
+  const BiometricUnlockNeedsPasswordFirst(super.message);
 }
 
 /// Orchestrates the biometric unlock path. The flow is:
@@ -215,25 +218,31 @@ class BiometricUnlockService {
   }) async {
     if (record.version < 2 || record.kdf == null || record.dekWrap == null) {
       return const BiometricUnlockUnavailable(
-        'Tu master password es de una version anterior. Ingresa la contrasena para re-cifrar y luego podras activar biometria.',
+        VaultSecurityMessage(
+          VaultSecurityMessageCode.masterPasswordNeedsMigration,
+        ),
       );
     }
 
     if (!await _isBiometricCapableTarget()) {
       return const BiometricUnlockUnavailable(
-        'La biometria no esta disponible en este dispositivo.',
+        VaultSecurityMessage(
+          VaultSecurityMessageCode.biometricNotAvailableOnDevice,
+        ),
       );
     }
 
     final availability = await _biometricAuthService.getAvailability();
     if (!availability.canAuthenticate) {
       return const BiometricUnlockUnavailable(
-        'La biometria no esta disponible en este dispositivo.',
+        VaultSecurityMessage(
+          VaultSecurityMessageCode.biometricNotAvailableOnDevice,
+        ),
       );
     }
     if (!availability.hasEnrolledBiometrics) {
       return const BiometricUnlockUnavailable(
-        'No hay biometria registrada. Configura la huella o el reconocimiento facial del dispositivo y reintenta.',
+        VaultSecurityMessage(VaultSecurityMessageCode.biometricNotEnrolled),
       );
     }
 
@@ -246,24 +255,29 @@ class BiometricUnlockService {
       // its own outcome so the controller can show a single, clear
       // hint instead of a generic "biometrics unavailable" message.
       return const BiometricUnlockNeedsPasswordFirst(
-        'Para activar la huella por primera vez, desbloquea una vez con la '
-        'master password. Las proximas veces podras usar la huella directamente.',
+        VaultSecurityMessage(
+          VaultSecurityMessageCode.biometricNeedsPasswordFirst,
+        ),
       );
     }
 
     final authed = await _biometricAuthService.authenticateForUnlock();
     if (!authed) {
       return const BiometricUnlockRejected(
-        'No pudimos verificar tu identidad. Ingresa la master password.',
+        VaultSecurityMessage(
+          VaultSecurityMessageCode.biometricIdentityRejected,
+        ),
       );
     }
 
     final envelopeKeyResult = await _envelopeKeyProvider.releaseEnvelopeKey();
     if (!envelopeKeyResult.isSuccess) {
       return BiometricUnlockRejected(
-        'La plataforma rechazo la clave biometrica '
-        '(${envelopeKeyResult.failureReason ?? "unknown"}). '
-        'Re-enrola biometria o usa la master password.',
+        VaultSecurityMessage(
+          VaultSecurityMessageCode.biometricKeyRejected,
+          // Diagnostic token from the platform, not a sentence.
+          detail: envelopeKeyResult.failureReason,
+        ),
       );
     }
 
@@ -280,7 +294,9 @@ class BiometricUnlockService {
       return BiometricUnlockSuccess(session);
     } on SecretBoxAuthenticationError {
       return const BiometricUnlockRejected(
-        'La plataforma devolvio una clave inconsistente. Ingresa la master password y re-enrola biometria.',
+        VaultSecurityMessage(
+          VaultSecurityMessageCode.biometricKeyInconsistent,
+        ),
       );
     } catch (error, stack) {
       // Logged, not interpolated. Exception text from a crypto path can
@@ -288,8 +304,9 @@ class BiometricUnlockService {
       // unlock screen, and it tells the user nothing they can act on.
       debugPrint('[Vaulta/Biometric] unlock failed: $error\n$stack');
       return const BiometricUnlockRejected(
-        'No pudimos recuperar tu sesion con biometria. '
-        'Re-enrola biometria o usa la master password.',
+        VaultSecurityMessage(
+          VaultSecurityMessageCode.biometricSessionRecoveryFailed,
+        ),
       );
     }
   }

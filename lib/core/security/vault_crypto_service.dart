@@ -8,7 +8,7 @@
 /// the record it belongs to: AES-GCM authenticates the associated data
 /// `"vaulta:item:v3|" + recordId + "|" + keyId`, so a ciphertext moved
 /// to another record id, or replayed under another key generation,
-/// fails authentication. See `docs/architecture/ADR-001-crypto.md`.
+/// fails authentication. See `docs/adr/0001-crypto-key-derivation-and-encrypted-blob.md`.
 abstract interface class VaultCryptoService {
   /// Encrypts [plaintext] with [secretKey] as a v3 payload bound to
   /// [recordId] and [keyId] (the vault's current key identifier, used

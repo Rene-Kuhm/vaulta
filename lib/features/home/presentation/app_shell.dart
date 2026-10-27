@@ -15,6 +15,7 @@ import '../../../core/security/vault_repository.dart';
 import '../../../core/security/vault_security_controller.dart';
 import '../../../core/sync/device_session_revocation_service.dart';
 import '../../../core/sync/sync_conflict_resolver.dart';
+import '../../../core/sync/vault_change_signal.dart';
 import '../../../core/update/update_service.dart';
 import '../../../features/access/presentation/access_screen.dart';
 import '../../settings/presentation/settings_screen.dart';
@@ -40,6 +41,7 @@ class AppShell extends StatefulWidget {
     this.conflictResolver,
     this.revocationService,
     this.secureStorage,
+    this.vaultChanges,
   });
 
   /// Vault repository forwarded to the [VaultDashboardScreen] and
@@ -64,6 +66,12 @@ class AppShell extends StatefulWidget {
 
   /// Optional secure storage used by the in-app [UpdateService].
   final SecureStorageService? secureStorage;
+
+  /// Optional signal published by the sync layer when a pull (or a remote
+  /// vault-key adoption) changed the local vault. Forwarded to the
+  /// [VaultDashboardScreen] so it re-reads the repository without waiting for
+  /// the user to pull to refresh.
+  final VaultChangeSignal? vaultChanges;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -163,6 +171,7 @@ class _AppShellState extends State<AppShell> {
         repository: widget.repository,
         conflictResolver: widget.conflictResolver,
         securityController: widget.securityController,
+        vaultChanges: widget.vaultChanges,
       ),
       AccessScreen(
         securityController: widget.securityController,

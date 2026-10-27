@@ -1,0 +1,76 @@
+name: Release please
+
+# Keeps `version:` in `pubspec.yaml` and `CHANGELOG.md` in sync with the
+# Conventional Commits that land on `master`:
+#
+#   1. On every push to `master`, release-please computes the next SemVer
+#      version from the conventional commits and opens (or updates) a release
+#      pull request that bumps the version (the build number goes up by one)
+#      and writes the new `## [X.Y.Z]` section in `CHANGELOG.md`.
+#   2. The maintainer merges that pull request and tags `vX.Y.Z`. The `v*` tag
+#      ruleset only lets maintainers create tags, and `release.yml` owns the
+#      publication (signed APK, Windows bundle, SHA256SUMS and the GitHub
+#      Release), so release-please stops at the preparation step:
+#      `skip-github-release` keeps it from creating the tag or the release,
+#      which would fight with `release.yml` over the same release.
+#
+# The version lives in `.release-please-manifest.json` and the rules in
+# `release-please-config.json`.
+#
+# Repository setting (owner, one-time): "Settings -> Actions -> General ->
+# Workflow permissions -> Read and write permissions" has to allow the
+# workflow to open pull requests, otherwise the release pull request is not
+# created.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Skip the run that follows a release commit
+        id: guard
+        run: |
+          # The pattern lives in a variable: bash cannot parse the parentheses
+          # of a regular expression written inline in `[[ ... =~ ... ]]`.
+          release_commit='^chore(\([^)]*\))?:[[:space:]]release[[:space:]]'
+          subject=$(git log -1 --format=%s)
+          if [[ "$subject" =~ $release_commit ]]; then
+            echo "The tip of master is the release commit \`$subject\` and its tag is not published yet: skipping until the release is out." >> "$GITHUB_STEP_SUMMARY"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Release please
+        # Without this guard the run that follows the merge of a release pull
+        # request would compute the next version from a stale baseline: the
+        # tag of that release does not exist yet, so release-please cannot
+        # tell which commits were already released.
+        if: steps.guard.outputs.skip != 'true'
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+        with:
+          # The workflow token is enough to open the release pull request and
+          # to label it. A pull request opened with `GITHUB_TOKEN` does not
+          # trigger the pull request workflows (GitHub does not run workflows
+          # for events caused by that token), so the release pull request is
+          # not checked by CI. Set `RELEASE_PLEASE_TOKEN` to a token with
+          # `pull-requests: write` to have CI run on it as well.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          target-branch: master
+          skip-github-release: true

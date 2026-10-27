@@ -19,6 +19,7 @@ import 'package:gestor_contrasenas/core/security/biometric_unlock_service.dart';
 import 'package:gestor_contrasenas/core/security/master_password_record.dart';
 import 'package:gestor_contrasenas/core/security/master_password_service.dart';
 import 'package:gestor_contrasenas/core/security/secure_storage_service.dart';
+import 'package:gestor_contrasenas/core/security/vault_security_message.dart';
 
 /// Storage key the wrapped-DEK envelope lives under.
 const _envelopeStorageKey = BiometricKeyEnvelopeService.envelopeStorageKey;
@@ -105,8 +106,8 @@ void main() {
 
       expect(outcome, isA<BiometricUnlockUnavailable>());
       expect(
-        (outcome as BiometricUnlockUnavailable).reason,
-        contains('biometria'),
+        (outcome as BiometricUnlockUnavailable).message.code,
+        VaultSecurityMessageCode.biometricNotAvailableOnDevice,
       );
       expect(provider.releaseCalls, 0);
       expect(auth.authenticateCalls, 0);
@@ -123,8 +124,8 @@ void main() {
 
       expect(outcome, isA<BiometricUnlockUnavailable>());
       expect(
-        (outcome as BiometricUnlockUnavailable).reason,
-        contains('No hay biometria registrada'),
+        (outcome as BiometricUnlockUnavailable).message.code,
+        VaultSecurityMessageCode.biometricNotEnrolled,
       );
       expect(auth.authenticateCalls, 0);
       expect(provider.releaseCalls, 0);
@@ -137,8 +138,8 @@ void main() {
 
       expect(outcome, isA<BiometricUnlockNeedsPasswordFirst>());
       expect(
-        (outcome as BiometricUnlockNeedsPasswordFirst).reason,
-        contains('master password'),
+        (outcome as BiometricUnlockNeedsPasswordFirst).message.code,
+        VaultSecurityMessageCode.biometricNeedsPasswordFirst,
       );
       expect(auth.authenticateCalls, 0);
       expect(provider.releaseCalls, 0);
@@ -234,10 +235,14 @@ void main() {
 
       expect(outcome, isA<BiometricUnlockRejected>());
       expect(outcome, isNot(isA<BiometricUnlockSuccess>()));
+      // The code carries the sentence; the platform's token travels as the
+      // interpolated detail, so an English device reads English here.
+      final rejected = outcome as BiometricUnlockRejected;
       expect(
-        (outcome as BiometricUnlockRejected).reason,
-        contains('rsa_decrypt_returned_null'),
+        rejected.message.code,
+        VaultSecurityMessageCode.biometricKeyRejected,
       );
+      expect(rejected.message.detail, 'rsa_decrypt_returned_null');
       // The envelope is left intact so the next attempt can still work.
       expect(await envelopeService.isEnrolled(), isTrue);
     });
@@ -255,8 +260,8 @@ void main() {
       expect(outcome, isA<BiometricUnlockRejected>());
       expect(outcome, isNot(isA<BiometricUnlockSuccess>()));
       expect(
-        (outcome as BiometricUnlockRejected).reason,
-        contains('clave inconsistente'),
+        (outcome as BiometricUnlockRejected).message.code,
+        VaultSecurityMessageCode.biometricKeyInconsistent,
       );
       expect(await envelopeService.isEnrolled(), isTrue);
     });

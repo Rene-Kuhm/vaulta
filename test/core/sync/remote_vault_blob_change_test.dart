@@ -1,7 +1,7 @@
 // Row mapping for the item key salt: a v4 `vault_blobs` row carries
 // the salt and item key version of its own per-item key in
 // `item_key_salt` / `item_key_version`, and only from that version on.
-// See docs/architecture/ADR-002-sync.md.
+// See docs/adr/0002-sync-versioning-cas-idempotency-tombstones.md.
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:gestor_contrasenas/core/sync/remote_vault_blob_change.dart';

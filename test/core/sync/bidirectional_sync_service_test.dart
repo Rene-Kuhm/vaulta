@@ -9,6 +9,7 @@ import 'package:gestor_contrasenas/core/sync/remote_vault_blob_change.dart';
 import 'package:gestor_contrasenas/core/sync/remote_vault_sync_repository.dart';
 import 'package:gestor_contrasenas/core/sync/sync_item_payload_codec.dart';
 import 'package:gestor_contrasenas/core/sync/sync_runtime_hardening.dart';
+import 'package:gestor_contrasenas/core/sync/vault_change_signal.dart';
 
 class _InMemorySecureStorageService implements SecureStorageService {
   final Map<String, String> _values = {};
@@ -649,6 +650,139 @@ void main() {
         final queued = (await localStore.readPushQueue(userId: 'user-1')).single;
         expect(queued.itemKeySalt, 'c2FsdC1ieC1ieQ==');
         expect(queued.itemKeyVersion, 1);
+      },
+    );
+
+    test(
+      'REQ-BS-CHANGE: a pull that applies a snapshot publishes one change '
+      'event that carries no vault content',
+      () async {
+        final storage = _InMemorySecureStorageService();
+        final localStore = LocalRemoteVaultStore(storage: storage);
+        // Stand-ins for the sealed payload a real pull carries: the test
+        // asserts none of them can reach the change notification.
+        const ciphertext = 'c2VjcmV0LXRpdGxlLXNlY3JldA==';
+        const nonce = 'bm9uY2Utc2VjcmV0';
+        const tag = 'dGFnLXNlY3JldA==';
+        const recordId = 'record-a';
+        final repository = _FakeRemoteVaultSyncRepository(
+          pullBatches: {
+            0: [
+              RemoteVaultBlobChange(
+                opCursor: 1,
+                recordId: recordId,
+                version: 1,
+                keyVersion: 1,
+                ciphertext: ciphertext,
+                nonce: nonce,
+                gcmTag: tag,
+                updatedAt: DateTime.utc(2026, 6, 11, 12, 0),
+              ),
+            ],
+          },
+        );
+        final signal = VaultChangeSignal();
+        final published = <VaultChange>[];
+        signal.addListener(() => published.add(signal.lastChange!));
+        final applied = <RemoteVaultBlobSnapshot>[];
+
+        final service = BidirectionalSyncService(
+          repository: repository,
+          localStore: localStore,
+          readDeviceId: () async => 'device-1',
+          pullThrottleInterval: Duration.zero,
+          now: () => DateTime.utc(2026, 6, 11, 12, 0),
+          vaultChanges: signal,
+          applyLocalSnapshots: (snapshots) async {
+            applied.addAll(snapshots);
+            return const <String>[];
+          },
+        );
+
+        await service.pullNow(force: true);
+
+        expect(applied, hasLength(1));
+        expect(published, hasLength(1));
+        expect(published.single.origin, VaultChangeOrigin.pull);
+        expect(published.single.revision, 1);
+        // The event is a bare notification: the exact rendered form is pinned
+        // here, and nothing the pull read (payload, nonce, tag, record id) can
+        // appear in it.
+        expect(
+          published.single.toString(),
+          'VaultChange(origin: pull, revision: 1)',
+        );
+        for (final secret in [ciphertext, nonce, tag, recordId]) {
+          expect(published.single.toString(), isNot(contains(secret)));
+        }
+      },
+    );
+
+    test('REQ-BS-CHANGE: an empty pull publishes no change event', () async {
+      final storage = _InMemorySecureStorageService();
+      final localStore = LocalRemoteVaultStore(storage: storage);
+      final repository = _FakeRemoteVaultSyncRepository();
+      final signal = VaultChangeSignal();
+      var notified = 0;
+      signal.addListener(() => notified += 1);
+
+      final service = BidirectionalSyncService(
+        repository: repository,
+        localStore: localStore,
+        readDeviceId: () async => 'device-1',
+        pullThrottleInterval: Duration.zero,
+        now: () => DateTime.utc(2026, 6, 11, 12, 0),
+        vaultChanges: signal,
+        applyLocalSnapshots: (snapshots) async => const <String>[],
+      );
+
+      await service.pullNow(force: true);
+
+      expect(notified, 0);
+      expect(signal.revision, 0);
+    });
+
+    test(
+      'REQ-BS-CHANGE: a pull whose snapshots the vault refuses entirely '
+      'publishes no change event',
+      () async {
+        final storage = _InMemorySecureStorageService();
+        final localStore = LocalRemoteVaultStore(storage: storage);
+        final repository = _FakeRemoteVaultSyncRepository(
+          pullBatches: {
+            0: [
+              RemoteVaultBlobChange(
+                opCursor: 1,
+                recordId: 'record-a',
+                version: 1,
+                keyVersion: 1,
+                ciphertext: 'cipher-a',
+                nonce: 'nonce-a',
+                gcmTag: 'tag-a',
+                updatedAt: DateTime.utc(2026, 6, 11, 12, 0),
+              ),
+            ],
+          },
+        );
+        final signal = VaultChangeSignal();
+        var notified = 0;
+        signal.addListener(() => notified += 1);
+
+        final service = BidirectionalSyncService(
+          repository: repository,
+          localStore: localStore,
+          readDeviceId: () async => 'device-1',
+          pullThrottleInterval: Duration.zero,
+          now: () => DateTime.utc(2026, 6, 11, 12, 0),
+          vaultChanges: signal,
+          applyLocalSnapshots: (snapshots) async =>
+              snapshots.map((s) => s.recordId).toList(growable: false),
+        );
+
+        await service.pullNow(force: true);
+
+        expect(notified, 0);
+        expect(signal.revision, 0);
       },
     );
   });

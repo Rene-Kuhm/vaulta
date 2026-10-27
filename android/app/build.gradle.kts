@@ -53,6 +53,13 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Instrumented tests under android/app/src/androidTest run through
+        // AndroidJUnitRunner. The suite drives the real KeystoreChannel
+        // method-call surface on the device it runs on, so the API < 30
+        // biometric refusal is verified by execution instead of by reading
+        // (see docs/reference/api30-biometric-refusal-verification.md).
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     // androidx.biometric powers the BiometricPrompt used by
@@ -101,6 +108,28 @@ dependencies {
     // projects targeting Android 14/15.
     implementation("androidx.biometric:biometric:1.4.0-alpha07")
     implementation("androidx.fragment:fragment-ktx:1.6.2")
+
+    // Instrumented test entry point. `runner` brings AndroidJUnitRunner and
+    // InstrumentationRegistry (through androidx.test:monitor); `ext:junit`
+    // brings the AndroidJUnit4 runner. Nothing else is needed: the refusal
+    // test talks to AndroidKeyStore and BiometricManager, both framework
+    // APIs, and instantiates the production channel directly.
+    //
+    // Versions are pinned to what the `integration_test` dev dependency
+    // already puts on the debug runtime classpath (runner 1.3.0, monitor
+    // 1.3.0): AGP resolves the androidTest configuration consistently with
+    // the app's, so asking for a newer androidx.test here fails with
+    // "Cannot find a version of 'androidx.test:runner' that satisfies the
+    // version constraints".
+    androidTestImplementation("androidx.test:runner:1.3.0")
+    androidTestImplementation("androidx.test.ext:junit:1.1.2") {
+        // androidx.test:core 1.3.0 declares InstrumentationActivityInvoker's
+        // activities without android:exported, which the manifest merger
+        // rejects for an app targeting Android 12+. The runner JUnit4 class
+        // and InstrumentationRegistry both come from androidx.test:monitor
+        // (through runner), so core is not on the path this suite uses.
+        exclude(group = "androidx.test", module = "core")
+    }
 }
 
 flutter {

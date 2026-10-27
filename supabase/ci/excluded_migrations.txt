@@ -1,0 +1,17 @@
+# Migrations that cannot be replayed outside a real Supabase project.
+#
+# A migration listed here is skipped by `supabase/ci/apply_migrations.sh`, and
+# only if it is listed here. Every other file in `supabase/migrations/` is
+# applied, in file-name order, with `psql -v ON_ERROR_STOP=1`. A migration is
+# never skipped silently: if it cannot run against the CI PostgreSQL, it
+# belongs in this file, with the reason, where a reviewer can see it.
+#
+# Format: one file name, then `|`, then the reason.
+#
+#   20260323100000_initial_vault_schema.sql | requires the Supabase auth service
+#
+# The runner fails when a listed file does not exist any more (a stale entry
+# that would hide a migration) and when a listed file has no reason.
+#
+# Empty at the moment: all eight migrations run against a clean PostgreSQL
+# with the stand-in in `supabase/ci/shim_supabase_objects.sql`.

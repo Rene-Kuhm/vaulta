@@ -1,6 +1,6 @@
 // Payload v3 (record-bound AES-GCM associated data) at the repository
 // level: legacy compatibility, the one-time migration, the downgrade
-// defense and the sync apply path. See docs/architecture/ADR-001-crypto.md.
+// defense and the sync apply path. See docs/adr/0001-crypto-key-derivation-and-encrypted-blob.md.
 import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';

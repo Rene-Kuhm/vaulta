@@ -4,6 +4,13 @@ Vaulta is an offline-first password manager. A security bug here can
 expose a user's whole vault, so reports are welcome and handled
 privately.
 
+This page covers **how to report a vulnerability** and what the project
+treats as in scope. The contribution flow (branching, Conventional
+Commits, pull requests, review) lives in
+[CONTRIBUTING.md](CONTRIBUTING.md); the short version is: a
+vulnerability is never reported through an issue, a discussion, or a
+pull request.
+
 ## Supported versions
 
 Only the latest stable release line receives security fixes. Stable
@@ -26,9 +33,12 @@ vulnerability.**
 
 Report it privately through GitHub Security Advisories:
 
-1. Go to <https://github.com/Rene-Kuhm/vaulta/security/advisories/new>
+1. Check the published advisories first at
+   <https://github.com/Rene-Kuhm/vaulta/security/advisories> — the
+   issue may already be known and fixed.
+2. Go to <https://github.com/Rene-Kuhm/vaulta/security/advisories/new>
    (repository **Security** tab → **Report a vulnerability**).
-2. Include the affected version and platform (Android version / Windows
+3. Include the affected version and platform (Android version / Windows
    version), steps to reproduce, the impact you observed, and a proof
    of concept if you have one.
 
@@ -58,8 +68,8 @@ In scope:
 - **Cryptography**: master password key derivation (Argon2id), DEK
   wrapping and item encryption (AES-256-GCM), nonce handling, blob
   format parsing and migrations — see
-  [`docs/architecture/CRYPTO.md`](docs/architecture/CRYPTO.md) and
-  [`ADR-001`](docs/architecture/ADR-001-crypto.md).
+  [`docs/reference/crypto-architecture.md`](docs/reference/crypto-architecture.md) and
+  [`ADR-001`](docs/adr/0001-crypto-key-derivation-and-encrypted-blob.md).
 - Key storage: Android Keystore envelope keys, Windows Credential
   Manager, secure storage, biometric unlock.
 - Unlock protections: attempt throttling and lockout, auto-lock,
@@ -85,6 +95,24 @@ Out of scope:
   them in an exploitable way.
 - Social engineering of maintainers or users.
 
+## Security-relevant contributions
+
+Pull requests that touch cryptography, key storage, unlock
+protections, data-leakage paths, sync authentication, or the in-app
+updater get a focused review. When you open one:
+
+- Name the threat the change addresses in the **Reviewer guide**
+  section of the pull request, and link the threat-model or ADR entry
+  it belongs to.
+- Keep the evidence: test vectors, refusal paths, or the regression
+  test that pins the control.
+- Never weaken a control (export warnings, biometric binding, attempt
+  throttling, auto-lock, screenshot blocking, updater checksum
+  verification) without stating the trade-off in the pull request.
+
+If your contribution *uncovers* a vulnerability in existing code, do not
+open a pull request about it. Report it privately as described above.
+
 ## Verifying releases
 
 Every stable release publishes a `SHA256SUMS` file next to its assets.
@@ -94,5 +122,5 @@ release as the files. Authenticity comes from the APK signing
 certificate, which the Android app checks against the installed app
 before installing an update. The Windows zip has **no Authenticode
 signature yet**, so Windows downloads currently have an integrity
-check only. See [`docs/release-process.md`](docs/release-process.md)
+check only. See [`docs/how-to/release-process.md`](docs/how-to/release-process.md)
 for how to verify a download.

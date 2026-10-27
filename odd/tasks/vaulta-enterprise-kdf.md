@@ -45,7 +45,7 @@ persisted format change. Each unit is gated on `flutter test`,
   the current versions. Verified by a real `flutter build apk --debug`.
 - **S9** — Every behavior change is pinned by a test that fails before the
   change and passes after. No test asserts only that "no exception thrown".
-- **S10** — `docs/architecture/ADR-001-crypto.md` and `CRYPTO.md` are
+- **S10** — `docs/adr/0001-crypto-key-derivation-and-encrypted-blob.md` and `CRYPTO.md` are
   updated in the same commit as the code they describe. Documentation that
   describes a format the code does not implement is the failure mode this
   project already hit once (the nonexistent `AutofillService.kt`).

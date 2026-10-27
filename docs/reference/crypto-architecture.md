@@ -13,21 +13,26 @@
 
 ## What to read, in order
 
-1. **`THREAT_MODEL.md`** (sibling) — what we defend against, what
+1. **[`../explanation/threat-model.md`](../explanation/threat-model.md)** —
+   what we defend against, what
    we explicitly do not, and the residual risks the user accepts.
-2. **`ADR-001-crypto.md`** — derivation of keys + ciphertext blob
+2. **[`../adr/0001-crypto-key-derivation-and-encrypted-blob.md`](../adr/0001-crypto-key-derivation-and-encrypted-blob.md)**
+   — derivation of keys + ciphertext blob
    format v2, amended twice: by item payload v3 (record-bound AAD,
    migration, downgrade defense, sync wire form) and, on 2026-10-20, by
    **master password record v3** (one Argon2id run split with
    HKDF-SHA256, NFC input, NIST-aligned policy) and **item payload v4**
    (one key per item). This is the cryptographic contract.
-3. **`ADR-002-sync.md`** — sync CAS + idempotency + tombstones
+3. **[`../adr/0002-sync-versioning-cas-idempotency-tombstones.md`](../adr/0002-sync-versioning-cas-idempotency-tombstones.md)**
+   — sync CAS + idempotency + tombstones
    (server-side conflict resolution), and the 2026-10-20 amendment
    recording that **the current item format cannot travel over the sync
    wire**.
-4. **`ADR-003-session-revocation.md`** — per-device revocation
+4. **[`../adr/0003-session-policy-and-revocation.md`](../adr/0003-session-policy-and-revocation.md)**
+   — per-device revocation
    (server-side enforcement of "log out everywhere").
-5. **`ADR-004-roadmap-sync.md`** — current sync surface decisions
+5. **[`../adr/0004-sync-layer-roadmap.md`](../adr/0004-sync-layer-roadmap.md)**
+   — current sync surface decisions
    and the `vaulta-sync-surface-reduction` migration.
 6. Source files (in `lib/core/security/` and `lib/core/sync/`):
    - `aes_gcm_vault_crypto_service.dart` — AES-256-GCM payload
@@ -332,8 +337,8 @@ closed for the Dart half and remains open for the Kotlin half.
   API < 30 refusal, which needs an API < 30 device or emulator that this
   repository does not have.
 
-See `THREAT_MODEL.md` for the full list of residual risks and the
-trust assumptions.
+See [`../explanation/threat-model.md`](../explanation/threat-model.md) for the
+full list of residual risks and the trust assumptions.
 
 ## How to run the existing security-relevant tests
 

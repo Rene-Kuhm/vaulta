@@ -210,14 +210,6 @@ class KeystoreChannel(
         declaresBiometricOnlyAuth(Build.VERSION.SDK_INT)
 
     /**
-     * The platform policy as a pure function of the API level, so the
-     * decision is readable — and testable, once `android/app/src/test`
-     * has a runner — without a live [Build.VERSION].
-     */
-    private fun declaresBiometricOnlyAuth(sdkInt: Int): Boolean =
-        sdkInt >= MIN_BIOMETRIC_ONLY_AUTH_SDK
-
-    /**
      * The one place the API-level branch is written. Below API 30 it is a
      * refusal, never a downgrade: minting a key whose declared guarantee
      * is "some secure lock-screen credential" under a UI that says
@@ -327,6 +319,21 @@ class KeystoreChannel(
          * inlined and safe to reference from a pre-30 device.
          */
         const val MIN_BIOMETRIC_ONLY_AUTH_SDK = Build.VERSION_CODES.R
+
+        /**
+         * The platform policy as a pure function of the API level, so the
+         * decision is readable — and testable, once `android/app/src/test`
+         * has a runner — without a live [Build.VERSION].
+         *
+         * Public because the biometric probe has to answer the same
+         * question to Dart: the UI must be able to say "this Android is
+         * too old to enforce biometric-only auth" without anybody
+         * repeating the API level as a literal. The floor lives here and
+         * only here.
+         */
+        @JvmStatic
+        fun declaresBiometricOnlyAuth(sdkInt: Int): Boolean =
+            sdkInt >= MIN_BIOMETRIC_ONLY_AUTH_SDK
 
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "vaulta_biometric_envelope_v1"

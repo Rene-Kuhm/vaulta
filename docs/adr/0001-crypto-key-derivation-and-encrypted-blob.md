@@ -99,7 +99,8 @@ Ejemplo de forma del blob v2 (referencial):
 Up to v2, every item payload was AES-256-GCM with **no associated
 data**. GCM only authenticated the ciphertext itself, so a valid
 ciphertext for record A could be copied into record B, or replayed
-under another record id, and it would still decrypt. `THREAT_MODEL.md`
+under another record id, and it would still decrypt.
+[`../explanation/threat-model.md`](../explanation/threat-model.md)
 lists this for a malicious sync backend and for another device that
 holds the DEK.
 
@@ -201,7 +202,8 @@ holds the DEK.
 
 - Moving a ciphertext between records, relabelling its `rid`, or
   replaying it under another key generation now fails authentication.
-  Each case has a test (see CRYPTO.md).
+  Each case has a test (see
+  [`../reference/crypto-architecture.md`](../reference/crypto-architecture.md)).
 - The local record id is visible to the backend in the v3 wire
   ciphertext. It is authenticated but not secret. Editor-created ids
   have the form `entry-<microseconds>`, which shows when the entry was

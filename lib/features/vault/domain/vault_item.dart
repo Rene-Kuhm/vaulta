@@ -151,6 +151,7 @@ class VaultItem {
     this.updatedAt,
     this.otpAuthUri,
     this.passwordHistory = const <PasswordHistoryEntry>[],
+    this.isFavorite = false,
   });
 
   /// Stable identifier (UUID v4) used to reference the entry across
@@ -211,6 +212,14 @@ class VaultItem {
   List<PasswordHistoryEntry> get passwordHistoryNewestFirst =>
       passwordHistory.reversed.toList(growable: false);
 
+  /// Whether the user marked this entry as a favorite.
+  ///
+  /// `false` for the vast majority of entries (a new entry, or one
+  /// saved before favorites existed) and serialized only when `true`,
+  /// so a payload written before this field existed keeps its exact
+  /// shape and the encrypted item format needs no version bump.
+  final bool isFavorite;
+
   /// Material icon that represents [category] in the dashboard tile.
   IconData get icon => switch (category) {
     VaultCategory.work => Icons.design_services_rounded,
@@ -248,6 +257,7 @@ class VaultItem {
         'passwordHistory': passwordHistory
             .map((entry) => entry.toJson())
             .toList(growable: false),
+      if (isFavorite) 'isFavorite': true,
     };
   }
 
@@ -271,6 +281,10 @@ class VaultItem {
           : DateTime.parse(json['updatedAt'] as String),
       otpAuthUri: json['otpAuthUri'] as String?,
       passwordHistory: _passwordHistoryFromJson(json['passwordHistory']),
+      // A payload written before favorites existed has no key here, so
+      // it decodes as `false`; anything that is not a JSON boolean is
+      // treated the same way instead of failing the whole decrypt.
+      isFavorite: json['isFavorite'] == true,
     );
   }
 
@@ -301,6 +315,7 @@ class VaultItem {
     DateTime? updatedAt,
     String? otpAuthUri,
     List<PasswordHistoryEntry>? passwordHistory,
+    bool? isFavorite,
   }) {
     return VaultItem(
       id: id ?? this.id,
@@ -315,6 +330,7 @@ class VaultItem {
       updatedAt: updatedAt ?? this.updatedAt,
       otpAuthUri: otpAuthUri ?? this.otpAuthUri,
       passwordHistory: passwordHistory ?? this.passwordHistory,
+      isFavorite: isFavorite ?? this.isFavorite,
     );
   }
 }

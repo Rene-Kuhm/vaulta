@@ -1,0 +1,47 @@
+# Local git hooks for Vaulta.
+#
+# Install them once per clone:
+#
+#   npm install
+#   npm run hooks:install
+#
+# `pre-commit` checks the staged Dart files (format and lint) and `commit-msg`
+# applies the Conventional Commits rules to the message. The message rules are
+# the same ones CI applies to the pull request title, because the merges are
+# squash merges: the title is the commit that lands on `master`.
+
+pre-commit:
+  parallel: true
+  commands:
+    dart-format:
+      glob: "*.dart"
+      # Reports the staged files that are not formatted instead of rewriting
+      # them: rewriting a staged file would also stage the changes that were
+      # not staged yet.
+      run: dart format --output=none --set-exit-if-changed {staged_files}
+      fail_text: |
+        The staged Dart files are not formatted. Run `dart format` on them and
+        stage the result again.
+
+    dart-analyze:
+      glob: "*.dart"
+      # `dart analyze` takes a single path, so the staged files are checked one
+      # by one. It needs the dependencies resolved (`flutter pub get`).
+      run: |
+        for file in {staged_files}; do
+          dart analyze "$file" || exit 1
+        done
+
+commit-msg:
+  commands:
+    commitlint:
+      run: |
+        if [ ! -x node_modules/.bin/commitlint ]; then
+          echo "commitlint is not installed: run 'npm install' first" >&2
+          exit 1
+        fi
+        node_modules/.bin/commitlint --edit {1}
+      fail_text: |
+        The commit message does not follow Conventional Commits. See
+        https://www.conventionalcommits.org/en/v1.0.0/ (type, optional scope,
+        subject; for example `feat(security): add the biometric envelope`).
