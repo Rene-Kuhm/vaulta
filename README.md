@@ -1,271 +1,186 @@
 <p align="center">
-  <img src="docs/publication/vaulta-hero.png" alt="Vaulta - gestor de contrasenas cifrado por TecnoDespegue" width="100%">
+  <img src="docs/publication/vaulta-hero.png" alt="Vaulta - encrypted password manager by TecnoDespegue" width="100%">
 </p>
 
 <h1 align="center">Vaulta</h1>
 
 <p align="center">
-  <strong>Gestor de contrasenas cifrado, offline-first y multiplataforma (Android y Windows).</strong>
+  <strong>Offline-first, encrypted password manager for Android and Windows desktop.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/Rene-Kuhm/vaulta/releases/latest/download/vaulta.apk">Descargar APK (Android)</a>
+  <a href="https://github.com/Rene-Kuhm/vaulta/releases/latest/download/vaulta.apk">Download APK (Android)</a>
   ·
-  <a href="https://github.com/Rene-Kuhm/vaulta/releases/latest/download/vaulta-windows-bundle.zip">Descargar bundle Windows</a>
+  <a href="https://github.com/Rene-Kuhm/vaulta/releases/latest/download/vaulta-windows-bundle.zip">Download Windows bundle</a>
   ·
-  <a href="https://github.com/Rene-Kuhm/vaulta/releases/latest">Ver release</a>
+  <a href="https://github.com/Rene-Kuhm/vaulta/releases/latest">Releases</a>
   ·
   <a href="https://www.tecnodespegue.com/">TecnoDespegue</a>
 </p>
 
-Vaulta es una aplicacion desarrollada por [TecnoDespegue](https://www.tecnodespegue.com/) para proteger credenciales sensibles con una experiencia moderna, rapida y consistente entre Android y Windows. El proyecto combina Flutter, Material 3, cifrado local real, desbloqueo biometrico en Android y un canal de actualizaciones para Android que distribuye una APK firmada desde GitHub Releases.
+## What it does
 
-## Vision
+- **Keeps your credentials in an encrypted local vault.** Every item is sealed
+  with AES-256-GCM under a random per-vault data key (DEK); the DEK is wrapped
+  by a key derived from your master password with Argon2id. The password is
+  never stored, and the key material never leaves the device unless you turn
+  sync on.
+- **Unlocks with your master password everywhere, and with the Android
+  Keystore on Android.** The biometric path releases the envelope key through a
+  real `BiometricPrompt` bound to a `CryptoObject`, so the hardware refuses to
+  hand over the key without the user's biometric.
+- **Fills logins from the Android system autofill service.** The service
+  answers only with entries indexed for the requesting app's host; when there
+  is no match it offers a search inside Vaulta instead of guessing
+  ([ADR-0008](docs/adr/0008-android-autofill.md)).
+- **Manages TOTP codes (RFC 6238) next to the secret they belong to**, with a
+  live countdown, and keeps a password history per entry so a rotated secret
+  stays recoverable.
+- **Moves data in and out safely:** import from CSV, JSON and KeePass (`.kdbx`
+  3.1 and 4.x) with a preview before saving; export to CSV/JSON only behind an
+  explicit warning and a re-authentication; encrypted `.vaulta` backup and
+  restore with its own password.
+- **Tells you how your vault is doing:** weak entries, reused secrets, a
+  security score, and a health report where every finding opens the entry it
+  refers to.
+- **Fails closed:** auto-lock on backgrounding and after an idle timeout, a
+  clipboard that wipes itself 30 seconds after a copy, an unlock attempt
+  limiter, and explicit handling of revoked devices.
+- **Updates itself from inside the app**, verifying the release it downloads
+  on the stable channel and on the rolling `dev-latest` channel.
 
-Vaulta nace como una solucion de seguridad personal construida con el enfoque de TecnoDespegue: codigo real, arquitectura limpia, automatizacion confiable y decisiones tecnicas transparentes.
+### Platform support
 
-El objetivo es ofrecer un vault local para guardar, buscar y gestionar credenciales sin depender de una conexion permanente, sobre una base de sincronizacion entre dispositivos ya implementada pero apagada en los builds publicados, y abierta a auditorias de seguridad y distribucion publica.
+| | Android | Windows desktop |
+| --- | --- | --- |
+| Vault, search, TOTP, backup, health | ✅ | ✅ |
+| Master-password unlock | ✅ | ✅ |
+| Biometric unlock | ✅ (Android KeyStore + `BiometricPrompt`) | ❌ master password only |
+| System autofill | ✅ | ❌ |
+| In-app update channel | ✅ | ❌ |
 
-## Funcionalidades principales
+iOS, macOS, Linux and web are **not** release targets: they carry the default
+Flutter runner scaffolding and nothing else. There is no iOS Credential
+Provider, no browser extension and no passkey support.
 
-- Vault offline-first con persistencia local cifrada.
-- Cifrado AES-256-GCM para payloads del vault.
-- Derivacion de claves con Argon2id.
-- DEK aleatoria por vault y envelope protegido.
-- Desbloqueo con master password en todas las plataformas.
-- Desbloqueo biometrico real en Android: una clave RSA-2048 del Android KeyStore, atada a biometria fuerte, protege el envelope de la DEK y solo se libera tras un `BiometricPrompt` con `CryptoObject`.
-- Autofill nativo de Android: el servicio del sistema (`android/app/src/main/kotlin/com/insyd/gestor_contrasenas/autofill/VaultaAutofillService.kt`) responde a las solicitudes de llenado a traves del bridge al motor unico de la app (`VaultaAutofillBridge.kt`) y de una actividad de desbloqueo propia (`AutofillUnlockActivity.kt`), con la configuracion del servicio en `android/app/src/main/res/xml/autofill_service.xml` y el lado Dart en `lib/features/autofill/`. Llena inicios de sesion del navegador y de apps con sitio web verificado en Android 12 o superior, y cuando no hay coincidencia ofrece una busqueda dentro de Vaulta en vez de adivinar (ver [ADR-008](docs/architecture/ADR-008-autofill.md)).
-- CRUD de credenciales con busqueda interna.
-- Importacion local desde CSV y JSON con vista previa antes de guardar.
-- Importacion desde bases KeePass (`.kdbx` 3.1 y 4.x), con master password y key file opcionales.
-- TOTP integrado (RFC 6238): un item guarda su secreto `otpauth://` y la app muestra el codigo vigente con cuenta regresiva.
-- Historial de contrasenas por item: al rotar un secreto, el anterior queda recuperable con la fecha en que se reemplazo.
-- Exportacion en texto plano a CSV y JSON, detras de una advertencia explicita y una re-autenticacion, para poder migrar a otro gestor.
-- Reporte de salud del vault: que items son debiles y cuales comparten secreto, con cada uno abrible desde el reporte.
-- Dashboard con metricas de seguridad del vault.
-- Estados de carga, error, vacio y resultados.
-- Bloqueo automatico al salir de primer plano y por inactividad (15 minutos por defecto, configurable).
-- Borrado automatico del portapapeles 30 segundos despues de copiar un secreto, si el contenido no cambio.
-- Canal de actualizaciones Android dentro de la app, que consulta el release `dev-latest` de GitHub.
-- Build de Windows con tema oscuro forzado para garantizar contraste correcto sobre el fondo del escritorio.
-- Publicacion automatica en CI de la APK firmada `vaulta.apk` en el release `dev-latest`. El bundle de Windows (`vaulta-windows-bundle.zip`) se publica a mano en los releases estables y no tiene firma de codigo.
+## Why it exists
 
-## Capturas
+Most password managers make you trust a server: the account is the product,
+sync runs through somebody else's infrastructure, and the cryptography is
+something you have to take on faith. Vaulta is built the other way around.
+
+- **The vault is local first.** The full feature set works with no account and
+  no network. Sync is an opt-in layer on top, disabled in every published
+  build, so the default install has no server-side component at all.
+- **The cryptography is auditable, not asserted.** Argon2id, AES-256-GCM,
+  HKDF-SHA256, versioned payload formats and an explicit key hierarchy, all
+  written down in [the crypto reference](docs/reference/crypto-architecture.md)
+  with the source files and the open questions for an external auditor.
+- **Decisions are recorded.** Every architectural decision is a numbered ADR
+  with its context, its decision and its cost
+  ([docs/adr/](docs/adr/README.md)), and the security controls have a status
+  page with `file:line` evidence
+  ([docs/reference/security-hardening-status.md](docs/reference/security-hardening-status.md)).
+- **No tracking.** There is no analytics or telemetry dependency in
+  `pubspec.yaml`; the app talks to nothing it was not configured to talk to.
+- **Open development.** Real code, small pull requests, conventional commits
+  and CI that runs the same checks you run locally.
+
+Vaulta is an MVP and it says so: it has **not** been through an external
+cryptographic audit, and it must not be presented as a certified security
+product until that review exists.
+
+### What is not available yet
+
+- **No sync in the published builds.** The sync layer is implemented and
+  tested, but the release pipeline defines neither `SUPABASE_URL` nor
+  `SUPABASE_ANON_KEY`, so a published build never contacts a server.
+- **No code signing on the Windows binary.** The published bundle is unsigned,
+  so Windows SmartScreen asks for confirmation on the first run.
+- **No external cryptographic audit.** See the note above.
+
+## Architecture
+
+Everything is wired in one place — `lib/app/bootstrap/password_manager_app.dart`
+— and every concrete service is built there, once.
+
+```mermaid
+flowchart TB
+    main["lib/main.dart"] --> boot["lib/app/bootstrap<br/>composition root<br/>builds every concrete service once"]
+    boot --> sec["lib/core/security<br/>master password, Argon2id, AES-256-GCM,<br/>biometrics, secure storage, backup"]
+    boot --> sto["lib/core/storage<br/>encrypted blob, encrypted SQLite, migrations"]
+    boot --> syn["lib/core/sync<br/>optional Supabase sync, off by default"]
+    boot --> feat["lib/features/*<br/>vault, backup, health, totp,<br/>access, autofill, settings, home"]
+    boot --> native["Android native channels<br/>KeyStore, BiometricPrompt, AutofillService"]
+    sec --> sto
+    sec --> feat
+    sto --> feat
+    syn -. "push / pull" .-> sto
+    feat --> design["lib/app/design_system + theme<br/>shared Material 3 widgets and tokens"]
+```
+
+The full module map, the boundaries between layers and the rules that are not
+negotiable live in **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+
+## Run it
+
+Three commands, from a clean clone:
+
+```bash
+mise install        # Flutter 3.47.7, the version pinned in mise.toml
+flutter pub get     # resolve dependencies
+flutter run         # pick a device with: flutter devices
+```
+
+`flutter run -d windows` builds the desktop app; `flutter run -d <android-id>`
+builds the Android app. The Android toolchain (Android Studio or the SDK) is
+needed for Android builds, and Visual Studio 2022 Build Tools with the
+**Desktop development with C++** workload for Windows builds.
+
+## Screenshots
 
 <table>
   <tr>
-    <td width="25%"><img src="docs/publication/screenshots/01-onboarding.png" alt="Onboarding y creacion del vault" width="100%"></td>
-    <td width="25%"><img src="docs/publication/screenshots/02-dashboard.png" alt="Dashboard con metricas de seguridad" width="100%"></td>
-    <td width="25%"><img src="docs/publication/screenshots/03-search.png" alt="Busqueda interna de credenciales" width="100%"></td>
-    <td width="25%"><img src="docs/publication/screenshots/04-editor.png" alt="Editor de credenciales" width="100%"></td>
+    <td width="25%"><img src="docs/publication/screenshots/01-onboarding.png" alt="Onboarding and vault creation" width="100%"></td>
+    <td width="25%"><img src="docs/publication/screenshots/02-dashboard.png" alt="Dashboard with security metrics" width="100%"></td>
+    <td width="25%"><img src="docs/publication/screenshots/03-search.png" alt="Search inside the vault" width="100%"></td>
+    <td width="25%"><img src="docs/publication/screenshots/04-editor.png" alt="Credential editor" width="100%"></td>
   </tr>
   <tr>
     <td align="center"><sub>Onboarding</sub></td>
     <td align="center"><sub>Dashboard</sub></td>
-    <td align="center"><sub>Busqueda</sub></td>
+    <td align="center"><sub>Search</sub></td>
     <td align="center"><sub>Editor</sub></td>
   </tr>
   <tr>
-    <td width="25%"><img src="docs/publication/screenshots/05-detail.png" alt="Detalle de una credencial" width="100%"></td>
-    <td width="25%"><img src="docs/publication/screenshots/06-access.png" alt="Desbloqueo biometrico" width="100%"></td>
-    <td width="25%"><img src="docs/publication/screenshots/07-settings.png" alt="Ajustes y canal de actualizaciones" width="100%"></td>
+    <td width="25%"><img src="docs/publication/screenshots/05-detail.png" alt="Credential detail" width="100%"></td>
+    <td width="25%"><img src="docs/publication/screenshots/06-access.png" alt="Biometric unlock" width="100%"></td>
+    <td width="25%"><img src="docs/publication/screenshots/07-settings.png" alt="Settings and update channel" width="100%"></td>
     <td width="25%"></td>
   </tr>
   <tr>
-    <td align="center"><sub>Detalle</sub></td>
-    <td align="center"><sub>Desbloqueo</sub></td>
-    <td align="center"><sub>Ajustes</sub></td>
+    <td align="center"><sub>Detail</sub></td>
+    <td align="center"><sub>Unlock</sub></td>
+    <td align="center"><sub>Settings</sub></td>
     <td></td>
   </tr>
 </table>
 
-## Estado del producto
+## Documentation
 
-Vaulta esta en etapa MVP release-ready para Android y Windows desktop. La app ya cuenta con cifrado local, biometria Android, APK firmada con canal de actualizaciones, iconos Android personalizados y auditoria funcional reciente del buscador interno y las pantallas principales.
+| You want to… | Start here |
+| --- | --- |
+| Understand how the code is put together | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| Build, test, lint, and follow the conventions | [AGENTS.md](AGENTS.md) |
+| Learn Vaulta by doing it | [docs/tutorials/](docs/tutorials/) |
+| Do one specific task | [docs/how-to/](docs/how-to/) |
+| Look a fact up | [docs/reference/](docs/reference/) |
+| Understand why it works this way | [docs/explanation/](docs/explanation/) |
+| Know why a decision was made | [docs/adr/](docs/adr/README.md) |
+| Contribute a change | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Report a vulnerability | [SECURITY.md](SECURITY.md) |
+| See what changed in each release | [CHANGELOG.md](CHANGELOG.md) |
 
-Plataformas soportadas:
+## License
 
-- **Android**: experiencia completa, incluye autofill del sistema, desbloqueo biometrico y canal de actualizaciones dentro de la app. El autofill esta implementado: el servicio, el bridge, la actividad de desbloqueo y el lado Dart existen y responden a las solicitudes de Android (ver la lista de funcionalidades y [ADR-008](docs/architecture/ADR-008-autofill.md)). La pestana "Acceso" (`lib/features/access/presentation/access_screen.dart`) muestra el estado del servicio en el dispositivo, la postura de desbloqueo que condiciona cada llenado y donde se elige Vaulta como servicio de autofill en los ajustes de Android; no cambia ajustes del sistema por su cuenta. Fuera de Android no hay autofill: no hay Credential Provider de iOS, ni llenado en el build de Windows, ni extension de navegador, ni passkeys.
-- **Windows desktop**: build nativo x64 (`vaulta.exe`) que reutiliza el mismo vault cifrado, persistencia local segura (Windows Credential Manager) y todas las funciones de gestion de credenciales. El desbloqueo es solo con master password: `local_auth` puede detectar Windows Hello, pero el desbloqueo biometrico del vault no esta conectado fuera de Android.
-
-El desbloqueo biometrico esta implementado solo para Android. En Windows, iOS, macOS, Linux y web se usa la master password hasta implementar bindings equivalentes por plataforma.
-
-> Nota de seguridad: Vaulta cifra datos locales, pero todavia no cuenta con auditoria criptografica externa. No se debe presentar como producto de seguridad certificado hasta completar una revision independiente.
-
-## Hoja de ruta / Roadmap
-
-Lo siguiente **todavia no esta disponible** en ninguna version publicada:
-
-- Autofill fuera de Android: no hay Credential Provider de iOS, ni autofill en el build de Windows, ni extension de navegador, ni passkeys.
-- Sincronizacion con cuenta entre dispositivos en los builds publicados: la base ya existe y funciona (la DEK envuelta viaja en la tabla `vault_keys` con `rpc_vault_get_key` / `rpc_vault_put_key`, ver [Seguridad](#seguridad)), pero esta apagada porque el pipeline de CI no define `SUPABASE_URL` ni `SUPABASE_ANON_KEY`.
-- Firma de codigo para el binario de Windows.
-- Auditoria criptografica externa.
-
-El estado detallado de cada control de seguridad, con evidencia en el codigo, esta en [docs/security/hardening-status.md](docs/security/hardening-status.md) (en ingles).
-
-## Stack tecnico
-
-- Flutter (Android + Windows desktop)
-- Dart `^3.11.3`
-- Material 3
-- `flutter_secure_storage` (Android Keystore + Windows Credential Manager)
-- `BiometricPrompt` nativo via MethodChannel en Android; `local_auth` solo para detectar capacidades biometricas en el resto de plataformas
-- `cryptography`
-- `supabase_flutter`
-- Android KeyStore
-- Visual Studio Build Tools 2022 (toolchain de Windows)
-- GitHub Actions
-- GitHub Releases
-
-## Arquitectura
-
-```text
-lib/
-  app/
-    bootstrap/        Arranque y configuracion principal
-    design_system/   Componentes visuales reutilizables
-    theme/           Tokens, colores y tema Material
-  core/
-    security/        Master password, cifrado, biometria y storage seguro
-    storage/         Persistencia del vault en SQLite y migracion desde el blob cifrado
-    sync/            Contratos y servicios de sincronizacion opcional
-    update/          Verificacion de actualizaciones
-  features/
-    access/          Pestana "Acceso": estado del autofill y postura de desbloqueo
-    autofill/        Lado Dart del autofill: canal con el servicio nativo y armado de candidatos
-    backup/          Backup cifrado `.vaulta`
-    health/          Reporte de salud del vault
-    home/            Shell principal y navegacion
-    security/        Gate de bloqueo y desbloqueo
-    vault/           Dashboard, busqueda, detalle y editor de credenciales
-    settings/        Configuracion, biometria, sync y actualizaciones
-    sync/            Formularios de la sync opcional con Supabase
-    totp/            Codigos TOTP (RFC 6238)
-```
-
-## Seguridad
-
-Vaulta implementa una postura de seguridad local basada en:
-
-- Master password como factor principal de recuperacion.
-- Argon2id para derivacion de clave.
-- AES-256-GCM para cifrado autenticado.
-- Clave DEK independiente del password del usuario.
-- Envelope protegido para desbloqueo biometrico en Android.
-- Exportacion y restauracion de backup cifrado (`.vaulta`, Argon2id + AES-256-GCM, password propia distinta de la master password; ver [ADR-006](docs/architecture/ADR-006-encrypted-backup.md)).
-- La pantalla de seguridad reporta las capacidades del dispositivo consultando a los servicios que las implementan, con tres estados (disponible, no disponible, no se pudo determinar) en vez de asumir un `false`.
-- Bloqueo automatico al salir de primer plano o por inactividad.
-- Borrado automatico del portapapeles tras copiar un secreto.
-- Manejo explicito de estados de error y sesiones revocadas.
-
-La sincronizacion remota con Supabase existe como base tecnica experimental y esta apagada en los builds publicados: solo se activa si el build define `SUPABASE_URL` y `SUPABASE_ANON_KEY` con `--dart-define`, y el pipeline de CI no los define.
-
-Esa base incluye la parte que hace falta para que el mismo vault se abra en dos dispositivos: la DEK envuelta se guarda como metadata en la tabla `vault_keys`, con RLS por dueno y las RPC `rpc_vault_get_key` / `rpc_vault_put_key` ([migracion](supabase/migrations/20261023140000_add_vault_key_sync.sql), cliente en `lib/core/sync/supabase_vault_key_sync_repository.dart`), de modo que un segundo dispositivo con la misma master password reconstruye la misma DEK. Quedo verificado entre dos emuladores el 2026-10-23 ([odd/tasks/vault-key-cross-device-sync.md](odd/tasks/vault-key-cross-device-sync.md)). En los builds publicados sigue apagada porque el pipeline no define las claves de Supabase.
-
-## Instalacion Android
-
-Descargar el APK firmado desde el release actual:
-
-[vaulta.apk](https://github.com/Rene-Kuhm/vaulta/releases/latest/download/vaulta.apk)
-
-Instalacion manual por ADB:
-
-```bash
-adb install -r vaulta.apk
-```
-
-Tambien se puede actualizar desde la app:
-
-```text
-Ajustes > Buscar actualizaciones
-```
-
-## Instalacion Windows
-
-Descargar el bundle completo desde el release actual:
-
-[vaulta-windows-bundle.zip](https://github.com/Rene-Kuhm/vaulta/releases/latest/download/vaulta-windows-bundle.zip)
-
-Una vez descargado:
-
-1. Extraer todo el contenido del ZIP en una carpeta, por ejemplo `C:\Program Files\Vaulta\`. El paquete incluye `vaulta.exe`, todas las DLLs de runtime de Flutter, los plugins de Windows y la carpeta `data/` con assets.
-2. Ejecutar `vaulta.exe`. La primera vez que se abra, Windows SmartScreen puede pedir confirmacion ("Mas informacion" -> "Ejecutar de todas formas") porque el binario no tiene firma de codigo (Authenticode); la app funciona normalmente despues de aprobarlo.
-
-> Importante: el ejecutable no se distribuye suelto porque necesita todas las DLLs y la carpeta `data/` en el mismo directorio. Si movés solo `vaulta.exe` a otra carpeta, la aplicacion no va a arrancar.
-
-El vault se persiste en el perfil de usuario con cifrado AES-256-GCM y la master key se guarda en Windows Credential Manager via `flutter_secure_storage_windows`.
-
-## Desarrollo local
-
-Requisitos:
-
-- Flutter estable
-- Dart compatible con el SDK del proyecto
-- Android Studio o toolchain Android para builds Android
-- Visual Studio 2022 Build Tools con la workload "Desktop development with C++" + componente "C++ ATL" para builds Windows
-
-Comandos principales:
-
-```bash
-flutter pub get
-flutter analyze
-flutter test
-flutter run
-```
-
-Build Android release:
-
-```bash
-flutter build apk --release
-```
-
-Build Windows release:
-
-```bash
-flutter build windows --release
-```
-
-El artefacto queda en `build/windows/x64/runner/Release/gestor_contrasenas.exe` y todas las DLLs de plugins en el mismo directorio. El nombre `vaulta.exe` del bundle publicado se asigna a mano al empaquetar; el build genera `gestor_contrasenas.exe` (`BINARY_NAME` en `windows/CMakeLists.txt`).
-
-La firma Android release requiere secretos fuera del repositorio. Ver [docs/android-release-signing.md](docs/android-release-signing.md).
-
-## Validacion
-
-Validaciones esperadas antes de publicar cambios:
-
-```bash
-flutter pub get
-flutter analyze
-flutter test
-flutter build apk --release
-flutter build windows --release
-```
-
-GitHub Actions tiene dos workflows:
-
-- `flutter-ci.yml`: en cada push y pull request ejecuta `flutter analyze`, `flutter test` y un umbral de cobertura del 60% sobre `lib/core/security` (`scripts/check_coverage.sh`).
-- `dev-apk-release.yml`: en cada push a `master` analiza, compila la APK release firmada con la clave de upload y la publica como `vaulta.apk` en el release `dev-latest`, que es el que consulta el actualizador de la app.
-
-Ningun workflow compila ni firma el build de Windows. El bundle de Windows se sube a mano a los releases estables (por ejemplo `v1.0.22`).
-
-## Documentacion relacionada
-
-- [Estado del hardening de seguridad](docs/security/hardening-status.md)
-- [ADR-008: autofill en Android](docs/architecture/ADR-008-autofill.md)
-- [Modelo de amenaza](docs/architecture/THREAT_MODEL.md)
-- [Contrato criptografico](docs/architecture/CRYPTO.md)
-- [Firma y release Android](docs/android-release-signing.md)
-- [Checklist de publicacion en stores](docs/store-release-checklist.md)
-- [Plantilla de politica de privacidad](docs/privacy-policy-template.md)
-
-## TecnoDespegue
-
-TecnoDespegue desarrolla software fullstack, apps moviles multiplataforma y automatizaciones con IA para negocios que necesitan sistemas reales, escalables y mantenibles.
-
-- Web: [tecnodespegue.com](https://www.tecnodespegue.com/)
-- Especialidades: Flutter, Dart, Next.js, TypeScript, Python, automatizaciones con IA, APIs, integraciones y optimizacion de procesos.
-- Enfoque: foco tecnico, codigo limpio, comunicacion transparente y entregas medibles.
-
-## Licencia
-
-Este proyecto se distribuye bajo la **Licencia MIT** (Copyright 2026 Rene Kuhm). Ver el archivo [`LICENSE`](./LICENSE) en la raiz para el texto completo.
+MIT (Copyright 2026 Rene Kuhm). See [`LICENSE`](./LICENSE).
