@@ -65,7 +65,7 @@ Future<DeviceSyncLifecycle?> buildDeviceSyncLifecycle({
 }) async {
   final client = await resolveSupabaseClient(
     url: const String.fromEnvironment('SUPABASE_URL'),
-    anonKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
+    publishableKey: const String.fromEnvironment('SUPABASE_ANON_KEY'),
   );
   if (client == null) {
     return null;
