@@ -2,7 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Resolves the Supabase client for a build, initialising the SDK first.
 ///
-/// Returns `null` when the build has no backend URL or anon key, so callers can
+/// Returns `null` when the build has no backend URL or publishable key, so callers can
 /// degrade to "no sync" without a conditional at every call site.
 ///
 /// `Supabase.initialize` is idempotent (it returns the existing instance when
@@ -14,11 +14,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// why this helper exists in one place instead of being repeated inline.
 Future<SupabaseClient?> resolveSupabaseClient({
   required String url,
-  required String anonKey,
+  required String publishableKey,
 }) async {
-  if (url.isEmpty || anonKey.isEmpty) {
+  if (url.isEmpty || publishableKey.isEmpty) {
     return null;
   }
-  await Supabase.initialize(url: url, anonKey: anonKey);
+  await Supabase.initialize(url: url, publishableKey: publishableKey);
   return Supabase.instance.client;
 }

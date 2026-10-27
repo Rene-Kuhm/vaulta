@@ -28,22 +28,24 @@ void main() {
     }
   });
 
-  test('returns null and never initialises when the build has no backend',
-      () async {
-    expect(await resolveSupabaseClient(url: '', anonKey: 'x'), isNull);
-    expect(
-      await resolveSupabaseClient(url: 'https://x', anonKey: ''),
-      isNull,
-    );
+  test(
+    'returns null and never initialises when the build has no backend',
+    () async {
+      expect(await resolveSupabaseClient(url: '', publishableKey: 'x'), isNull);
+      expect(
+        await resolveSupabaseClient(url: 'https://x', publishableKey: ''),
+        isNull,
+      );
 
-    // Supabase was never touched: the client was not resolved.
-    expect(initialized, isFalse);
-  });
+      // Supabase was never touched: the client was not resolved.
+      expect(initialized, isFalse);
+    },
+  );
 
   test('initialises before resolving the client, and is idempotent', () async {
     final client = await resolveSupabaseClient(
       url: 'https://example.supabase.co',
-      anonKey: 'anon-key',
+      publishableKey: 'publishable-key',
     );
     initialized = true;
 
@@ -53,12 +55,28 @@ void main() {
 
     final again = await resolveSupabaseClient(
       url: 'https://example.supabase.co',
-      anonKey: 'anon-key',
+      publishableKey: 'publishable-key',
     );
     expect(
       again,
       same(client),
       reason: 're-initialising must reuse the singleton, not throw or fork',
     );
+  });
+
+  // Neither supabase_flutter 2.12 nor 2.18 validates the key format at
+  // initialisation: a syntactically malformed key is forwarded as-is and the
+  // SDK behaves exactly as it did before the bump. The resolver must not grow
+  // its own validation — only the empty guard above decides whether a client
+  // is built.
+  test('forwards a malformed key to the SDK unchanged, like before', () async {
+    final client = await resolveSupabaseClient(
+      url: 'https://example.supabase.co',
+      publishableKey: 'not-a-valid-key',
+    );
+    initialized = true;
+
+    expect(client, isNotNull);
+    expect(Supabase.instance.isInitialized, isTrue);
   });
 }
