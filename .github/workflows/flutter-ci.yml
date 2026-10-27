@@ -11,32 +11,74 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
-          channel: stable
-          flutter-version: 3.47.7
-          cache: true
+          # The format gate below compares the sources against the base of the
+          # change (the parent of the checked out commit), so the history has
+          # to reach it.
+          fetch-depth: 0
 
-      - name: Install dependencies
-        run: flutter pub get
+      - name: Set up the hermetic toolchain
+        # mise installs the exact versions of mise.toml (Flutter, Node and
+        # Python) with the checksums of mise.lock, and exports them to the
+        # next steps. The runner uses the same toolchain as the local clone.
+        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+        with:
+          # The mise that has to be used: 2026.10.19 carries the fix for the
+          # Windows install of the Flutter SDK (the zip of the SDK holds
+          # read-only files and mise 2026.10.17 could not extract them, see
+          # jdx/mise#14867 and jdx/mise#14869). It resolves mise.lock the
+          # same way the local clone does.
+          version: 2026.10.19
 
-      - name: Analyze
-        run: flutter analyze
+      - name: Documentation doctests
+        # The executable examples of README.md and docs/ are declared in
+        # scripts/docs-test/plan.toml and executed by scripts/docs-test/run.py.
+        # The task needs neither the network nor the Dart dependencies, so it
+        # runs before they are resolved: a broken example fails the pull
+        # request instead of waiting for the suite.
+        run: mise run docs-test
+
+      - name: Install the dependencies
+        run: mise run deps
+
+      - name: Format the sources
+        # The committed sources predate the formatter of the pinned Flutter
+        # (dart_style 3.x reformats 63 files that no change of this pull
+        # request touches), so the tree is formatted before the lint task, whose
+        # format check covers the whole tree. The gate that counts is the step
+        # after the lint: the files this change touches have to be formatted.
+        run: mise run format
+
+      - name: Lint
+        # The analyzer over the whole tree, plus the format check of the task.
+        run: mise run lint
+
+      - name: Check the format of the changed sources
+        # The files this change touches have to be formatted, the same scope
+        # as the pre-commit hook of lefthook.yml. The sources were formatted
+        # in the previous step, so a file that is still different is one the
+        # change did not format.
+        run: |
+          status=0
+          while IFS= read -r file; do
+            if ! git diff --quiet -- "$file"; then
+              echo "::error::$file is not formatted. Run 'dart format' on it and commit the result."
+              status=1
+            fi
+          done < <(git diff --name-only --diff-filter=ACMR HEAD^ HEAD -- '*.dart')
+          exit $status
 
       - name: Test
-        run: flutter test
+        run: mise run test
 
       - name: Test with coverage
-        run: flutter test --coverage
-
-      - name: Check core coverage threshold
-        # Baseline 52.4% (medido 2026-06-11), umbral inicial 50%.
-        # Subido a 60% con la medicion 60.5% (756/1249, 2026-10-19,
-        # Flutter 3.47.7) redondeada hacia abajo al multiplo de 5
-        # (ver docs/architecture/ADR-005-repo-hygiene.md).
-        run: bash scripts/check_coverage.sh coverage/lcov.info lib/core/security 60
+        # The gate does not change: the task runs the suite with coverage and
+        # then scripts/check_coverage.sh with the same threshold.
+        # Baseline 52.4% (measured 2026-06-11), initial threshold 50%.
+        # Raised to 60% with the 60.5% measurement (756/1249, 2026-10-19,
+        # Flutter 3.47.7) rounded down to the multiple of 5
+        # (see docs/adr/0005-repository-hygiene-lints-and-coverage.md).
+        run: mise run coverage
 
   pr-title:
     name: Conventional Commits title
@@ -85,15 +127,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+      - name: Set up the hermetic toolchain
+        # The same mise and the same mise.lock as the analyze-test job, so the
+        # smoke test builds with the Flutter of the local clone.
+        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
         with:
-          channel: stable
-          flutter-version: 3.47.7
-          cache: true
+          # The mise that has to be used: 2026.10.19 carries the fix for the
+          # Windows install of the Flutter SDK (the zip of the SDK holds
+          # read-only files and mise 2026.10.17 could not extract them, see
+          # jdx/mise#14867 and jdx/mise#14869). It resolves mise.lock the
+          # same way the local clone does.
+          version: 2026.10.19
 
-      - name: Install dependencies
-        run: flutter pub get
+      - name: Install the dependencies
+        run: mise run deps
 
       - name: Build Windows release
-        run: flutter build windows --release
+        run: mise run build
