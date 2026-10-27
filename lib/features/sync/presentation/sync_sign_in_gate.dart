@@ -9,13 +9,15 @@ import 'sync_sign_in_form.dart';
 
 /// Whether this build was compiled with the sync backend configured.
 ///
-/// Two compile-time values, both public by design: the anon key is meant to ship
-/// in the client and RLS is what protects the rows. A build without them behaves
-/// exactly like the app did before sync existed.
+/// Two compile-time values, both public by design: the publishable key is meant
+/// to ship in the client and RLS is what protects the rows. A build without them
+/// behaves exactly like the app did before sync existed.
 const String supabaseUrl = String.fromEnvironment('SUPABASE_URL');
 
-/// The public anon key this build was compiled with, or an empty string.
-const String supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+/// The public publishable key this build was compiled with, or an empty string.
+const String supabasePublishableKey = String.fromEnvironment(
+  'SUPABASE_ANON_KEY',
+);
 
 /// Gates [child] behind a Supabase sign-in, but only when sync is configured.
 ///
@@ -82,7 +84,7 @@ class _SyncSignInGateState extends State<SyncSignInGate> {
     try {
       final resolved = await resolveSupabaseClient(
         url: supabaseUrl,
-        anonKey: supabaseAnonKey,
+        publishableKey: supabasePublishableKey,
       );
       if (!mounted) return;
       setState(() {
