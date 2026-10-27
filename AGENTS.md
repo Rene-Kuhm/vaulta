@@ -28,6 +28,20 @@ toolchain all move together.
 
 ## 2. Commands
 
+### Read the map first
+
+```bash
+mise run repo-map                             # the skeleton of the repository
+mise run repo-map --module lib/core/security  # one module in full
+```
+
+`repo-map` prints the modules, the exported symbols with their signatures and
+types, and the dependencies between them, without any implementation. It is
+the first thing to read instead of opening files at random. Every module also
+has its own short manual: `lib/app/AGENTS.md`, `lib/core/*/AGENTS.md` and
+`lib/features/*/AGENTS.md` — what the module protects, how it is tested and
+what not to touch.
+
 ### Verify a change
 
 ```bash
@@ -126,6 +140,13 @@ docs/                         Diátaxis documentation (tutorials, how-to, refere
 Look in this order when you need to change something: the feature that owns
 the behavior → `lib/core` if it is shared → `lib/app/bootstrap` if a new
 implementation has to be wired.
+
+Each module owns a short `AGENTS.md` next to its code: `lib/app/AGENTS.md`,
+`lib/core/security/AGENTS.md`, `lib/core/storage/AGENTS.md`,
+`lib/core/sync/AGENTS.md`, `lib/core/update/AGENTS.md` and one per feature
+under `lib/features/`. Each one states the invariants the module protects,
+how it is tested and what must not be touched. Read the one of the module you
+are about to change before you open a file in it.
 
 ## 4. Architecture in brief
 

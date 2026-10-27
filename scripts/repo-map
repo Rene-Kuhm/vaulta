@@ -1,0 +1,1377 @@
+#!/usr/bin/env python3
+"""Print the skeleton of the repository: modules, exported symbols with their
+signatures and types, and the dependencies between them. No implementation.
+
+The script is the map an agent reads *before* it opens a file: it says what
+exists, what it is called and what it depends on, without repeating the body
+of the code. That keeps the whole map inside a single context window.
+
+It is a static reader: it parses the Dart sources with the standard library
+only, never reaches the network and never runs the analyzer, so it works in a
+hermetic checkout (`mise run repo-map`).
+
+Usage:
+    python scripts/repo-map                # the whole map, inside the budget
+    python scripts/repo-map --module lib/core/security  # one module in full
+    python scripts/repo-map --level 0      # every member signature, no budget
+    python scripts/repo-map --max-tokens 4000
+    python scripts/repo-map --self-test    # check the invariants of the map
+    python scripts/repo-map --no-tests
+
+Detail levels, from the most to the least detailed:
+
+    0  every public type with the full signature of every public member
+    1  every public type with its declaration signature; the constructors,
+       methods, getters and setters of a type are listed by name (default)
+    2  the name of every public type only
+
+The default level prints the members by name because the full member
+signatures of the whole repository do not fit in a single context window.
+The script keeps the map inside the token budget (8,000 by default) and
+reports what it elided; `--module` is the drill-down that prints one module
+in full, with every member signature. Level 0 prints everything and is not
+capped by the budget.
+
+`--self-test` checks the invariants of the map (it is deterministic, it is
+inside the budget, every symbol it prints exists, every member list stays
+attached to its type, no private symbol reaches it and every dependency it
+prints is backed by an import). `mise run repo-map-test` runs it.
+"""
+from __future__ import annotations
+
+import argparse
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+# Resolved from this file's location so the script works in any clone.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+LIB_ROOT = REPO_ROOT / "lib"
+TEST_ROOT = REPO_ROOT / "test"
+
+DEFAULT_MAX_TOKENS = 8000
+
+# The name of this package: an import of it is an import inside `lib/`.
+PACKAGE_NAME = "gestor_contrasenas"
+
+# Modules in reading order: the module root relative to the repository and the
+# title of the module.
+MODULE_ROOTS: tuple[tuple[str, str], ...] = (
+    ("lib", "lib (entry point)"),
+    ("lib/app", "lib/app — composition and shared presentation"),
+    ("lib/core/security", "lib/core/security — crypto, keys, unlock"),
+    ("lib/core/storage", "lib/core/storage — encrypted SQLite"),
+    ("lib/core/sync", "lib/core/sync — optional Supabase sync"),
+    ("lib/core/update", "lib/core/update — signed release check"),
+    ("lib/features/access", "lib/features/access — the Access tab"),
+    ("lib/features/autofill", "lib/features/autofill — Android autofill"),
+    ("lib/features/backup", "lib/features/backup — backup and export"),
+    ("lib/features/health", "lib/features/health — vault health report"),
+    ("lib/features/home", "lib/features/home — the unlocked shell"),
+    ("lib/features/security", "lib/features/security — the lock gate"),
+    ("lib/features/settings", "lib/features/settings — preferences"),
+    ("lib/features/sync", "lib/features/sync — sign-in and conflicts"),
+    ("lib/features/totp", "lib/features/totp — one-time codes"),
+    ("lib/features/vault", "lib/features/vault — items, dashboard, import"),
+    ("lib/l10n", "lib/l10n — generated localizations"),
+)
+
+# Members every class inherits from Object. They are noise in a map of the
+# public surface. The equality operator is noise too: it says nothing about
+# the API of a type.
+NOISE_MEMBERS = frozenset({"toString", "hashCode", "operator =="})
+
+
+# --------------------------------------------------------------------------
+# Source masking
+# --------------------------------------------------------------------------
+def _blank(out: list[str], start: int, end: int) -> None:
+    """Replace the characters in [start, end) with spaces, keeping newlines."""
+    for index in range(start, end):
+        if out[index] != "\n":
+            out[index] = " "
+
+
+def _skip_interpolation(src: str, index: int) -> int:
+    """Return the index after the `}` that closes a `${` interpolation."""
+    depth = 1
+    length = len(src)
+    while index < length and depth > 0:
+        char = src[index]
+        if char == "{":
+            depth += 1
+            index += 1
+        elif char == "}":
+            depth -= 1
+            index += 1
+        elif char == "/" and src.startswith("//", index):
+            end = src.find("\n", index)
+            index = length if end == -1 else end
+        elif char == "/" and src.startswith("/*", index):
+            index = _skip_block_comment(src, index)
+        elif char in "'\"":
+            index = _skip_string(src, index, char, src.startswith(char * 3, index))
+        else:
+            index += 1
+    return index
+
+
+def _skip_block_comment(src: str, index: int) -> int:
+    """Return the index after the `*/` that closes a block comment."""
+    depth = 1
+    length = len(src)
+    index += 2
+    while index < length and depth > 0:
+        if src.startswith("/*", index):
+            depth += 1
+            index += 2
+        elif src.startswith("*/", index):
+            depth -= 1
+            index += 2
+        else:
+            index += 1
+    return index
+
+
+def _skip_string(src: str, index: int, quote: str, triple: bool) -> int:
+    """Return the index after the closing quote of a string literal."""
+    length = len(src)
+    index += 3 if triple else 1
+    while index < length:
+        char = src[index]
+        if not triple and char == "\\":
+            index += 2
+            continue
+        if triple and src.startswith(quote * 3, index):
+            return index + 3
+        if not triple and char == quote:
+            return index + 1
+        if not triple and char == "\n":
+            return index
+        if not triple and char == "$" and src.startswith("${", index):
+            index = _skip_interpolation(src, index + 2)
+            continue
+        index += 1
+    return length
+
+
+def mask_source(src: str) -> str:
+    """Return `src` with comments and string literals blanked out.
+
+    The result has the same length as `src`, so a position in the masked text
+    is the same position in the original: the parser finds the structure in
+    the mask and slices the real text out of the source.
+    """
+    out = list(src)
+    length = len(src)
+    index = 0
+    while index < length:
+        char = src[index]
+        if char == "/" and src.startswith("//", index):
+            end = src.find("\n", index)
+            end = length if end == -1 else end
+            _blank(out, index, end)
+            index = end
+            continue
+        if char == "/" and src.startswith("/*", index):
+            end = _skip_block_comment(src, index)
+            _blank(out, index, end)
+            index = end
+            continue
+        if char == "r" and index + 1 < length and src[index + 1] in "'\"":
+            quote = src[index + 1]
+            end = _skip_string(src, index + 1, quote, src.startswith(quote * 3, index + 1))
+            _blank(out, index, end)
+            index = end
+            continue
+        if char in "'\"":
+            end = _skip_string(src, index, char, src.startswith(char * 3, index))
+            _blank(out, index, end)
+            index = end
+            continue
+        index += 1
+    return "".join(out)
+
+
+# --------------------------------------------------------------------------
+# Bracket helpers
+# --------------------------------------------------------------------------
+def _top_level_positions(text: str, needle: str, start: int = 0, end: int | None = None) -> list[int]:
+    """Return the indices of `needle` outside every bracket."""
+    if end is None:
+        end = len(text)
+    positions: list[int] = []
+    depth = 0
+    index = start
+    while index < end:
+        char = text[index]
+        if char in "([{":
+            if char == needle and depth == 0:
+                positions.append(index)
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif depth == 0 and text.startswith(needle, index):
+            positions.append(index)
+        index += 1
+    return positions
+
+
+def _first_top_level(text: str, needle: str) -> int:
+    """Return the index of the first `needle` outside every bracket, or -1."""
+    positions = _top_level_positions(text, needle)
+    return positions[0] if positions else -1
+
+
+def _first_assignment(text: str) -> int:
+    """Return the index of the first top-level `=` that assigns a value."""
+    index = 0
+    length = len(text)
+    depth = 0
+    while index < length:
+        char = text[index]
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif depth == 0 and char == "=":
+            before = text[index - 1] if index else ""
+            after = text[index + 1] if index + 1 < length else ""
+            if before not in "=!<>+-*/%" and after not in ("=", ">"):
+                return index
+        index += 1
+    return -1
+
+
+def _matching_paren(text: str, index: int) -> int:
+    """Return the index of the `)` that closes the `(` at `index`."""
+    depth = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return -1
+
+
+def _matching_angle(text: str, index: int) -> int:
+    """Return the index of the `>` that closes the `<` at `index`."""
+    depth = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char == "<":
+            depth += 1
+        elif char == ">":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return -1
+
+
+class MapError(Exception):
+    """A problem in the repository that makes the map untrustworthy."""
+
+
+def _identifier_before(text: str, index: int) -> str:
+    """Return the identifier that ends right before `index`.
+
+    A generic argument list between the identifier and the parenthesis
+    (`_safeRead<T>(`) is skipped: the name is the identifier, not the type
+    argument.
+    """
+    end = index
+    while end > 0 and text[end - 1].isspace():
+        end -= 1
+    start = end
+    if start > 0 and text[start - 1] == ">":
+        # Skip the generic argument list that ends right before the name.
+        depth = 0
+        cursor = start - 1
+        while cursor >= 0:
+            if text[cursor] == ">":
+                depth += 1
+            elif text[cursor] == "<":
+                depth -= 1
+                if depth == 0:
+                    break
+            cursor -= 1
+        if cursor >= 0:
+            start = cursor
+            while start > 0 and text[start - 1].isspace():
+                start -= 1
+    identifier_start = start
+    while identifier_start > 0 and (
+        text[identifier_start - 1].isalnum() or text[identifier_start - 1] in "_$"
+    ):
+        identifier_start -= 1
+    return text[identifier_start:start]
+
+
+def _ends_with_body(text: str, paren_index: int) -> bool:
+    """Tell whether a parenthesis group is a parameter list and not a type."""
+    close = _matching_paren(text, paren_index)
+    if close == -1:
+        return False
+    tail = text[close + 1 :].strip()
+    return tail == "" or tail.startswith(("{", "=>", ";"))
+
+
+# --------------------------------------------------------------------------
+# Declaration parsing
+# --------------------------------------------------------------------------
+class Member:
+    """A public member of a class: its name and its signature."""
+
+    def __init__(self, kind: str, name: str, signature: str) -> None:
+        self.kind = kind
+        self.name = name
+        self.signature = signature
+
+
+class Declaration:
+    """A top-level declaration: a type, a function, a variable or a typedef."""
+
+    def __init__(
+        self,
+        kind: str,
+        name: str,
+        signature: str,
+        members: list[Member],
+        constants: list[str] | None = None,
+        prefix: str = "",
+    ) -> None:
+        self.kind = kind
+        self.name = name
+        self.signature = signature
+        self.members = members
+        self.constants = constants or []
+        # The keyword that opens the declaration, with its type modifiers:
+        # `sealed class`, `abstract interface class`, `extension type`.
+        self.prefix = prefix
+
+
+CLASS_RE = re.compile(
+    r"^(?P<mods>(?:abstract\s+|sealed\s+|base\s+|final\s+|interface\s+|mixin\s+)*)"
+    r"(?P<kw>class|enum|mixin|extension)\s+(?P<name>[A-Za-z_$][\w$]*)"
+)
+# An unnamed extension: `extension on VaultCategory`.
+EXTENSION_ON_RE = re.compile(r"^extension\s+on\s+(?P<type>[\w.<>, ?]+)$")
+# An extension type: `extension type VaultId(int value)`.
+EXTENSION_TYPE_RE = re.compile(r"^extension\s+type\s+(?P<name>[A-Za-z_$][\w$]*)")
+TYPEDEF_RE = re.compile(r"^typedef\s+(?P<name>[A-Za-z_$][\w$]*)")
+DIRECTIVE_RE = re.compile(r"^(import|export|part|library)\b")
+# A constructor: the name of the class, optionally followed by the name of a
+# named constructor: `MasterPasswordRecord.fromJson`.
+CONSTRUCTOR_RE = re.compile(
+    r"^(?:const\s+|factory\s+)?(?P<class>[A-Za-z_$][\w$]*)"
+    r"(?:\.(?P<named>[A-Za-z_$][\w$]*))?\s*\("
+)
+# An operator overload: `Ops operator +(Ops other)`.
+OPERATOR_RE = re.compile(r"\boperator\s+(?P<op>[^\s(]+)\s*\(")
+# The keywords that open a heritage clause.
+HERITAGE_KEYWORDS = ("extends", "with", "implements", "on")
+# The name of a type in a heritage clause: a name, optionally generic. The
+# angle brackets may nest once, as in `Comparable<Pair<A, B>>`.
+HERITAGE_NAME = r"[\w.$]+(?:\s*<(?:[^<>]|<[^<>]*>)*>)?"
+# The type of a heritage clause: one name or a list of names.
+HERITAGE_TYPE = HERITAGE_NAME + r"(?:\s*,\s*" + HERITAGE_NAME + r")*"
+HERITAGE_RE = re.compile(
+    r"\b(" + "|".join(HERITAGE_KEYWORDS) + r")\s+(" + HERITAGE_TYPE + r")"
+    r"(?=\s+(?:" + "|".join(HERITAGE_KEYWORDS) + r")\b|\s*$)"
+)
+GETTER_RE = re.compile(r"\bget\s+([A-Za-z_$][\w$]*)")
+SETTER_RE = re.compile(r"\bset\s+([A-Za-z_$][\w$]*)\s*\(")
+ASYNC_RE = re.compile(r"\b(async\*?|sync\*?)\s*$")
+# A private identifier: an underscore followed by a name.
+PRIVATE_SYMBOL_RE = re.compile(r"_[A-Za-z]\w*")
+
+
+def _normalize(text: str) -> str:
+    """Collapse the whitespace of a fragment of source code."""
+    text = re.sub(r"//[^\n]*", " ", text)
+    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.DOTALL)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _cut_initializer(head: str) -> str:
+    """Drop the initializer list of a constructor (`) : x = a`)."""
+    paren = _first_top_level(head, "(")
+    if paren == -1:
+        return head
+    close = _matching_paren(head, paren)
+    if close == -1:
+        return head
+    colon = head.find(":", close)
+    if colon == -1:
+        return head
+    return head[:colon]
+
+
+def _is_body(header: str) -> bool:
+    """Tell whether the `{` that follows a header opens a body.
+
+    A body is a declaration that owns a block: a class, a method, an enum.
+    An initializer is an expression: a variable, a field or an arrow body.
+    """
+    stripped = header.rstrip()
+    if stripped.endswith("=>"):
+        return False
+    assign = _first_assignment(stripped)
+    if assign == -1:
+        return True
+    paren = _first_top_level(stripped, "(")
+    if paren == -1 or assign < paren:
+        return False
+    # The assignment comes after a parameter list: a constructor initializer
+    # list (`) : field = value`) still owns the block that follows.
+    close = _matching_paren(stripped, paren)
+    if close == -1:
+        return False
+    colon = stripped.find(":", close)
+    return colon != -1 and colon < assign
+
+
+def _scan_header(masked: str, start: int, end: int) -> tuple[int, str]:
+    """Scan a declaration header.
+
+    Returns the index where the header ends and the character that ended it:
+    `{` opens a body, `;` ends a declaration. Brackets are counted, so a
+    default value or a `;` inside a parameter list does not split anything.
+    """
+    depth = 0
+    index = start
+    while index < end:
+        char = masked[index]
+        if char == "{":
+            if depth == 0:
+                if not _is_body(masked[start:index]):
+                    # An initializer, not a body: keep scanning.
+                    depth += 1
+                    index += 1
+                    continue
+                return index, "{"
+            depth += 1
+        elif char in "([":
+            depth += 1
+        elif char in ")]":
+            depth -= 1
+        elif char == "}":
+            depth -= 1
+        elif depth == 0 and char == ";":
+            return index, ";"
+        index += 1
+    return end, ""
+
+
+def _match_brace(masked: str, index: int) -> int:
+    """Return the index of the `}` that closes the `{` at `index`."""
+    depth = 0
+    length = len(masked)
+    while index < length:
+        char = masked[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return length
+
+
+def _private_default_spans(text: str) -> list[tuple[int, int]]:
+    """Return the spans of the default values that name a private symbol.
+
+    The text is the masked signature, so a string literal that looks like a
+    private symbol is not one.
+    """
+    spans: list[tuple[int, int]] = []
+    index = 0
+    length = len(text)
+    while index < length:
+        if text[index] != "=":
+            index += 1
+            continue
+        before = text[index - 1] if index else ""
+        after = text[index + 1] if index + 1 < length else ""
+        if before in ("=", "!", "<", ">", "+", "-", "*", "/", "%") or after in ("=", ">"):
+            # A comparison, not an assignment.
+            index += 1
+            continue
+        # The value of the default runs to the end of the parameter.
+        end = index + 1
+        depth = 0
+        while end < length:
+            char = text[end]
+            if char in "([{":
+                depth += 1
+            elif char in ")]}":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif char == "," and depth == 0:
+                break
+            end += 1
+        if PRIVATE_SYMBOL_RE.search(text[index + 1 : end]):
+            spans.append((index, end))
+        index = max(end, index + 1)
+    return spans
+
+
+def _mask_private_defaults(text: str) -> str:
+    """Replace the default values that name a private symbol.
+
+    A default value that names a private symbol is shown as `<private>`:
+    the map never prints a private symbol. The strings are masked first, so
+    a literal that looks like a private symbol is left alone.
+    """
+    masked = mask_source(text)
+    out = text
+    for start, end in reversed(_private_default_spans(masked)):
+        out = out[:start] + "= <private>" + out[end:]
+    return out
+
+
+def _head_of(source: str, start: int, end: int) -> str:
+    """Return the signature of a declaration, without its body."""
+    text = _normalize(source[start:end])
+    text = re.sub(r"^(@[\w.]+(\([^)]*\))?\s*)+", "", text)
+    arrow = _first_top_level(text, "=>")
+    if arrow != -1:
+        text = text[:arrow]
+    text = _cut_initializer(text)
+    if not TYPEDEF_RE.match(text):
+        # A field or a variable: the value is not part of the signature.
+        assign = _first_assignment(text)
+        if assign != -1:
+            text = text[:assign]
+        text = ASYNC_RE.sub("", text)
+    text = _mask_private_defaults(text)
+    text = text.rstrip("{;= ").strip()
+    return text
+
+
+def _classify(head: str) -> tuple[str, str, str, str]:
+    """Return the (kind, name, signature, prefix) of a top-level declaration.
+
+    The prefix is the keyword that opens the declaration with its type
+    modifiers: `sealed class`, `abstract interface class`, `mixin`,
+    `extension type`. It is empty for the declarations that have no keyword.
+    """
+    if DIRECTIVE_RE.match(head):
+        return "directive", "", head, ""
+
+    match = CLASS_RE.match(head)
+    if match:
+        keyword = match.group("kw")
+        name = match.group("name")
+        mods = match.group("mods")
+        if keyword == "extension":
+            if name == "on":
+                # An unnamed extension: `extension on VaultCategory`.
+                on = EXTENSION_ON_RE.match(head)
+                if on:
+                    return (
+                        "extension",
+                        f"on {on.group('type').strip()}",
+                        head,
+                        "extension",
+                    )
+            elif name == "type":
+                # An extension type: `extension type VaultId(int value)`.
+                extension_type = EXTENSION_TYPE_RE.match(head)
+                if extension_type:
+                    return (
+                        "extension",
+                        extension_type.group("name"),
+                        head,
+                        "extension type",
+                    )
+        return keyword, name, head, mods + keyword
+
+    match = TYPEDEF_RE.match(head)
+    if match:
+        return "typedef", match.group("name"), head, ""
+
+    assign = _first_assignment(head)
+    parens = _top_level_positions(head, "(")
+    if assign != -1 and (
+        not parens or assign < parens[-1] or not _ends_with_body(head, parens[-1])
+    ):
+        # A variable: the map shows its declaration, never its value.
+        return "variable", _identifier_before(head, assign), head[:assign].strip(), ""
+    if parens:
+        close = _matching_paren(head, parens[-1])
+        tail = head[close + 1 :].strip() if close != -1 else ""
+        if tail and not tail.startswith(("{", "=>", ";")):
+            # A variable whose type is a function type: the parenthesis group
+            # is the type, not a parameter list.
+            parts = head.split()
+            return "variable", (parts[-1] if parts else ""), head, ""
+        return "function", _identifier_before(head, parens[-1]), head, ""
+    parts = head.split()
+    return "variable", (parts[-1] if parts else "<anonymous>"), head, ""
+
+
+def _constructor_name(head: str, class_name: str) -> str | None:
+    """Return the name of a constructor, or None when the head is not one.
+
+    A constructor opens with the name of its class, optionally followed by
+    the name of a named constructor: `MasterPasswordRecord.fromJson`. The
+    map prints the qualified name, so a named constructor never reads as a
+    method of the class.
+    """
+    match = CONSTRUCTOR_RE.match(head)
+    if not match or match.group("class") != class_name:
+        return None
+    named = match.group("named")
+    if named is None:
+        return class_name
+    if named.startswith("_"):
+        # A private named constructor stays out of the map.
+        return None
+    return f"{class_name}.{named}"
+
+
+def _member_signature(source: str, start: int, end: int, class_name: str) -> tuple[str, str, str] | None:
+    """Return the (kind, name, signature) of a class member, or None when private."""
+    head = _head_of(source, start, end)
+    if not head or head.startswith("}"):
+        return None
+
+    constructor = _constructor_name(head, class_name)
+    if constructor is not None:
+        if constructor.startswith("_") or constructor in NOISE_MEMBERS:
+            return None
+        return "constructor", constructor, head
+
+    parens = _top_level_positions(head, "(")
+    assign = _first_assignment(head)
+
+    operator = OPERATOR_RE.search(head)
+    getter = GETTER_RE.search(head)
+    setter = SETTER_RE.search(head)
+    if operator and (not parens or operator.start() < parens[0]):
+        # An operator overload: `Ops operator +(Ops other)`.
+        kind, name = "method", f"operator {operator.group('op')}"
+    elif getter and (not parens or getter.start() < parens[0]):
+        kind, name = "getter", getter.group(1)
+    elif setter:
+        kind, name = "setter", setter.group(1)
+    elif assign != -1:
+        # A field with an initializer.
+        kind = "field"
+        name = _identifier_before(head, assign)
+    elif parens:
+        close = _matching_paren(head, parens[-1])
+        tail = head[close + 1 :].strip() if close != -1 else ""
+        if tail == "" or tail.startswith(("async", "sync", "{", "=>", ";")):
+            # A method: the parenthesis group is its parameter list.
+            kind = "method"
+            name = _identifier_before(head, parens[-1])
+        else:
+            # A field whose type is a function type.
+            kind = "field"
+            parts = head.split()
+            name = parts[-1] if parts else ""
+    else:
+        kind = "field"
+        parts = head.split()
+        name = parts[-1] if parts else ""
+
+    if not name or name.startswith("_"):
+        return None
+    if name in NOISE_MEMBERS:
+        return None
+    if kind == "method" and name == class_name:
+        kind = "constructor"
+
+    return kind, name, head
+
+
+def _parse_members(
+    source: str, masked: str, start: int, end: int, class_name: str
+) -> list[Member]:
+    """Return the public members of a class body."""
+    members: list[Member] = []
+    index = start
+    while index < end:
+        if masked[index].isspace():
+            index += 1
+            continue
+        header_end, terminator = _scan_header(masked, index, end)
+        if terminator == "{":
+            member = _member_signature(source, index, header_end, class_name)
+            if member:
+                members.append(Member(member[0], member[1], member[2]))
+            index = _match_brace(masked, header_end) + 1
+            continue
+        if terminator == ";":
+            member = _member_signature(source, index, header_end, class_name)
+            if member:
+                members.append(Member(member[0], member[1], member[2]))
+            index = header_end + 1
+            continue
+        index = max(header_end, index + 1)
+    return members
+
+
+def _enum_constants(source: str, masked: str, start: int, end: int) -> list[str]:
+    """Return the names of the constants of an enum."""
+    semi = _first_top_level(masked[start:end], ";")
+    if semi == -1:
+        body = masked[start:end]
+    else:
+        body = masked[start : start + semi]
+    constants: list[str] = []
+    for chunk in body.split(","):
+        name = chunk.split("(")[0].strip()
+        if re.fullmatch(r"[A-Za-z_$][\w$]*", name):
+            constants.append(name)
+    return constants
+
+
+def _brace_balance(masked: str) -> int:
+    """Return how many braces are still open in a masked source."""
+    depth = 0
+    for char in masked:
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+    return depth
+
+
+def parse_declarations(source: str, path: Path | None = None) -> list[Declaration]:
+    """Return the top-level declarations of a Dart source file.
+
+    A file whose braces do not balance is truncated or malformed: the map
+    would silently describe half of it, so the parse fails instead.
+    """
+    masked = mask_source(source)
+    if _brace_balance(masked) != 0:
+        where = f" ({path})" if path else ""
+        raise MapError(
+            f"the braces of {path.name if path else 'the source'} do not "
+            f"balance: the file is truncated or malformed{where}."
+        )
+    declarations: list[Declaration] = []
+    index = 0
+    length = len(masked)
+    while index < length:
+        if masked[index].isspace():
+            index += 1
+            continue
+        header_end, terminator = _scan_header(masked, index, length)
+        if terminator == "{":
+            body_end = _match_brace(masked, header_end)
+            head = _head_of(source, index, header_end)
+            kind, name, signature, prefix = _classify(head)
+            if kind != "directive":
+                members: list[Member] = []
+                constants: list[str] = []
+                if kind in ("class", "mixin", "extension"):
+                    members = _parse_members(source, masked, header_end + 1, body_end, name)
+                elif kind == "enum":
+                    constants = _enum_constants(source, masked, header_end + 1, body_end)
+                    semi = _first_top_level(masked[header_end + 1 : body_end], ";")
+                    member_start = header_end + 1 + semi + 1 if semi != -1 else body_end
+                    members = _parse_members(source, masked, member_start, body_end, name)
+                declarations.append(
+                    Declaration(kind, name, signature, members, constants, prefix)
+                )
+            index = body_end + 1
+            continue
+        if terminator == ";":
+            head = _head_of(source, index, header_end)
+            kind, name, signature, prefix = _classify(head)
+            if kind != "directive":
+                declarations.append(Declaration(kind, name, signature, []))
+            index = header_end + 1
+            continue
+        index = max(header_end, index + 1)
+    return declarations
+
+
+# --------------------------------------------------------------------------
+# Repository model
+# --------------------------------------------------------------------------
+class Module:
+    """A module of the repository: a folder with its own public surface."""
+
+    def __init__(self, key: str, title: str, root: Path) -> None:
+        self.key = key
+        self.title = title
+        self.root = root
+        self.files: list[Path] = []
+        self.deps: set[str] = set()
+        self.packages: set[str] = set()
+        self.lines = 0
+        # The localizations are generated: their sources are the `.arb` files.
+        self.generated = key == "lib/l10n"
+        # The in-repo modules each file imports.
+        self.file_deps: dict[Path, set[str]] = {}
+
+
+def module_of(path: Path) -> str:
+    """Return the module key of a file inside `lib/`."""
+    relative = path.relative_to(LIB_ROOT).as_posix()
+    if relative == "main.dart":
+        return "lib"
+    parts = relative.split("/")
+    if parts[0] == "core":
+        return "lib/core/" + parts[1]
+    if parts[0] == "features":
+        return "lib/features/" + parts[1]
+    if parts[0] == "app":
+        return "lib/app"
+    return "lib/" + parts[0]
+
+
+IMPORT_RE = re.compile(r"^\s*(?:import|export)\s+'([^']+)'", re.MULTILINE)
+
+
+def collect_modules() -> list[Module]:
+    """Read every Dart file under `lib/` and group it into modules."""
+    modules: dict[str, Module] = {}
+    for key, title in MODULE_ROOTS:
+        modules[key] = Module(key, title, LIB_ROOT if key == "lib" else REPO_ROOT / key)
+
+    for path in sorted(LIB_ROOT.rglob("*.dart")):
+        key = module_of(path)
+        module = modules.get(key)
+        if module is None:
+            continue
+        module.files.append(path)
+        source = path.read_text(encoding="utf-8")
+        lines = source.count("\n")
+        if source and not source.endswith("\n"):
+            # A file without a trailing newline still has its last line.
+            lines += 1
+        module.lines += lines
+        file_deps: set[str] = set()
+        for target in IMPORT_RE.findall(source):
+            if target.startswith("package:"):
+                package = target[len("package:") :].split("/")[0]
+                if package == PACKAGE_NAME:
+                    # An import of this package: it is an in-repo dependency.
+                    relative = target[len(f"package:{PACKAGE_NAME}/") :]
+                    resolved = (LIB_ROOT / relative).resolve()
+                    dependency = module_of(resolved)
+                    if dependency != key:
+                        file_deps.add(dependency)
+                    continue
+                module.packages.add(package)
+                continue
+            if target.startswith("dart:"):
+                module.packages.add(target)
+                continue
+            resolved = (path.parent / target).resolve()
+            try:
+                resolved.relative_to(LIB_ROOT)
+            except ValueError:
+                continue
+            dependency = module_of(resolved)
+            if dependency != key:
+                file_deps.add(dependency)
+        module.file_deps[path] = file_deps
+        module.deps.update(file_deps)
+    return [modules[key] for key, _ in MODULE_ROOTS]
+
+
+# --------------------------------------------------------------------------
+# Rendering
+# --------------------------------------------------------------------------
+# The label of every member kind in the compact map.
+KIND_LABELS = {
+    "constructor": "ctor",
+    "method": "fn",
+    "getter": "get",
+    "setter": "set",
+}
+# The order the kinds are printed in.
+KIND_ORDER = ("constructor", "method", "getter", "setter")
+
+
+class MapWriter:
+    """Collects the lines of the map and keeps it inside the token budget.
+
+    The optional lines (the member lists) are dropped, in order, when the
+    budget runs out. They stay attached to the type they belong to: a member
+    list is never moved somewhere else in the document.
+    """
+
+    def __init__(self, budget: int | None) -> None:
+        self.budget = budget
+        self.lines: list[str] = []
+        self.used = 0
+        self.elided = 0
+
+    def add(self, text: str) -> None:
+        """Add a line that is always part of the map."""
+        self.lines.append(text)
+        self.used += estimate_tokens(text) + 1
+
+    def add_optional(self, text: str) -> bool:
+        """Add a line if the budget still allows it."""
+        cost = estimate_tokens(text) + 1
+        if self.budget is not None and self.used + cost > self.budget:
+            self.elided += 1
+            return False
+        self.lines.append(text)
+        self.used += cost
+        return True
+
+    def text(self) -> str:
+        lines = list(self.lines)
+        if self.elided:
+            lines.append("")
+            lines.append(
+                f"({self.elided} member lists elided to fit the "
+                f"{self.budget}-token budget; `mise run repo-map --module "
+                "<module>` prints one module in full.)"
+            )
+        return "\n".join(lines).rstrip() + "\n"
+
+
+def _member_groups(declaration: Declaration) -> list[tuple[str, list[str]]]:
+    """Group the members of a type by kind, keeping the declaration order.
+
+    This is the compact rendering of level 1: the fields are the parameters
+    of the constructor and the default constructor repeats the name of the
+    type, so neither of them is listed.
+    """
+    groups: dict[str, list[str]] = {}
+    for member in declaration.members:
+        if member.kind == "field":
+            # The fields are the parameters of the constructor.
+            continue
+        if member.kind == "constructor" and member.name == declaration.name:
+            # The default constructor: its name repeats the name of the type.
+            continue
+        groups.setdefault(member.kind, []).append(member.name)
+    return [(kind, groups[kind]) for kind in KIND_ORDER if kind in groups]
+
+
+def _is_private(declaration: Declaration) -> bool:
+    """Tell whether a declaration is private and stays out of the map."""
+    if declaration.name.startswith("_"):
+        return True
+    # An unnamed extension on a private type is private too.
+    if declaration.kind == "extension" and declaration.name.startswith("on _"):
+        return True
+    return False
+
+
+def _split_type_parameters(head: str, prefix: str, name: str) -> tuple[str, str]:
+    """Return the type-parameter list of a type header and what follows it.
+
+    The type parameters are part of the public API of a generic type, so
+    they are printed with it. They are also removed before the heritage
+    clauses are read: `<T extends Object>` is a bound, not a heritage.
+    """
+    index = len(prefix)
+    while index < len(head) and head[index].isspace():
+        index += 1
+    index += len(name)
+    while index < len(head) and head[index].isspace():
+        index += 1
+    if index < len(head) and head[index] == "<":
+        close = _matching_angle(head, index)
+        if close != -1:
+            return head[index : close + 1], head[close + 1 :]
+    return "", head[index:]
+
+
+def _type_header(declaration: Declaration) -> str:
+    """Return the header of a type.
+
+    The header keeps the modifiers of the type, its name, its type
+    parameters and every heritage clause, in source order.
+    """
+    prefix = declaration.prefix
+    name = declaration.name
+    if prefix == "extension type":
+        # An extension type: the representation is part of the signature.
+        return declaration.signature
+    if prefix == "extension" and name.startswith("on "):
+        # An unnamed extension: `extension on VaultCategory`.
+        return f"{prefix} {name}"
+    params, rest = _split_type_parameters(declaration.signature, prefix, name)
+    header = f"{prefix} {name}{params}"
+    for match in HERITAGE_RE.finditer(rest):
+        header += f" {match.group(1)} {match.group(2)}"
+    return header
+
+
+def _declaration_line(declaration: Declaration, level: int) -> str:
+    """Return the line that describes a top-level declaration."""
+    if level >= 2:
+        return f"  {declaration.name}"
+    if declaration.kind in ("class", "mixin", "enum", "extension"):
+        header = _type_header(declaration)
+        if declaration.kind == "enum" and declaration.constants:
+            header += " { " + ", ".join(declaration.constants) + " }"
+        return f"  {header}"
+    # A typedef prints its alias and a function or a variable prints its
+    # declaration: the type they stand for is part of the public API.
+    return f"  {declaration.signature}"
+
+
+def _render_tests(modules: list[Module]) -> list[str]:
+    out: list[str] = []
+    out.append("## Tests")
+    out.append("")
+    out.append("The path of a test mirrors the path of the code it covers.")
+    out.append("")
+    for module in modules:
+        if not module.files:
+            continue
+        relative_root = (TEST_ROOT / module.key.removeprefix("lib/")).resolve()
+        if not relative_root.exists():
+            continue
+        tests = sorted(relative_root.rglob("*_test.dart"))
+        if not tests:
+            continue
+        out.append(
+            f"- `{module.key}`: {len(tests)} test files"
+        )
+    return out
+
+
+def render(
+    modules: list[Module],
+    level: int,
+    selected: str | None = None,
+    with_tests: bool = True,
+    budget: int | None = DEFAULT_MAX_TOKENS,
+) -> str:
+    """Render the map at the requested detail level."""
+    writer = MapWriter(budget)
+
+    writer.add("# Vaulta — repository map")
+    writer.add("")
+    writer.add(
+        "Skeleton only: modules, exported symbols with their signatures and "
+        "types, and the dependencies between them. No implementation."
+    )
+    if level == 0:
+        writer.add(
+            "Detail: level 0 — every exported symbol with the full signature "
+            "of every public member."
+        )
+    elif level == 2:
+        writer.add(
+            "Detail: level 2 — the name of every public type only; no "
+            "signature and no member."
+        )
+    else:
+        writer.add(
+            "Detail: level 1 — every exported symbol with its declaration "
+            "signature; the constructors, methods, getters and setters of a "
+            "type are listed by name (the fields stay in the source). For the "
+            "full member signatures of one module, run `mise run repo-map "
+            "--module lib/core/security`."
+        )
+    writer.add("")
+
+    shown = [m for m in modules if selected is None or m.key == selected]
+
+    writer.add("## Modules")
+    writer.add("")
+    writer.add("| Module | Files | Lines | Depends on | Packages |")
+    writer.add("| --- | --- | --- | --- | --- |")
+    for module in shown:
+        deps = ", ".join(sorted(module.deps)) or "—"
+        packages = ", ".join(sorted(module.packages)) or "—"
+        packages = packages.replace("dart:", "")
+        writer.add(
+            f"| `{module.key}` | {len(module.files)} | {module.lines} | {deps} | {packages} |"
+        )
+    writer.add("")
+
+    for module in shown:
+        writer.add(f"## {module.title}")
+        writer.add("")
+        if module.generated:
+            writer.add(
+                "Generated code: the sources are the `lib/l10n/app_*.arb` "
+                "files; edit them and run `flutter gen-l10n`. Its members are "
+                "not printed: they are generated too."
+            )
+            writer.add("")
+        for path in module.files:
+            relative = path.relative_to(module.root).as_posix()
+            writer.add(relative)
+            source = path.read_text(encoding="utf-8")
+            for declaration in parse_declarations(source, path):
+                if _is_private(declaration):
+                    continue
+                writer.add(_declaration_line(declaration, level))
+                if not declaration.members or module.generated:
+                    continue
+                if level == 0:
+                    for member in declaration.members:
+                        writer.add_optional(f"    {member.signature}")
+                    continue
+                if level != 1:
+                    # Level 2 prints the name of every type and nothing else.
+                    continue
+                for kind, names in _member_groups(declaration):
+                    writer.add_optional(f"    {KIND_LABELS[kind]}: {', '.join(names)}")
+            writer.add("")
+
+    if with_tests and selected is None:
+        for line in _render_tests(modules):
+            writer.add(line)
+
+    return writer.text()
+
+
+# --------------------------------------------------------------------------
+# Token budget
+# --------------------------------------------------------------------------
+TOKEN_RE = re.compile(r"\w+|[^\w\s]+")
+CAMEL_RE = re.compile(r"[A-Z]+(?![a-z])|[A-Z][a-z0-9]*|[a-z0-9]+")
+# The two-character operators a BPE tokenizer keeps together.
+TOKEN_PAIRS = frozenset(
+    {"=>", "->", "==", "!=", ">=", "<=", "..", "?.", "&&", "||", "??"}
+)
+
+
+def estimate_tokens(text: str) -> int:
+    """Estimate the number of tokens of a text.
+
+    The estimate breaks the words the way a byte-pair tokenizer does: a word
+    is split at its camelCase boundaries and every part costs about one token
+    per seven characters. On this kind of text the result lands within a few
+    percent of the real count, and it never understates it by much — which is
+    what the budget needs, because a budget that undercounts is no budget.
+    """
+    total = 0
+    for token in TOKEN_RE.findall(text):
+        if token[0].isalnum() or token[0] == "_":
+            for part in token.split("_"):
+                for segment in CAMEL_RE.findall(part):
+                    total += max(1, (len(segment) + 6) // 7)
+        else:
+            index = 0
+            while index < len(token):
+                total += 1
+                index += 2 if token[index : index + 2] in TOKEN_PAIRS else 1
+    return total
+
+
+def self_test(modules: list[Module]) -> list[str]:
+    """Check the invariants of the map and return the failures.
+
+    The map is a description of the repository: it has to be true, stable and
+    inside the budget. These are the checks that keep it that way.
+    """
+    failures: list[str] = []
+
+    first = render(modules, 1, budget=DEFAULT_MAX_TOKENS)
+    second = render(modules, 1, budget=DEFAULT_MAX_TOKENS)
+    if first != second:
+        failures.append("the map is not deterministic: two runs differ")
+
+    estimated = estimate_tokens(first)
+    if estimated > DEFAULT_MAX_TOKENS:
+        failures.append(
+            f"the map is {estimated} tokens, over the {DEFAULT_MAX_TOKENS} budget"
+        )
+
+    # Every symbol the map prints exists in the file it is printed under.
+    for module in modules:
+        for path in module.files:
+            source = path.read_text(encoding="utf-8")
+            for declaration in parse_declarations(source, path):
+                if _is_private(declaration):
+                    continue
+                if declaration.name not in source:
+                    failures.append(
+                        f"{path}: the map prints '{declaration.name}', "
+                        "which is not in the source"
+                    )
+                for member in declaration.members:
+                    if member.name not in source:
+                        failures.append(
+                            f"{path}: the map prints '{member.name}', "
+                            "which is not in the source"
+                        )
+
+    # The member lists stay attached to the type they belong to.
+    lines = first.split("\n")
+    for index, line in enumerate(lines):
+        if not re.match(r"^ {4}(ctor|fn|get|set|field): ", line):
+            continue
+        above = index - 1
+        while above >= 0 and (
+            not lines[above].strip()
+            or re.match(r"^ {4}(ctor|fn|get|set|field): ", lines[above])
+        ):
+            above -= 1
+        if above < 0 or not re.match(r"^ {2}\S", lines[above]):
+            failures.append(
+                f"the member list at line {index + 1} is not under its type"
+            )
+
+    # No private symbol reaches the map: not in a declaration line and not
+    # in a member line either.
+    for text in (first, render(modules, 0, budget=None)):
+        for line in text.split("\n"):
+            match = re.match(r"^ {2,4}(\S.*)$", line)
+            if not match:
+                continue
+            symbol = match.group(1)
+            if re.search(r"(^|[\s(<;=,.])_[A-Za-z]\w*", symbol):
+                failures.append(f"a private symbol reached the map: {symbol}")
+
+    # Every dependency the map prints is backed by an import.
+    for module in modules:
+        imported: set[str] = set()
+        for deps in module.file_deps.values():
+            imported.update(deps)
+        for dependency in module.deps:
+            if dependency not in imported:
+                failures.append(
+                    f"{module.key} declares the dependency {dependency}, "
+                    "but no file imports it"
+                )
+
+    return failures
+
+
+def _missing_tracked_files() -> list[str]:
+    """Return the Dart files of `lib/` that git tracks but the tree lacks.
+
+    The map describes the checkout. A tracked file that is not on disk means
+    the checkout is partial, and a map of a partial tree is a lie.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "-z", "--", "lib"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if result.returncode != 0:
+        return []
+    missing: list[str] = []
+    for entry in result.stdout.split("\0"):
+        if entry.endswith(".dart") and not (REPO_ROOT / entry).exists():
+            missing.append(entry)
+    return missing
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        description="Print the skeleton of the repository (no network, no analyzer)."
+    )
+    parser.add_argument(
+        "--level",
+        type=int,
+        default=None,
+        choices=[0, 1, 2],
+        help="0: full member signatures; 1: member names (default); 2: type names.",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=DEFAULT_MAX_TOKENS,
+        help="Token budget for the whole output (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--module",
+        default=None,
+        help="Print only one module, for example lib/core/security.",
+    )
+    parser.add_argument(
+        "--no-tests",
+        action="store_true",
+        help="Leave the test inventory out of the map.",
+    )
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="Check the invariants of the map and exit.",
+    )
+    args = parser.parse_args(argv)
+
+    if not LIB_ROOT.exists():
+        print(
+            f"error: {LIB_ROOT} does not exist; run the script from a clone.",
+            file=sys.stderr,
+        )
+        return 1
+
+    missing = _missing_tracked_files()
+    if missing:
+        print(
+            "error: the checkout is missing the tracked files: "
+            f"{', '.join(missing)}.",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        modules = collect_modules()
+    except MapError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+
+    if args.self_test:
+        failures = self_test(modules)
+        if failures:
+            for failure in failures:
+                print(f"FAIL {failure}", file=sys.stderr)
+            return 1
+        print(f"ok: the map holds its invariants ({DEFAULT_MAX_TOKENS} token budget)")
+        return 0
+
+    if args.module:
+        known = {module.key for module in modules}
+        if args.module not in known:
+            print(
+                f"error: unknown module '{args.module}'. Known modules: "
+                f"{', '.join(sorted(known))}.",
+                file=sys.stderr,
+            )
+            return 1
+
+    # A single module is a drill-down: it is printed in full, with every
+    # member signature, and it does not spend the budget of the whole map.
+    if args.level is not None:
+        level = args.level
+    elif args.module:
+        level = 0
+    else:
+        level = 1
+    # Level 0 and the drill-down are explicit requests for everything: they
+    # are not capped by the budget of the default map.
+    budget = None if (args.module or level == 0) else args.max_tokens
+
+    try:
+        text = render(modules, level, args.module, with_tests=not args.no_tests, budget=budget)
+    except MapError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+
+    sys.stdout.write(text)
+    sys.stdout.write(f"\nEstimated tokens: {estimate_tokens(text)}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
