@@ -1,0 +1,372 @@
+# Doctest plan for the repository documentation.
+#
+# `mise run docs-test` (scripts/docs-test/run.py) executes the examples of the
+# documentation. This plan declares every executable block of the scope below,
+# so the gate knows what to run and why it does not run the rest.
+#
+# Scope: README.md and docs/ (see `plan.documents`).
+#
+# A block is executable when the runner can run it with the hermetic toolchain:
+#
+#   * a POSIX shell script (`bash`, `sh`, `shell`, `zsh`);
+#   * a shell transcript: a block whose body holds `$ ` prompts with the output
+#     the command printed;
+#   * a SQL block, which is executable only against a live database and is
+#     therefore always a `skip`;
+#   * a PowerShell script, which only runs on Windows and is therefore always a
+#     `skip`.
+#
+# Data blocks (JSON, YAML, TOML, properties, Mermaid, prose and the output of a
+# test run) are examples, not commands: they are not part of this plan.
+#
+# Every declaration has one of these modes:
+#
+#   * `task`: the runner executes the block and the gate fails when it breaks.
+#   * `skip`: the runner does not execute the block; `reason` says why.
+#
+# `reason` is mandatory: a skip without a reason is a plan problem.
+#
+# `language` and `kind` say what the block is: `script` (a POSIX shell script),
+# `transcript` (a session with `$ ` prompts), `sql` or `powershell`. The runner
+# fails when the documentation and the plan disagree about them.
+#
+# `index` is the position of the block among the executable blocks of its file,
+# counted from 1. The runner fails when a block appears, disappears or changes
+# its language or kind, so this file cannot rot into a list that no longer
+# describes the documentation.
+
+[plan]
+version = 1
+documents = ["README.md", "docs"]
+
+# --- README.md -------------------------------------------------------------
+
+[[block]]
+file = "README.md"
+index = 1
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "The block installs the toolchain, resolves the packages and launches the app: it needs the network and a device."
+
+# --- docs/adr/ -------------------------------------------------------------
+
+[[block]]
+file = "docs/adr/0007-encrypted-local-database.md"
+index = 1
+language = "sql"
+kind = "sql"
+mode = "skip"
+reason = "The pragmas only run against the encrypted SQLite database of the app; the hermetic runner has no database to apply them to."
+
+[[block]]
+file = "docs/adr/0007-encrypted-local-database.md"
+index = 2
+language = ""
+kind = "sql"
+mode = "skip"
+reason = "The pragma order is part of the contract of the page; it only runs against the encrypted SQLite database of the app."
+
+[[block]]
+file = "docs/adr/0007-encrypted-local-database.md"
+index = 3
+language = "sql"
+kind = "sql"
+mode = "skip"
+reason = "The schema is created in the encrypted database of the app; the storage tests cover it, not a shell."
+
+# --- docs/explanation/ -----------------------------------------------------
+
+[[block]]
+file = "docs/explanation/how-vaulta-encrypts-your-vault.md"
+index = 1
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It launches the app on a device with the encrypted SQLite storage enabled."
+
+# --- docs/how-to/ ----------------------------------------------------------
+
+[[block]]
+file = "docs/how-to/android-release-signing.md"
+index = 1
+language = "powershell"
+kind = "powershell"
+mode = "skip"
+reason = "It signs a release with the upload keystore of the maintainer, which the repository does not have, and it is a Windows-only script."
+
+[[block]]
+file = "docs/how-to/android-release-signing.md"
+index = 2
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It lists the GitHub secrets of the repository, which needs an authenticated GitHub CLI and the network."
+
+[[block]]
+file = "docs/how-to/apply-supabase-migrations.md"
+index = 1
+language = "sql"
+kind = "sql"
+mode = "skip"
+reason = "It calls an RPC of a live Supabase project; the hermetic runner has no database to call."
+
+[[block]]
+file = "docs/how-to/apply-supabase-migrations.md"
+index = 2
+language = "sql"
+kind = "sql"
+mode = "skip"
+reason = "It calls an RPC of a live Supabase project; the hermetic runner has no database to call."
+
+[[block]]
+file = "docs/how-to/apply-supabase-migrations.md"
+index = 3
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It authenticates against the Supabase platform, which needs the network and an account."
+
+[[block]]
+file = "docs/how-to/apply-supabase-migrations.md"
+index = 4
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It applies the migrations to a linked Supabase project; .github/workflows/supabase-migrations-ci.yml replays them against a throwaway PostgreSQL on every pull request."
+
+[[block]]
+file = "docs/how-to/apply-supabase-migrations.md"
+index = 5
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It lints a linked Supabase project, which needs the network and the Supabase CLI."
+
+[[block]]
+file = "docs/how-to/apply-supabase-migrations.md"
+index = 6
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It links the repository to the reader's own Supabase project; the placeholder is not a project the runner could reach."
+
+[[block]]
+file = "docs/how-to/apply-supabase-migrations.md"
+index = 7
+language = "sql"
+kind = "sql"
+mode = "skip"
+reason = "The queries read the catalog of a live PostgreSQL; the migrations CI job covers them."
+
+[[block]]
+file = "docs/how-to/apply-supabase-migrations.md"
+index = 8
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It launches the app against a Supabase project, which needs the network and a device."
+
+[[block]]
+file = "docs/how-to/release-process.md"
+index = 1
+language = "sh"
+kind = "script"
+mode = "skip"
+reason = "It tags the release and pushes it to the remote: it writes outside the checkout."
+
+[[block]]
+file = "docs/how-to/release-process.md"
+index = 2
+language = "sh"
+kind = "script"
+mode = "skip"
+reason = "It verifies the downloaded release assets, which the repository does not have."
+
+[[block]]
+file = "docs/how-to/release-process.md"
+index = 3
+language = "powershell"
+kind = "powershell"
+mode = "skip"
+reason = "It verifies a downloaded Windows bundle with PowerShell, which only runs on Windows."
+
+[[block]]
+file = "docs/how-to/release-process.md"
+index = 4
+language = "sh"
+kind = "script"
+mode = "skip"
+reason = "It needs the Android build-tools and a signed APK to read the signing certificate."
+
+# --- docs/reference/ -------------------------------------------------------
+
+[[block]]
+file = "docs/reference/api30-biometric-refusal-verification.md"
+index = 1
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It boots an API 29 emulator, which needs the Android SDK, the system image and KVM."
+
+[[block]]
+file = "docs/reference/api30-biometric-refusal-verification.md"
+index = 2
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It points the Android SDK at the reader's machine; the hermetic runner has no SDK to point at."
+
+[[block]]
+file = "docs/reference/crypto-architecture.md"
+index = 1
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It runs the crypto test suite; the CI test job runs the whole suite and the doctest would only repeat it."
+
+[[block]]
+file = "docs/reference/security-hardening-status.md"
+index = 1
+language = "text"
+kind = "transcript"
+mode = "task"
+reason = "The page claims that the instrumented test exists and that there is no JVM unit test directory: the transcript has to keep printing it."
+
+[[block]]
+file = "docs/reference/security-hardening-status.md"
+index = 2
+language = "text"
+kind = "transcript"
+mode = "task"
+reason = "The page points at the publishers of the vault change signal: the symbol has to stay in lib/."
+
+[[block]]
+file = "docs/reference/security-hardening-status.md"
+index = 3
+language = "text"
+kind = "transcript"
+mode = "task"
+reason = "The page points at the typed unlock error: the enum member has to stay in lib/."
+
+[[block]]
+file = "docs/reference/security-hardening-status.md"
+index = 4
+language = "text"
+kind = "transcript"
+mode = "task"
+reason = "The page claims that the controller counts the typed enum and holds no Spanish literal: both greps have to keep their result."
+
+[[block]]
+file = "docs/reference/security-hardening-status.md"
+index = 5
+language = "text"
+kind = "transcript"
+mode = "task"
+reason = "The page lists the files that carry the favorites flag: they have to stay in the vault feature."
+
+[[block]]
+file = "docs/reference/security-hardening-status.md"
+index = 6
+language = "text"
+kind = "transcript"
+mode = "task"
+reason = "The page points at the native answer that drives the biometric subtitle: the capability has to stay in lib/ and android/."
+
+[[block]]
+file = "docs/reference/security-hardening-status.md"
+index = 7
+language = "text"
+kind = "transcript"
+mode = "task"
+reason = "The page claims that a workflow applies the migrations and that the repository holds eight of them: the listing has to keep matching."
+
+[[block]]
+file = "docs/reference/security-hardening-status.md"
+index = 8
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It downloads a published Windows bundle and reads its PE header, which needs the network."
+
+[[block]]
+file = "docs/reference/security-hardening-status.md"
+index = 9
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It queries the public GitHub API for the releases, which needs the network."
+
+# --- docs/tutorials/ -------------------------------------------------------
+
+[[block]]
+file = "docs/tutorials/create-your-first-vault.md"
+index = 1
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It installs a downloaded APK on a connected device."
+
+[[block]]
+file = "docs/tutorials/set-up-your-development-environment.md"
+index = 1
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It downloads the pinned toolchain; the hermetic runner already has it and the task has to run without the network."
+
+[[block]]
+file = "docs/tutorials/set-up-your-development-environment.md"
+index = 2
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It resolves the Dart packages from the network; CI resolves them once with 'mise run deps'."
+
+[[block]]
+file = "docs/tutorials/set-up-your-development-environment.md"
+index = 3
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "They are the analyzer and the suite, which CI runs in its lint and test steps; the doctest would only repeat them."
+
+[[block]]
+file = "docs/tutorials/set-up-your-development-environment.md"
+index = 4
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It is the coverage gate, which CI runs with the 'mise run coverage' task."
+
+[[block]]
+file = "docs/tutorials/set-up-your-development-environment.md"
+index = 5
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It lists the devices and launches the app on one of them."
+
+[[block]]
+file = "docs/tutorials/set-up-your-development-environment.md"
+index = 6
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It builds the release artifacts, which need the Android SDK and the Visual Studio build tools."
+
+[[block]]
+file = "docs/tutorials/set-up-your-development-environment.md"
+index = 7
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It runs the instrumented test, which boots an API 29 emulator."
+
+[[block]]
+file = "docs/tutorials/set-up-your-development-environment.md"
+index = 8
+language = "bash"
+kind = "script"
+mode = "skip"
+reason = "It is the list of checks to run before a pull request: CI runs every one of them."
