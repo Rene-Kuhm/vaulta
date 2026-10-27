@@ -11,6 +11,7 @@
 #   mise run lint         # analyzer + format check (offline)
 #   mise run test         # test suite (offline)
 #   mise run docs-test    # doctests of the executable documentation (offline)
+#   mise run repo-map     # skeleton of the repository: modules and symbols (offline)
 #   mise run build        # Windows release smoke build (offline)
 #
 # Every task except `deps` runs without network: they use `--no-pub` over the
@@ -65,7 +66,10 @@ run = "dart format lib test"
 
 [tasks.test]
 description = "Run the test suite (offline)"
-run = "flutter test --no-pub"
+run = [
+  "python scripts/repo-map --self-test",
+  "flutter test --no-pub",
+]
 
 [tasks.docs-test]
 description = "Run the doctests of the executable documentation (offline)"
@@ -73,6 +77,14 @@ run = [
   "python scripts/docs-test/test_run.py",
   "python scripts/docs-test/run.py",
 ]
+
+[tasks.repo-map]
+description = "Print the skeleton of the repository: modules, symbols, dependencies (offline)"
+run = "python scripts/repo-map"
+
+[tasks.repo-map-test]
+description = "Check the invariants of the repository map (offline)"
+run = "python scripts/repo-map --self-test"
 
 [tasks.coverage]
 description = "Run the suite with coverage and check the core threshold (offline)"
