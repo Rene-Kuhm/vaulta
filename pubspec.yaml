@@ -38,7 +38,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   google_fonts: ^6.3.1
   flutter_secure_storage: ^10.3.4
-  sqlite3: ^3.7.1
+  sqlite3: ^3.8.0
   local_auth: ^3.0.1
   cryptography: ^2.9.0
   intl: ^0.20.2
