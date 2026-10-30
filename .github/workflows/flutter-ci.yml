@@ -27,7 +27,7 @@ jobs:
         # mise installs the exact versions of mise.toml (Flutter, Node and
         # Python) with the checksums of mise.lock, and exports them to the
         # next steps. The runner uses the same toolchain as the local clone.
-        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           # The mise that has to be used: 2026.10.19 carries the fix for the
           # Windows install of the Flutter SDK (the zip of the SDK holds
@@ -136,7 +136,7 @@ jobs:
       - name: Set up the hermetic toolchain
         # The same mise and the same mise.lock as the analyze-test job, so the
         # smoke test builds with the Flutter of the local clone.
-        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+        uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           # The mise that has to be used: 2026.10.19 carries the fix for the
           # Windows install of the Flutter SDK (the zip of the SDK holds
