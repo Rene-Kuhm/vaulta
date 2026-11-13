@@ -106,7 +106,7 @@ dependencies {
     // release notes). It fixes the API drift that alpha05 was showing
     // on compileSdk 36 and is the version AndroidX now recommends for
     // projects targeting Android 14/15.
-    implementation("androidx.biometric:biometric:1.4.0-alpha07")
+    implementation("androidx.biometric:biometric:1.4.0-beta01")
     implementation("androidx.fragment:fragment-ktx:1.9.1")
 
     // Instrumented test entry point. `runner` brings AndroidJUnitRunner and
